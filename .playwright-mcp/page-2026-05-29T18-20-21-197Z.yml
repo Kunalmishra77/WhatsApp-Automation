@@ -1,0 +1,28 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: A
+      - paragraph [ref=e6]: Agentix
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - heading "Welcome back" [level=1] [ref=e9]
+        - paragraph [ref=e10]: Sign in to your Agentix workspace
+      - generic [ref=e11]:
+        - generic [ref=e12]:
+          - text: Email address
+          - textbox "Email address" [ref=e13]:
+            - /placeholder: you@company.com
+        - generic [ref=e14]:
+          - generic [ref=e15]:
+            - generic [ref=e16]: Password
+            - link "Forgot password?" [ref=e17] [cursor=pointer]:
+              - /url: /forgot-password
+          - textbox "Password" [ref=e18]:
+            - /placeholder: ••••••••
+        - button "Sign in" [ref=e19] [cursor=pointer]
+        - paragraph [ref=e20]:
+          - text: No account?
+          - link "Create one free" [ref=e21] [cursor=pointer]:
+            - /url: /signup
+    - paragraph [ref=e22]: © 2026 Agentix. Enterprise WhatsApp CRM.
+  - region "Notifications alt+T"

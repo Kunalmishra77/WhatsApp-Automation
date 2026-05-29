@@ -1,6 +1,3 @@
-'use client';
-
-import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
 interface AuthCardProps {
@@ -10,20 +7,10 @@ interface AuthCardProps {
   className?: string;
 }
 
-const cardVariant = {
-  initial: { opacity: 0, scale: 0.97, y: 10 },
-  animate: {
-    opacity: 1,
-    scale: 1,
-    y: 0,
-    transition: { duration: 0.35, ease: [0.25, 0.1, 0.25, 1] },
-  },
-};
-
 export function AuthCard({ children, title, subtitle, className }: AuthCardProps) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-surface-secondary px-4 py-12">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-md animate-fade-in">
 
         {/* Brand */}
         <div className="mb-8 text-center">
@@ -36,10 +23,7 @@ export function AuthCard({ children, title, subtitle, className }: AuthCardProps
         </div>
 
         {/* Card */}
-        <motion.div
-          variants={cardVariant}
-          initial="initial"
-          animate="animate"
+        <div
           className={cn(
             'rounded-2xl border border-border bg-card p-8 shadow-xl shadow-black/5',
             className,
@@ -52,7 +36,7 @@ export function AuthCard({ children, title, subtitle, className }: AuthCardProps
             )}
           </div>
           {children}
-        </motion.div>
+        </div>
 
         {/* Footer */}
         <p className="mt-6 text-center text-caption text-muted-foreground">

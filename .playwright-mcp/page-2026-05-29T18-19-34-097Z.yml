@@ -1,0 +1,33 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: A
+      - paragraph [ref=e6]: Agentix
+    - generic [ref=e7]:
+      - generic [ref=e8]:
+        - heading "Create your account" [level=1] [ref=e9]
+        - paragraph [ref=e10]: Start managing WhatsApp conversations at scale
+      - generic [ref=e11]:
+        - generic [ref=e12]:
+          - text: Full name
+          - textbox "Full name" [ref=e13]:
+            - /placeholder: Alex Johnson
+        - generic [ref=e14]:
+          - text: Work email
+          - textbox "Work email" [ref=e15]:
+            - /placeholder: alex@company.com
+        - generic [ref=e16]:
+          - text: Password
+          - textbox "Password" [ref=e17]:
+            - /placeholder: Min 8 chars, 1 uppercase, 1 number
+        - generic [ref=e18]:
+          - text: Confirm password
+          - textbox "Confirm password" [ref=e19]:
+            - /placeholder: ••••••••
+        - button "Create account" [ref=e20] [cursor=pointer]
+        - paragraph [ref=e21]:
+          - text: Already have an account?
+          - link "Sign in" [ref=e22] [cursor=pointer]:
+            - /url: /login
+    - paragraph [ref=e23]: © 2026 Agentix. Enterprise WhatsApp CRM.
+  - region "Notifications alt+T"
