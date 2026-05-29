@@ -1,0 +1,111 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { createClient } from '@/services/supabase/client';
+import type { Database } from '@/types/database.types';
+
+export type ContactRow = Database['public']['Tables']['contacts']['Row'];
+export type ContactInsert = Database['public']['Tables']['contacts']['Insert'];
+export type ContactUpdate = Database['public']['Tables']['contacts']['Update'];
+
+export interface ContactFilters {
+  search?: string;
+  tags?: string[];
+  is_blocked?: boolean;
+}
+
+export async function fetchContacts(
+  workspaceId: string,
+  filters: ContactFilters = {},
+  page = 0,
+  pageSize = 50,
+): Promise<{ data: ContactRow[]; count: number }> {
+  const supabase = createClient() as any;
+  const from = page * pageSize;
+  const to = from + pageSize - 1;
+
+  let query = supabase
+    .from('contacts')
+    .select('*', { count: 'exact' })
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+    .range(from, to);
+
+  if (filters.search?.trim()) {
+    query = query.or(
+      `name.ilike.%${filters.search}%,phone.ilike.%${filters.search}%,email.ilike.%${filters.search}%`,
+    );
+  }
+  if (filters.tags?.length) {
+    query = query.overlaps('tags', filters.tags);
+  }
+  if (filters.is_blocked !== undefined) {
+    query = query.eq('is_blocked', filters.is_blocked);
+  }
+
+  const { data, count, error } = await query;
+  if (error) throw error;
+  return { data: (data ?? []) as ContactRow[], count: count ?? 0 };
+}
+
+export async function fetchContact(id: string): Promise<ContactRow | null> {
+  const supabase = createClient();
+  const { data } = await supabase.from('contacts').select('*').eq('id', id).single();
+  return data as ContactRow | null;
+}
+
+export async function createContact(
+  workspaceId: string,
+  payload: Omit<ContactInsert, 'workspace_id'>,
+): Promise<ContactRow> {
+  const supabase = createClient() as any;
+  const { data, error } = await supabase
+    .from('contacts')
+    .insert({ ...payload, workspace_id: workspaceId })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as ContactRow;
+}
+
+export async function updateContact(id: string, payload: ContactUpdate): Promise<ContactRow> {
+  const supabase = createClient() as any;
+  const { data, error } = await supabase
+    .from('contacts')
+    .update({ ...payload, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as ContactRow;
+}
+
+export async function deleteContact(id: string): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase.from('contacts').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function bulkImportContacts(
+  workspaceId: string,
+  rows: Array<{ phone: string; name?: string; email?: string; company?: string; tags?: string[] }>,
+): Promise<{ inserted: number; skipped: number }> {
+  const supabase = createClient() as any;
+
+  const phones = rows.map((r) => r.phone);
+  const { data: existing } = await supabase
+    .from('contacts')
+    .select('phone')
+    .eq('workspace_id', workspaceId)
+    .in('phone', phones);
+  const existingPhones = new Set(((existing ?? []) as Array<{ phone: string }>).map((e) => e.phone));
+
+  const toInsert = rows
+    .filter((r) => !existingPhones.has(r.phone))
+    .map((r) => ({ ...r, workspace_id: workspaceId, tags: r.tags ?? [] }));
+
+  if (toInsert.length === 0) return { inserted: 0, skipped: rows.length };
+
+  const { error } = await supabase.from('contacts').insert(toInsert);
+  if (error) throw error;
+
+  return { inserted: toInsert.length, skipped: rows.length - toInsert.length };
+}
