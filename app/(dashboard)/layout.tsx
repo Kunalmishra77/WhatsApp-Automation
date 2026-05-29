@@ -1,13 +1,19 @@
+import { redirect } from 'next/navigation';
+import { AppShell } from '@/components/layout/AppShell';
+import { getUser } from '@/modules/auth/services/auth.service';
+import { getUserWorkspaces } from '@/modules/auth/services/workspace.service';
+import { ROUTES } from '@/lib/constants';
+
 interface DashboardLayoutProps {
   children: React.ReactNode;
 }
 
-export default function DashboardLayout({ children }: DashboardLayoutProps) {
-  return (
-    <div className="flex h-screen overflow-hidden bg-surface-secondary">
-      {/* Sidebar — Phase 4 */}
-      <aside className="w-64 shrink-0 border-r border-border bg-surface-primary" />
-      <main className="flex-1 overflow-auto">{children}</main>
-    </div>
-  );
+export default async function DashboardLayout({ children }: DashboardLayoutProps) {
+  const user = await getUser();
+  if (!user) redirect(ROUTES.LOGIN);
+
+  const workspaces = await getUserWorkspaces(user.id);
+  if (workspaces.length === 0) redirect(ROUTES.WORKSPACE_NEW);
+
+  return <AppShell>{children}</AppShell>;
 }
