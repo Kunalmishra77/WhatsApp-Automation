@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from '@/services/supabase/client';
 import type { Database } from '@/types/database.types';
 
@@ -22,7 +23,7 @@ export async function fetchMessages(
     .range(from, to);
 
   if (error) throw error;
-  return (data ?? []).reverse();
+  return (data ?? []).reverse() as MessageRow[];
 }
 
 export async function sendMessage(payload: {
@@ -33,7 +34,7 @@ export async function sendMessage(payload: {
   type?: Database['public']['Tables']['messages']['Row']['type'];
   replyToId?: string;
 }): Promise<MessageRow> {
-  const supabase = createClient();
+  const supabase = createClient() as any;
   const { data, error } = await supabase
     .from('messages')
     .insert({
@@ -51,7 +52,7 @@ export async function sendMessage(payload: {
     .single();
 
   if (error) throw error;
-  return data;
+  return data as MessageRow;
 }
 
 export async function sendInternalNote(payload: {
@@ -60,7 +61,7 @@ export async function sendInternalNote(payload: {
   senderId: string;
   content: string;
 }): Promise<MessageRow> {
-  const supabase = createClient();
+  const supabase = createClient() as any;
   const { data, error } = await supabase
     .from('messages')
     .insert({
@@ -77,5 +78,5 @@ export async function sendInternalNote(payload: {
     .single();
 
   if (error) throw error;
-  return data;
+  return data as MessageRow;
 }

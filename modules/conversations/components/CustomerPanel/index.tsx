@@ -17,12 +17,13 @@ interface CustomerPanelProps {
 }
 
 async function fetchContactForConversation(conversationId: string): Promise<ContactRow | null> {
-  const supabase = createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = createClient() as any;
   const { data: conv } = await supabase
     .from('conversations')
     .select('contact_id')
     .eq('id', conversationId)
-    .single();
+    .single() as { data: { contact_id: string } | null };
   if (!conv) return null;
 
   const { data: contact } = await supabase
@@ -30,7 +31,7 @@ async function fetchContactForConversation(conversationId: string): Promise<Cont
     .select('*')
     .eq('id', conv.contact_id)
     .single();
-  return contact;
+  return contact as ContactRow | null;
 }
 
 function InfoRow({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string | null }) {
