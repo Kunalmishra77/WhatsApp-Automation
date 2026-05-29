@@ -1,0 +1,6 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]
+    - main [ref=e4]:
+      - paragraph [ref=e6]: Conversations — Phase 5
+  - region "Notifications alt+T"
