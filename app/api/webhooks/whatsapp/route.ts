@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   const token     = searchParams.get('hub.verify_token');
   const challenge = searchParams.get('hub.challenge');
 
-  if (mode === 'subscribe' && token === process.env.WHATSAPP_WEBHOOK_SECRET) {
+  if (mode === 'subscribe' && token === (process.env.WHATSAPP_WEBHOOK_SECRET ?? '').trim()) {
     console.log('[Webhook] Verified by Meta');
     return new NextResponse(challenge, { status: 200 });
   }
