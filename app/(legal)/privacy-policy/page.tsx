@@ -43,7 +43,7 @@ export default function PrivacyPolicyPage() {
 
           <section>
             <h2 className="text-xl font-semibold text-gray-900 mb-2">4. WhatsApp Data</h2>
-            <p>We use the WhatsApp Business API provided by Meta Platforms, Inc. Messages sent through WhatsApp are subject to <a href="https://www.whatsapp.com/legal/privacy-policy" className="text-blue-600 underline" target="_blank">WhatsApp's Privacy Policy</a> in addition to this policy. We do not share your WhatsApp data with third parties except as required to operate our services.</p>
+            <p>We use the WhatsApp Business API provided by Meta Platforms, Inc. Messages sent through WhatsApp are subject to <a href="https://www.whatsapp.com/legal/privacy-policy" className="text-blue-600 underline" target="_blank">WhatsApp&apos;s Privacy Policy</a> in addition to this policy. We do not share your WhatsApp data with third parties except as required to operate our services.</p>
           </section>
 
           <section>
