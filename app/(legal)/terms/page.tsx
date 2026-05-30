@@ -19,6 +19,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-xl font-semibold text-gray-900 mb-2">1. Acceptance of Terms</h2>
             <p>By contacting V4TOU Tech via WhatsApp or using our platform, you agree to these Terms of Service. If you do not agree, please do not use our services.</p>
+
           </section>
 
           <section>

@@ -18,7 +18,7 @@ export default function PrivacyPolicyPage() {
 
           <section>
             <h2 className="text-xl font-semibold text-gray-900 mb-2">1. Introduction</h2>
-            <p>V4TOU Tech ("we", "our", or "us") operates a WhatsApp-based business communication platform. This Privacy Policy explains how we collect, use, and protect your personal information when you interact with us via WhatsApp or our web application.</p>
+            <p>V4TOU Tech (&quot;we&quot;, &quot;our&quot;, or &quot;us&quot;) operates a WhatsApp-based business communication platform. This Privacy Policy explains how we collect, use, and protect your personal information when you interact with us via WhatsApp or our web application.</p>
           </section>
 
           <section>
