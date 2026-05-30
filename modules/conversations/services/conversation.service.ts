@@ -68,3 +68,12 @@ export async function assignConversation(id: string, agentId: string) {
     .eq('id', id);
   if (error) throw error;
 }
+
+export async function markConversationRead(conversationId: string) {
+  const supabase = createClient();
+  // Reset unread count on conversation
+  await supabase
+    .from('conversations')
+    .update({ unread_count: 0 } as never)
+    .eq('id', conversationId);
+}

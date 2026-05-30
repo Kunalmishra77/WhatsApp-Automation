@@ -28,6 +28,16 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# playwright mcp temp files
+.playwright-mcp/
+
+# dev logs & screenshots
+dev.log
+verify-*.png
+
+# scripts (db credentials)
+scripts/
 .pnpm-debug.log*
 
 # env files

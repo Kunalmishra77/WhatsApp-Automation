@@ -88,19 +88,25 @@ ALTER TABLE public.profiles         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.workspaces       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.workspace_members ENABLE ROW LEVEL SECURITY;
 
+-- Security-definer helper: avoids RLS recursion when policies reference workspace_members
+CREATE OR REPLACE FUNCTION public.get_my_workspace_ids()
+RETURNS SETOF UUID LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public
+AS 'SELECT workspace_id FROM public.workspace_members WHERE user_id = auth.uid()';
+
 -- profiles: owner can do everything
 DROP POLICY IF EXISTS "profiles_owner" ON public.profiles;
 CREATE POLICY "profiles_owner" ON public.profiles
   FOR ALL USING (id = auth.uid());
 
--- workspaces: members can read their own workspaces
+-- workspaces: any authenticated user can create a workspace
+DROP POLICY IF EXISTS "workspaces_insert_auth" ON public.workspaces;
+CREATE POLICY "workspaces_insert_auth" ON public.workspaces
+  FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+-- workspaces: members can read their own workspaces (via definer fn to avoid recursion)
 DROP POLICY IF EXISTS "workspaces_member_read" ON public.workspaces;
 CREATE POLICY "workspaces_member_read" ON public.workspaces
-  FOR SELECT USING (
-    id IN (
-      SELECT workspace_id FROM public.workspace_members WHERE user_id = auth.uid()
-    )
-  );
+  FOR SELECT USING (id IN (SELECT public.get_my_workspace_ids()));
 
 -- workspaces: admins can update
 DROP POLICY IF EXISTS "workspaces_admin_write" ON public.workspaces;
@@ -112,16 +118,27 @@ CREATE POLICY "workspaces_admin_write" ON public.workspaces
     )
   );
 
+-- workspaces: super_admins can delete
+DROP POLICY IF EXISTS "workspaces_superadmin_delete" ON public.workspaces;
+CREATE POLICY "workspaces_superadmin_delete" ON public.workspaces
+  FOR DELETE USING (
+    id IN (
+      SELECT workspace_id FROM public.workspace_members
+      WHERE user_id = auth.uid() AND role = 'super_admin'
+    )
+  );
+
 -- workspace_members: anyone can insert their own membership (for workspace creation)
 DROP POLICY IF EXISTS "members_insert_own" ON public.workspace_members;
 CREATE POLICY "members_insert_own" ON public.workspace_members
   FOR INSERT WITH CHECK (user_id = auth.uid());
 
--- workspace_members: see all members of workspaces you belong to
+-- workspace_members: see all members of workspaces you belong to (definer fn avoids recursion)
 DROP POLICY IF EXISTS "members_workspace_isolation" ON public.workspace_members;
 CREATE POLICY "members_workspace_isolation" ON public.workspace_members
-  FOR SELECT USING (
-    workspace_id IN (
-      SELECT workspace_id FROM public.workspace_members wm2 WHERE wm2.user_id = auth.uid()
-    )
-  );
+  FOR SELECT USING (workspace_id IN (SELECT public.get_my_workspace_ids()));
+
+-- workspace_members: admins can update member records in their workspaces
+DROP POLICY IF EXISTS "members_update_admin" ON public.workspace_members;
+CREATE POLICY "members_update_admin" ON public.workspace_members
+  FOR UPDATE USING (workspace_id IN (SELECT public.get_my_workspace_ids()));

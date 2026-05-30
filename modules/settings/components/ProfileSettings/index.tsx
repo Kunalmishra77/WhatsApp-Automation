@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -21,11 +22,16 @@ export function ProfileSettings() {
   const user = useAuthStore((s) => s.user);
   const initials = (user?.full_name ?? 'U').slice(0, 2).toUpperCase();
 
-  const { register, handleSubmit, formState: { errors, isSubmitting, isDirty } } =
+  const { register, handleSubmit, reset, formState: { errors, isSubmitting, isDirty } } =
     useForm<FormValues>({
       resolver: zodResolver(schema),
       defaultValues: { full_name: user?.full_name ?? '' },
     });
+
+  // Sync form when store hydrates after SSR
+  useEffect(() => {
+    if (user?.full_name !== undefined) reset({ full_name: user.full_name });
+  }, [user?.full_name, reset]);
 
   const onSubmit = async (values: FormValues) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

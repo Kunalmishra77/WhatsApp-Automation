@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { createClient } from '@/services/supabase/client';
-import { fetchMessages, sendMessage, sendInternalNote } from '../services/message.service';
+import { fetchMessages, sendInternalNote } from '../services/message.service';
 import type { MessageRow } from '../services/message.service';
 import { useConversationStore } from '@/store/conversation.store';
 import { useAuthStore } from '@/store/auth.store';
@@ -17,6 +17,8 @@ export function useMessages(conversationId: string) {
     queryFn: () => fetchMessages(conversationId),
     enabled: !!conversationId,
     staleTime: 0,
+    refetchInterval: 3000,        // Poll every 3s as realtime fallback
+    refetchIntervalInBackground: false,
   });
 
   useEffect(() => {
@@ -59,8 +61,10 @@ export function useSendMessage() {
   return async (conversationId: string, content: string, isNote = false) => {
     if (!user || !workspaceId) return;
 
+    // Optimistic update — show message immediately in UI
+    const optimisticId = `opt-${Date.now()}`;
     const optimistic: MessageRow = {
-      id: `opt-${Date.now()}`,
+      id: optimisticId,
       conversation_id: conversationId,
       workspace_id: workspaceId,
       sender_type: 'agent',
@@ -90,12 +94,28 @@ export function useSendMessage() {
     );
 
     try {
-      const fn = isNote ? sendInternalNote : sendMessage;
-      await fn({ conversationId, workspaceId, senderId: user.id, content });
-    } catch {
+      if (isNote) {
+        // Internal notes — DB only, no WhatsApp
+        await sendInternalNote({ conversationId, workspaceId, senderId: user.id, content });
+      } else {
+        // Real WhatsApp message — call send API
+        const res = await fetch('/api/messages/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationId, content, senderId: user.id }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          console.error('[useSendMessage] API error:', err);
+          throw new Error(err?.error ?? 'Send failed');
+        }
+      }
+    } catch (e) {
+      console.error('[useSendMessage] Failed:', e);
+      // Remove optimistic message on failure
       queryClient.setQueryData<MessageRow[]>(
         ['messages', conversationId],
-        (old = []) => old.filter((m) => m.id !== optimistic.id),
+        (old = []) => old.filter((m) => m.id !== optimisticId),
       );
     } finally {
       void queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });

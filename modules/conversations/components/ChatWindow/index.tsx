@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { useQueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MessageBubble } from '../MessageBubble';
 import { TypingIndicator } from '../TypingIndicator';
@@ -8,8 +10,9 @@ import { MessageInput } from '../MessageInput';
 import { ConversationHeader } from '../ConversationHeader';
 import { useMessages } from '../../hooks/useMessages';
 import { useQuery } from '@tanstack/react-query';
-import { fetchConversation } from '../../services/conversation.service';
+import { fetchConversation, markConversationRead } from '../../services/conversation.service';
 import { useConversationStore } from '@/store/conversation.store';
+import { useWorkspaceStore } from '@/store/workspace.store';
 
 interface ChatWindowProps {
   conversationId: string;
@@ -17,8 +20,10 @@ interface ChatWindowProps {
 
 export function ChatWindow({ conversationId }: ChatWindowProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
-  const typingUsers = useConversationStore((s) =>
-    s.typingUsers.filter((t) => t.conversation_id === conversationId),
+  const queryClient = useQueryClient();
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
+  const typingUsers = useConversationStore(
+    useShallow((s) => s.typingUsers.filter((t) => t.conversation_id === conversationId)),
   );
 
   const { data: conversation } = useQuery({
@@ -29,6 +34,13 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
 
   const { data: messages = [], isLoading } = useMessages(conversationId);
 
+  // Mark as read when conversation opened AND whenever new messages arrive while open
+  useEffect(() => {
+    if (!conversationId) return;
+    void markConversationRead(conversationId);
+  }, [conversationId, messages.length]); // re-run when new messages arrive
+
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
