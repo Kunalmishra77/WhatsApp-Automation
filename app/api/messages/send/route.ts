@@ -29,8 +29,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
-    const contact   = conv.contact   as { id: string; phone: string } | null;
-    const workspace = conv.workspace as { phone_number_id: string; access_token: string } | null;
+    const contact   = conv.contact   as unknown as { id: string; phone: string } | null;
+    const workspace = conv.workspace as unknown as { phone_number_id: string; access_token: string } | null;
 
     if (!contact?.phone || !workspace?.phone_number_id || !workspace?.access_token) {
       return NextResponse.json({ error: 'Missing workspace/contact config' }, { status: 400 });
