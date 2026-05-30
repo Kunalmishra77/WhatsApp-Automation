@@ -161,7 +161,54 @@ async function handleIncomingMessage(
   // 5. Update conversation: last_message_at + last_message text + increment unread_count
   await supabase.rpc('increment_unread', { conv_id: conversation.id, msg_content: content });
 
+  // 6. Send auto-reply
+  await sendAutoReply(waId, customerName, workspaceId);
+
   console.log(`[Webhook] Message from ${waId}: ${content}`);
+}
+
+// ── Auto-reply ────────────────────────────────────────────────────────────────
+async function sendAutoReply(toPhone: string, customerName: string, workspaceId: string) {
+  // Get workspace phone_number_id and access_token
+  const { data: ws } = await supabase
+    .from('workspaces')
+    .select('phone_number_id, access_token')
+    .eq('id', workspaceId)
+    .single();
+
+  if (!ws?.phone_number_id || !ws?.access_token) return;
+
+  const name = customerName !== toPhone ? customerName.split(' ')[0] : 'there';
+
+  const message =
+    `Hello ${name}! 👋\n\n` +
+    `Welcome to *V4TOU Tech* 🚀\n\n` +
+    `We specialize in:\n` +
+    `✅ *Automation* — Save time with smart workflows\n` +
+    `✅ *Website Development* — Modern, fast websites\n` +
+    `✅ *Tech Solutions* — End-to-end tech support\n\n` +
+    `Our team has received your message and will get back to you *shortly*.\n\n` +
+    `_V4TOU Tech — Powering your digital future_ 💡`;
+
+  try {
+    await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${ws.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type:    'individual',
+        to:                toPhone,
+        type:              'text',
+        text: { preview_url: false, body: message },
+      }),
+    });
+    console.log(`[AutoReply] Sent to ${toPhone}`);
+  } catch (err) {
+    console.error('[AutoReply] Failed:', err);
+  }
 }
 
 // ── Handle delivery/read status update ───────────────────────────────────────
