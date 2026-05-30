@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation';
 import type { Metadata } from 'next';
 import {
   MessageSquare, Users, TrendingUp, CheckCircle2,
@@ -53,6 +54,7 @@ const KPIS: KPICardProps[] = [
 ];
 
 export default function DashboardPage() {
+  redirect('/conversations');
   return (
     <div className="p-6 space-y-6">
       <div>
