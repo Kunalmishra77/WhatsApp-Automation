@@ -38,7 +38,7 @@ export default function TermsPage() {
             <p>When you message V4TOU Tech on WhatsApp:</p>
             <ul className="list-disc pl-6 space-y-1">
               <li>You consent to receive automated and manual replies from our team</li>
-              <li>You agree to WhatsApp's Terms of Service</li>
+              <li>You agree to WhatsApp&apos;s Terms of Service</li>
               <li>You understand messages may be stored for service improvement</li>
             </ul>
           </section>
