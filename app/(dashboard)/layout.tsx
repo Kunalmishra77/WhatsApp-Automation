@@ -27,9 +27,11 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
     avatar_url: profile?.avatar_url ?? (user.user_metadata['avatar_url'] as string | undefined) ?? null,
   };
 
+  const activeWorkspace = workspaces[0]!;
+
   return (
     <AppShell>
-      <StoreInitializer user={initUser} workspace={workspaces[0]} />
+      <StoreInitializer user={initUser} workspace={activeWorkspace} />
       {children}
     </AppShell>
   );
