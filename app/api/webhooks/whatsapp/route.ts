@@ -179,22 +179,40 @@ async function handleIncomingMessage(
 
   const workspaceId = workspace.id;
 
-  const { data: contact, error: contactError } = await supabase
-    .from('contacts')
-    .upsert(
-      {
-        workspace_id: workspaceId,
-        phone: waId,
-        name: customerName,
-      },
-      { onConflict: 'workspace_id,phone', ignoreDuplicates: false },
-    )
-    .select('id')
-    .single();
+  const hasRealName = !!contactInfo?.profile?.name;
 
-  if (contactError || !contact) {
-    throw new Error(contactError?.message ?? 'Failed to upsert WhatsApp contact');
+  let contactId: string;
+  if (hasRealName) {
+    // We have the WhatsApp display name — full merge upsert
+    const { data, error } = await (supabase as any)
+      .from('contacts')
+      .upsert(
+        { workspace_id: workspaceId, phone: waId, name: customerName },
+        { onConflict: 'workspace_id,phone', ignoreDuplicates: false },
+      )
+      .select('id')
+      .single();
+    if (error || !data) throw new Error(error?.message ?? 'Failed to upsert contact');
+    contactId = data.id as string;
+  } else {
+    // No profile name from WhatsApp — insert if new, never overwrite an existing name
+    await (supabase as any)
+      .from('contacts')
+      .upsert(
+        { workspace_id: workspaceId, phone: waId },
+        { onConflict: 'workspace_id,phone', ignoreDuplicates: true },
+      );
+    const { data: existing, error } = await (supabase as any)
+      .from('contacts')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('phone', waId)
+      .single();
+    if (error || !existing) throw new Error(error?.message ?? 'Failed to find contact');
+    contactId = existing.id as string;
   }
+
+  const contact = { id: contactId };
 
   const { data: conversation, error: conversationError } = await supabase
     .from('conversations')
@@ -251,48 +269,55 @@ async function handleIncomingMessage(
   console.log(`[Webhook] Message from ${waId}: ${content}`);
 }
 
-async function getGeminiReply(customerMessage: string, customerName: string): Promise<string | null> {
-  const apiKey = process.env.GEMINI_API_KEY?.replace(/\uFEFF/g, '').trim();
+async function getAIReply(customerMessage: string, customerName: string): Promise<string | null> {
+  const apiKey = process.env.OPENROUTER_API_KEY?.replace(/\uFEFF/g, '').trim();
+  const model  = process.env.AI_MODEL?.trim() ?? 'openai/gpt-oss-120b:free';
+
   if (!apiKey) {
-    console.warn('[Gemini] GEMINI_API_KEY not set \u2014 using fallback reply');
+    console.warn('[AI] OPENROUTER_API_KEY not set \u2014 using fallback reply');
     return null;
   }
 
-  const name = customerName || 'there';
+  const systemPrompt = `You are a helpful customer support assistant for V4TOU Tech.
+Reply in the same language the customer uses (Hindi, English, etc.).
+Be friendly, professional, and concise \u2014 max 3 sentences.
+Customer name: ${customerName}`;
 
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: {
-            parts: [{
-              text: `You are a helpful customer support assistant for V4TOU Tech. Reply in the same language the customer uses. Be friendly, professional, and concise. Customer name: ${name}`,
-            }],
-          },
-          contents: [{ role: 'user', parts: [{ text: customerMessage }] }],
-          generationConfig: { maxOutputTokens: 300, temperature: 0.7 },
-        }),
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
+        'X-Title': 'Agentix',
       },
-    );
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user',   content: customerMessage },
+        ],
+        max_tokens: 300,
+        temperature: 0.7,
+      }),
+    });
 
     if (!res.ok) {
       const errBody = await res.text();
-      console.error(`[Gemini] API error ${res.status}:`, errBody);
+      console.error(`[AI] OpenRouter error ${res.status}:`, errBody);
       return null;
     }
 
     const data = await res.json() as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      choices?: Array<{ message?: { content?: string } }>;
     };
 
-    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
-    if (!reply) console.warn('[Gemini] Empty response from API');
+    const reply = data?.choices?.[0]?.message?.content?.trim() ?? null;
+    if (!reply) console.warn('[AI] Empty response from OpenRouter');
     return reply;
   } catch (error) {
-    console.error('[Gemini] Network/parse error:', error);
+    console.error('[AI] Network/parse error:', error);
     return null;
   }
 }
@@ -315,7 +340,7 @@ async function sendAutoReply(
   if (!ws?.phone_number_id || !ws?.access_token) return;
 
   const name = customerName !== toPhone ? (customerName.split(' ')[0] ?? customerName) : 'there';
-  const message = await getGeminiReply(customerMessage, name)
+  const message = await getAIReply(customerMessage, name)
     ?? `Hello ${name}, thanks for reaching out to V4TOU Tech. Our team received your message and will get back to you shortly.`;
 
   try {
