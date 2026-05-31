@@ -3,9 +3,16 @@ import { createAdminClient } from '@/services/supabase/admin';
 import { executeCampaign } from '@/lib/campaign-executor';
 
 export async function GET(request: NextRequest) {
-  // Verify Vercel cron secret
-  const auth = request.headers.get('authorization');
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  // Accept auth via header (Vercel cron) OR query param (external cron services)
+  const headerAuth = request.headers.get('authorization');
+  const querySecret = new URL(request.url).searchParams.get('secret');
+  const cronSecret  = process.env.CRON_SECRET;
+
+  const isAuthorized =
+    headerAuth === `Bearer ${cronSecret}` ||
+    (querySecret && querySecret === cronSecret);
+
+  if (!isAuthorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -17,7 +24,9 @@ export async function GET(request: NextRequest) {
 
   // Find all campaigns due to run:
   // status = 'scheduled' AND scheduled_at <= now AND scheduled_at > 5 min ago (grace window)
-  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  // Grace window: 24h so daily Vercel cron picks up all missed campaigns
+  // External minute-cron: reduces this to ~2 min in practice
+  const fiveMinAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   const { data: dueCampaigns, error } = await db
     .from('campaigns')
