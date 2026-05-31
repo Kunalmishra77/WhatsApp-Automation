@@ -4,9 +4,10 @@ import { useState, useRef, useCallback } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Send, StickyNote } from 'lucide-react';
+import { Send, StickyNote, LayoutList } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSendMessage, useTypingBroadcast } from '../../hooks/useMessages';
+import { InteractiveMessageBuilder } from '../InteractiveMessageBuilder';
 
 interface MessageInputProps {
   conversationId: string;
@@ -16,6 +17,7 @@ export function MessageInput({ conversationId }: MessageInputProps) {
   const [text, setText] = useState('');
   const [isNote, setIsNote] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isInteractiveOpen, setIsInteractiveOpen] = useState(false);
   const sendMessage = useSendMessage();
   const { broadcastTyping } = useTypingBroadcast(conversationId);
   const isTypingRef = useRef(false);
@@ -100,6 +102,20 @@ export function MessageInput({ conversationId }: MessageInputProps) {
               <TooltipContent side="top">Toggle internal note</TooltipContent>
             </Tooltip>
 
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setIsInteractiveOpen(true)}
+                >
+                  <LayoutList className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Send interactive message</TooltipContent>
+            </Tooltip>
+
             <Button
               size="icon"
               className="h-8 w-8 bg-brand-500 hover:bg-brand-600"
@@ -111,6 +127,11 @@ export function MessageInput({ conversationId }: MessageInputProps) {
           </div>
         </div>
       </div>
+      <InteractiveMessageBuilder
+        open={isInteractiveOpen}
+        onClose={() => setIsInteractiveOpen(false)}
+        conversationId={conversationId}
+      />
     </TooltipProvider>
   );
 }
