@@ -7,16 +7,28 @@ import { Progress } from '@/components/ui/progress';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { Plus } from 'lucide-react';
+import { Plus, Play, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { useCampaigns } from '../../hooks/useCampaigns';
+import { useCampaigns, useRunCampaign } from '../../hooks/useCampaigns';
 import { CampaignWizard } from '../CampaignWizard';
 import { CAMPAIGN_STATUS_COLORS } from '../../services/campaign.service';
+import { toast } from 'sonner';
 
 export function CampaignList() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const { data: campaigns = [], isLoading } = useCampaigns();
+  const run = useRunCampaign();
+
+  const handleRun = async (campaignId: string, campaignName: string) => {
+    if (!confirm(`Send campaign "${campaignName}" to all audience contacts now?`)) return;
+    try {
+      const result = await run.mutateAsync(campaignId);
+      toast.success(`Campaign sent! ${result.sent} delivered, ${result.failed} failed`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to run campaign');
+    }
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -37,6 +49,7 @@ export function CampaignList() {
               <TableHead>Delivery</TableHead>
               <TableHead>Read Rate</TableHead>
               <TableHead>Scheduled</TableHead>
+              <TableHead className="w-24" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -75,6 +88,22 @@ export function CampaignList() {
                       <TableCell className="text-sm text-muted-foreground">{readPct}%</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {c.scheduled_at ? format(new Date(c.scheduled_at), 'MMM d, HH:mm') : '—'}
+                      </TableCell>
+                      <TableCell>
+                        {(c.status === 'draft' || c.status === 'scheduled') && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 gap-1.5 text-xs"
+                            disabled={run.isPending}
+                            onClick={() => void handleRun(c.id, c.name)}
+                          >
+                            {run.isPending
+                              ? <Loader2 className="h-3 w-3 animate-spin" />
+                              : <Play className="h-3 w-3" />}
+                            Send Now
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   );

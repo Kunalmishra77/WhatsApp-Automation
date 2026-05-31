@@ -35,3 +35,17 @@ export function useUpdateCampaignStatus() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['campaigns', workspaceId] }),
   });
 }
+
+export function useRunCampaign() {
+  const queryClient = useQueryClient();
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
+  return useMutation({
+    mutationFn: async (campaignId: string) => {
+      const res  = await fetch(`/api/campaigns/${campaignId}/run`, { method: 'POST' });
+      const data = await res.json() as { success?: boolean; total?: number; sent?: number; failed?: number; error?: string };
+      if (!res.ok) throw new Error(data?.error ?? 'Failed to run campaign');
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['campaigns', workspaceId] }),
+  });
+}
