@@ -185,7 +185,7 @@ Customer name: ${name}`;
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey as string}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -217,7 +217,7 @@ async function sendAutoReply(toPhone: string, customerName: string, workspaceId:
 
   if (!ws?.phone_number_id || !ws?.access_token) return;
 
-  const name = customerName !== toPhone ? customerName.split(' ')[0] : 'there';
+  const name = customerName !== toPhone ? (customerName.split(' ')[0] ?? customerName) : 'there';
 
   // Try Gemini AI first, fallback to static reply
   let message = await getGeminiReply(customerMessage, name);
