@@ -9,11 +9,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { Search, UserPlus, Upload, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, UserPlus, Upload, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react';
 import { format } from 'date-fns';
 import { useContacts } from '../../hooks/useContacts';
 import { ContactForm } from '../ContactForm';
 import { ImportWizard } from '../ImportWizard';
+import { StartConversationDialog } from '../StartConversationDialog';
 import { useDebounce } from '@/hooks/useDebounce';
 import type { ContactRow } from '../../services/contact.service';
 
@@ -28,6 +29,7 @@ export function ContactsTable({ selectedId, onSelect }: ContactsTableProps) {
   const [page, setPage] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [messageContact, setMessageContact] = useState<ContactRow | null>(null);
 
   const { data, isLoading } = useContacts({ search }, page);
   const contacts: ContactRow[] = data?.data ?? [];
@@ -72,6 +74,7 @@ export function ContactsTable({ selectedId, onSelect }: ContactsTableProps) {
               <TableHead>Company</TableHead>
               <TableHead>Tags</TableHead>
               <TableHead>Added</TableHead>
+              <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -123,6 +126,17 @@ export function ContactsTable({ selectedId, onSelect }: ContactsTableProps) {
                       <TableCell className="text-sm text-muted-foreground">
                         {format(new Date(contact.created_at), 'MMM d, yyyy')}
                       </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-brand-500 hover:text-brand-600 hover:bg-brand-50"
+                          title="Start conversation"
+                          onClick={() => setMessageContact(contact)}
+                        >
+                          <MessageSquare className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -153,6 +167,11 @@ export function ContactsTable({ selectedId, onSelect }: ContactsTableProps) {
 
       <ContactForm open={createOpen} onClose={() => setCreateOpen(false)} />
       <ImportWizard open={importOpen} onClose={() => setImportOpen(false)} />
+      <StartConversationDialog
+        contact={messageContact}
+        open={!!messageContact}
+        onClose={() => setMessageContact(null)}
+      />
     </div>
   );
 }
