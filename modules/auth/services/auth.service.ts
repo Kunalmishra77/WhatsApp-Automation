@@ -2,6 +2,20 @@ import { createClient } from '@/services/supabase/server';
 import { friendlySupabaseError, APP_URL } from '@/lib/constants';
 
 export async function signInWithPassword(email: string, password: string) {
+  // Debug: check env var integrity
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
+  for (let i = 0; i < Math.min(url.length, 20); i++) {
+    if (url.charCodeAt(i) > 127) {
+      console.error(`[Auth] Bad char in SUPABASE_URL at index ${i}: ${url.charCodeAt(i)}`);
+    }
+  }
+  for (let i = 0; i < Math.min(key.length, 20); i++) {
+    if (key.charCodeAt(i) > 127) {
+      console.error(`[Auth] Bad char in SUPABASE_ANON_KEY at index ${i}: ${key.charCodeAt(i)}`);
+    }
+  }
+
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) return { user: null, error: friendlySupabaseError(error.message) };
