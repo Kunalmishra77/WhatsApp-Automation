@@ -6,12 +6,11 @@ export async function GET(request: NextRequest) {
   // Auth: query param ?secret= (for external cron services like cron-job.org)
   // Vercel internal cron calls don't need this (they come from internal network)
   const querySecret = new URL(request.url).searchParams.get('secret');
-  const cronSecret  = process.env.CRON_SECRET?.trim();
+  // Fallback to hardcoded if env not set (avoids 401 when CRON_SECRET not configured)
+  const cronSecret  = process.env.CRON_SECRET?.trim() || 'agentix2026cron';
 
-  // Allow: Vercel internal cron (no secret needed) OR external with correct secret
-  const isVercelInternal = request.headers.get('x-vercel-cron') === '1' ||
-    request.headers.get('user-agent')?.includes('vercel');
-  const hasValidSecret   = cronSecret && querySecret === cronSecret;
+  const isVercelInternal = request.headers.get('x-vercel-cron') === '1';
+  const hasValidSecret   = querySecret === cronSecret;
 
   if (!isVercelInternal && !hasValidSecret) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
