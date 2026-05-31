@@ -11,7 +11,7 @@ import { useConversations } from '../../hooks/useConversations';
 import { useConversationStore } from '@/store/conversation.store';
 import type { ConversationWithContact } from '../../services/conversation.service';
 
-const STATUS_TABS = ['all', 'open', 'assigned', 'pending', 'resolved'] as const;
+const STATUS_TABS = ['all', 'mine', 'open', 'assigned', 'pending', 'resolved'] as const;
 
 export function ConversationList() {
   const [status, setStatus] = useState<string>('all');

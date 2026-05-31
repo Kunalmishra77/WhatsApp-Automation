@@ -265,8 +265,31 @@ async function handleIncomingMessage(
     throw new Error(messageError.message);
   }
 
-  await sendAutoReply(supabase, waId, customerName, workspaceId, content, conversation.id, contact.id);
+  // Escalation detection — check BEFORE calling AI auto-reply
+  const isEscalation = checkEscalationKeywords(content);
+
+  if (isEscalation) {
+    // Update conversation status to pending (needs human agent)
+    await (supabase as any)
+      .from('conversations')
+      .update({ status: 'pending' })
+      .eq('id', conversation.id);
+
+    console.log(`[Webhook] Escalation detected for conversation ${conversation.id}`);
+  }
+
+  await sendAutoReply(supabase, waId, customerName, workspaceId, content, conversation.id, contact.id, isEscalation);
   console.log(`[Webhook] Message from ${waId}: ${content}`);
+}
+
+const ESCALATION_KEYWORDS = [
+  'human', 'agent', 'real person', 'help me', 'speak to', 'talk to',
+  'complaint', 'refund', 'cancel', 'fraud', 'cheated',
+];
+
+function checkEscalationKeywords(message: string): boolean {
+  const lower = message.toLowerCase();
+  return ESCALATION_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
 async function getAIReply(customerMessage: string, customerName: string): Promise<string | null> {
@@ -322,6 +345,9 @@ Customer name: ${customerName}`;
   }
 }
 
+const ESCALATION_REPLY =
+  "I understand you need assistance. Let me connect you with one of our agents right away. Please hold on.";
+
 async function sendAutoReply(
   supabase: AdminClient,
   toPhone: string,
@@ -330,6 +356,7 @@ async function sendAutoReply(
   customerMessage = '',
   conversationId?: string,
   contactId?: string,
+  isEscalation = false,
 ) {
   const { data: ws } = await supabase
     .from('workspaces')
@@ -340,8 +367,10 @@ async function sendAutoReply(
   if (!ws?.phone_number_id || !ws?.access_token) return;
 
   const name = customerName !== toPhone ? (customerName.split(' ')[0] ?? customerName) : 'there';
-  const message = await getAIReply(customerMessage, name)
-    ?? `Hello ${name}, thanks for reaching out to V4TOU Tech. Our team received your message and will get back to you shortly.`;
+  const message = isEscalation
+    ? ESCALATION_REPLY
+    : (await getAIReply(customerMessage, name)
+      ?? `Hello ${name}, thanks for reaching out to V4TOU Tech. Our team received your message and will get back to you shortly.`);
 
   try {
     const response = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
