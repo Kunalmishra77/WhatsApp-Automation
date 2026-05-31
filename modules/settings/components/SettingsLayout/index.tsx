@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProfileSettings } from '../ProfileSettings';
 import { WorkspaceSettings } from '../WorkspaceSettings';
 import { WhatsAppSettings } from '../WhatsAppSettings';
+import { InboxRules } from '../InboxRules';
 
 export function SettingsLayout() {
   return (
@@ -18,6 +19,7 @@ export function SettingsLayout() {
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="workspace">Workspace</TabsTrigger>
           <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
+          <TabsTrigger value="inbox-rules">Inbox Rules</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile">
@@ -28,6 +30,9 @@ export function SettingsLayout() {
         </TabsContent>
         <TabsContent value="whatsapp">
           <WhatsAppSettings />
+        </TabsContent>
+        <TabsContent value="inbox-rules">
+          <InboxRules />
         </TabsContent>
       </Tabs>
     </div>
