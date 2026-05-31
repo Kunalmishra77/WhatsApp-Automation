@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { ROUTES } from '@/lib/constants';
+import { getSupabaseEnv } from '@/lib/supabase-env';
 
 const PUBLIC_ROUTES = [
   ROUTES.LOGIN,
@@ -10,40 +11,38 @@ const PUBLIC_ROUTES = [
   '/workspace/new',
   '/workspace/select',
   ROUTES.AUTH_CALLBACK,
+  '/api/data-deletion',
 ];
 
 const ROLE_PROTECTED: Array<{ path: string; roles: string[] }> = [
   { path: '/settings/billing', roles: ['super_admin', 'admin'] },
-  { path: '/analytics',        roles: ['super_admin', 'admin', 'manager'] },
-  { path: '/campaigns',        roles: ['super_admin', 'admin', 'manager'] },
-  { path: '/team',             roles: ['super_admin', 'admin', 'manager'] },
+  { path: '/analytics', roles: ['super_admin', 'admin', 'manager'] },
+  { path: '/campaigns', roles: ['super_admin', 'admin', 'manager'] },
+  { path: '/team', roles: ['super_admin', 'admin', 'manager'] },
 ];
 
-export async function middleware(request: NextRequest): Promise<NextResponse> {
+export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
-  // Pass through static assets, Next.js internals, and public API routes
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api/webhooks') ||
     pathname.startsWith('/api/cron') ||
-    pathname.startsWith('/api/data-deletion') ||
     pathname.includes('.')
   ) {
     return NextResponse.next();
   }
 
-  // Pass through public auth routes
-  if (PUBLIC_ROUTES.some((r) => pathname.startsWith(r))) {
+  if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
     return NextResponse.next();
   }
 
-  // Build Supabase client with cookie passthrough
   let supabaseResponse = NextResponse.next({ request });
+  const { url, anonKey } = getSupabaseEnv();
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    url,
+    anonKey,
     {
       cookies: {
         getAll: () => request.cookies.getAll(),
@@ -58,21 +57,29 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     },
   );
 
-  // Refresh + check session
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Not authenticated → redirect to login, preserving intended destination
   if (!user) {
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
     const loginUrl = new URL(ROUTES.LOGIN, request.url);
     loginUrl.searchParams.set('next', pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // Role-based route protection
-  const agentixRole = request.cookies.get('agentix-role')?.value;
-  if (agentixRole) {
-    const restricted = ROLE_PROTECTED.find((r) => pathname.startsWith(r.path));
-    if (restricted && !restricted.roles.includes(agentixRole)) {
+  const restricted = ROLE_PROTECTED.find((route) => pathname.startsWith(route.path));
+  if (restricted) {
+    const { data: member } = await supabase
+      .from('workspace_members')
+      .select('role')
+      .eq('user_id', user.id)
+      .in('role', restricted.roles)
+      .limit(1)
+      .maybeSingle();
+
+    if (!member) {
       return NextResponse.redirect(new URL(ROUTES.DASHBOARD, request.url));
     }
   }
