@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createAdminClient } from '@/services/supabase/admin';
 import { getRequiredSecret } from '@/lib/supabase-env';
+import { applyInboxRules } from '@/lib/inbox-rules-engine';
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -263,6 +264,36 @@ async function handleIncomingMessage(
 
   if (messageError) {
     throw new Error(messageError.message);
+  }
+
+  // Count inbound messages in this conversation (including the one just inserted)
+  // If count is exactly 1, this is the first inbound message.
+  const { count: msgCount } = await (supabase as any)
+    .from('messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('conversation_id', conversation.id)
+    .eq('direction', 'inbound');
+
+  const isFirstMessage = (msgCount ?? 0) <= 1;
+
+  // Fetch workspace credentials for any auto_reply actions in rules
+  const { data: wsForRules } = await supabase
+    .from('workspaces')
+    .select('phone_number_id, access_token')
+    .eq('id', workspaceId)
+    .single();
+
+  if (wsForRules?.phone_number_id && wsForRules?.access_token) {
+    await applyInboxRules(
+      supabase,
+      workspaceId,
+      content,
+      conversation.id,
+      contact.id,
+      isFirstMessage,
+      wsForRules.phone_number_id,
+      wsForRules.access_token,
+    );
   }
 
   // Escalation detection — check BEFORE calling AI auto-reply
