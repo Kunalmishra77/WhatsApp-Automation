@@ -26,15 +26,19 @@ export async function POST(
 
     await requireWorkspacePermission(template.workspace_id, 'manage_templates');
 
-    const { data: workspace, error: wsError } = await adminDb
+    const { data: workspace } = await adminDb
       .from('workspaces')
       .select('waba_id, access_token')
       .eq('id', template.workspace_id)
       .single();
 
-    if (wsError || !workspace?.waba_id || !workspace?.access_token) {
+    // Fall back to env vars if workspace DB fields are not yet populated
+    const wabaId      = workspace?.waba_id      ?? process.env.WHATSAPP_WABA_ID;
+    const accessToken = workspace?.access_token ?? process.env.WHATSAPP_ACCESS_TOKEN;
+
+    if (!wabaId || !accessToken) {
       return NextResponse.json(
-        { error: 'Workspace missing WABA ID or access token. Set these in workspace settings.' },
+        { error: 'Missing WABA ID or access token. Set WHATSAPP_WABA_ID and WHATSAPP_ACCESS_TOKEN in env.' },
         { status: 400 },
       );
     }
@@ -56,11 +60,11 @@ export async function POST(
     }
 
     const metaRes = await fetch(
-      `https://graph.facebook.com/v19.0/${workspace.waba_id}/message_templates`,
+      `https://graph.facebook.com/v19.0/${wabaId}/message_templates`,
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${workspace.access_token.replace(/﻿/g, '').trim()}`,
+          Authorization: `Bearer ${accessToken.replace(/﻿/g, '').trim()}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -80,7 +84,9 @@ export async function POST(
 
     if (!metaRes.ok) {
       const errMsg = metaData?.error?.error_user_msg ?? metaData?.error?.message ?? 'Meta API error';
-      console.error('[TemplateSubmit] Meta error:', metaData);
+      console.error('[TemplateSubmit] Meta error:', JSON.stringify(metaData));
+      console.error('[TemplateSubmit] WABA ID used:', wabaId);
+      console.error('[TemplateSubmit] Template payload:', JSON.stringify({ name: template.name, language: template.language, category: template.category.toUpperCase(), components }));
       return NextResponse.json({ error: errMsg, details: metaData }, { status: 502 });
     }
 
