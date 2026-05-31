@@ -161,15 +161,54 @@ async function handleIncomingMessage(
   // 5. Update conversation: last_message_at + last_message text + increment unread_count
   await supabase.rpc('increment_unread', { conv_id: conversation.id, msg_content: content });
 
-  // 6. Send auto-reply
-  await sendAutoReply(waId, customerName, workspaceId);
+  // 6. Send auto-reply with customer message for AI context
+  await sendAutoReply(waId, customerName, workspaceId, content);
 
   console.log(`[Webhook] Message from ${waId}: ${content}`);
 }
 
-// ── Auto-reply ────────────────────────────────────────────────────────────────
-async function sendAutoReply(toPhone: string, customerName: string, workspaceId: string) {
-  // Get workspace phone_number_id and access_token
+// ── Gemini AI reply generator ─────────────────────────────────────────────────
+async function getGeminiReply(customerMessage: string, customerName: string): Promise<string | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+
+  const name = customerName || 'there';
+  const systemPrompt = `You are a helpful customer support assistant for V4TOU Tech, a company that provides:
+- Business Automation (smart workflows, WhatsApp automation)
+- Website Development (modern, fast websites)
+- Tech Solutions (end-to-end technical support)
+
+Your name is "V4TOU Assistant". Reply in the same language the customer uses (Hindi or English).
+Be friendly, professional, and concise (max 3-4 sentences).
+Always end with encouraging them to share more details about their requirement.
+Customer name: ${name}`;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            { role: 'user', parts: [{ text: systemPrompt }] },
+            { role: 'model', parts: [{ text: `Hello! I'm V4TOU Assistant, happy to help you.` }] },
+            { role: 'user', parts: [{ text: customerMessage }] },
+          ],
+          generationConfig: { maxOutputTokens: 300, temperature: 0.7 },
+        }),
+      }
+    );
+    const data = await res.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+  } catch (err) {
+    console.error('[Gemini] Error:', err);
+    return null;
+  }
+}
+
+// ── Auto-reply (Gemini AI + fallback static) ──────────────────────────────────
+async function sendAutoReply(toPhone: string, customerName: string, workspaceId: string, customerMessage = '') {
   const { data: ws } = await supabase
     .from('workspaces')
     .select('phone_number_id, access_token')
@@ -180,15 +219,20 @@ async function sendAutoReply(toPhone: string, customerName: string, workspaceId:
 
   const name = customerName !== toPhone ? customerName.split(' ')[0] : 'there';
 
-  const message =
-    `Hello ${name}! 👋\n\n` +
-    `Welcome to *V4TOU Tech* 🚀\n\n` +
-    `We specialize in:\n` +
-    `✅ *Automation* — Save time with smart workflows\n` +
-    `✅ *Website Development* — Modern, fast websites\n` +
-    `✅ *Tech Solutions* — End-to-end tech support\n\n` +
-    `Our team has received your message and will get back to you *shortly*.\n\n` +
-    `_V4TOU Tech — Powering your digital future_ 💡`;
+  // Try Gemini AI first, fallback to static reply
+  let message = await getGeminiReply(customerMessage, name);
+
+  if (!message) {
+    message =
+      `Hello ${name}! 👋\n\n` +
+      `Welcome to *V4TOU Tech* 🚀\n\n` +
+      `We specialize in:\n` +
+      `✅ *Automation* — Smart business workflows\n` +
+      `✅ *Website Development* — Modern, fast websites\n` +
+      `✅ *Tech Solutions* — End-to-end tech support\n\n` +
+      `Our team has received your message and will get back to you *shortly*.\n\n` +
+      `_V4TOU Tech — Powering your digital future_ 💡`;
+  }
 
   try {
     await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
