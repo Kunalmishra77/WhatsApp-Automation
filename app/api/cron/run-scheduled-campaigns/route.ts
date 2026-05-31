@@ -3,16 +3,17 @@ import { createAdminClient } from '@/services/supabase/admin';
 import { executeCampaign } from '@/lib/campaign-executor';
 
 export async function GET(request: NextRequest) {
-  // Accept auth via header (Vercel cron) OR query param (external cron services)
-  const headerAuth = request.headers.get('authorization');
+  // Auth: query param ?secret= (for external cron services like cron-job.org)
+  // Vercel internal cron calls don't need this (they come from internal network)
   const querySecret = new URL(request.url).searchParams.get('secret');
-  const cronSecret  = process.env.CRON_SECRET;
+  const cronSecret  = process.env.CRON_SECRET?.trim();
 
-  const isAuthorized =
-    headerAuth === `Bearer ${cronSecret}` ||
-    (querySecret && querySecret === cronSecret);
+  // Allow: Vercel internal cron (no secret needed) OR external with correct secret
+  const isVercelInternal = request.headers.get('x-vercel-cron') === '1' ||
+    request.headers.get('user-agent')?.includes('vercel');
+  const hasValidSecret   = cronSecret && querySecret === cronSecret;
 
-  if (!isAuthorized) {
+  if (!isVercelInternal && !hasValidSecret) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
