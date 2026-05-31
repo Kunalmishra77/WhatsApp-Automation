@@ -7,10 +7,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Send } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { useTemplates, useDeleteTemplate } from '../../hooks/useTemplates';
+import { useTemplates, useDeleteTemplate, useSubmitTemplate } from '../../hooks/useTemplates';
 import { TemplateForm } from '../TemplateForm';
 import { TEMPLATE_STATUS_COLORS, CATEGORY_LABELS } from '../../services/template.service';
 import type { TemplateRow } from '../../services/template.service';
@@ -21,11 +21,21 @@ export function TemplateList() {
   const [editing, setEditing] = useState<TemplateRow | undefined>();
   const { data: templates = [], isLoading } = useTemplates();
   const remove = useDeleteTemplate();
+  const submit = useSubmitTemplate();
 
   const handleDelete = async (t: TemplateRow) => {
     if (!confirm(`Delete template "${t.name}"?`)) return;
     await remove.mutateAsync(t.id);
     toast.success('Template deleted');
+  };
+
+  const handleSubmit = async (t: TemplateRow) => {
+    try {
+      const result = await submit.mutateAsync(t.id) as { metaStatus?: string };
+      toast.success(`Submitted to Meta — status: ${result?.metaStatus ?? 'PENDING'}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to submit template');
+    }
   };
 
   return (
@@ -47,7 +57,7 @@ export function TemplateList() {
               <TableHead>Status</TableHead>
               <TableHead>Variables</TableHead>
               <TableHead>Created</TableHead>
-              <TableHead className="w-20" />
+              <TableHead className="w-28" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -77,6 +87,18 @@ export function TemplateList() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
+                        {t.status === 'pending' && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-brand-600 hover:text-brand-700"
+                            title="Submit to Meta for approval"
+                            disabled={submit.isPending}
+                            onClick={() => void handleSubmit(t)}
+                          >
+                            <Send className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="icon" className="h-7 w-7"
                           onClick={() => { setEditing(t); setFormOpen(true); }}>
                           <Pencil className="h-3.5 w-3.5" />

@@ -43,3 +43,17 @@ export function useDeleteTemplate() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['templates', workspaceId] }),
   });
 }
+
+export function useSubmitTemplate() {
+  const queryClient = useQueryClient();
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/templates/${id}/submit`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? 'Submit failed');
+      return data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['templates', workspaceId] }),
+  });
+}
