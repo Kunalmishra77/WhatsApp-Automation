@@ -7,10 +7,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { Plus, Pencil, Trash2, Send } from 'lucide-react';
+import { Plus, Pencil, Trash2, Send, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { useTemplates, useDeleteTemplate, useSubmitTemplate } from '../../hooks/useTemplates';
+import { useTemplates, useDeleteTemplate, useSubmitTemplate, useSyncTemplates } from '../../hooks/useTemplates';
 import { TemplateForm } from '../TemplateForm';
 import { TEMPLATE_STATUS_COLORS, CATEGORY_LABELS } from '../../services/template.service';
 import type { TemplateRow } from '../../services/template.service';
@@ -22,6 +22,7 @@ export function TemplateList() {
   const { data: templates = [], isLoading } = useTemplates();
   const remove = useDeleteTemplate();
   const submit = useSubmitTemplate();
+  const sync   = useSyncTemplates();
 
   const handleDelete = async (t: TemplateRow) => {
     if (!confirm(`Delete template "${t.name}"?`)) return;
@@ -38,13 +39,34 @@ export function TemplateList() {
     }
   };
 
+  const handleSync = async () => {
+    try {
+      const result = await sync.mutateAsync();
+      toast.success(`Synced from Meta — ${result.new} new, ${result.updated} updated`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Sync failed');
+    }
+  };
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-6 py-3">
         <h1 className="text-base font-semibold text-foreground">Templates</h1>
-        <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => { setEditing(undefined); setFormOpen(true); }}>
-          <Plus className="h-3.5 w-3.5" /> New Template
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs"
+            disabled={sync.isPending}
+            onClick={() => void handleSync()}
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', sync.isPending && 'animate-spin')} />
+            {sync.isPending ? 'Syncing…' : 'Sync from Meta'}
+          </Button>
+          <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => { setEditing(undefined); setFormOpen(true); }}>
+            <Plus className="h-3.5 w-3.5" /> New Template
+          </Button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto">

@@ -57,3 +57,21 @@ export function useSubmitTemplate() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['templates', workspaceId] }),
   });
 }
+
+export function useSyncTemplates() {
+  const queryClient = useQueryClient();
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/templates/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? 'Sync failed');
+      return data as { total: number; new: number; updated: number };
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['templates', workspaceId] }),
+  });
+}
