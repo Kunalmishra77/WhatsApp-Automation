@@ -11,14 +11,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing signed_request' }, { status: 400 });
     }
 
-    const [encodedSig, payload] = signedRequest.split('.');
-    const data = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+    const parts = signedRequest.split('.');
+    const encodedSig = parts[0] ?? '';
+    const payload = parts[1] ?? '';
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { user_id?: string };
     const userId = data.user_id ?? 'unknown';
 
-    const sig = Buffer.from(encodedSig, 'base64');
+    const sig = Buffer.from(encodedSig, 'base64url');
     const expectedSig = crypto
       .createHmac('sha256', process.env.META_APP_SECRET!)
-      .update(payload)
+      .update(payload, 'utf8')
       .digest();
 
     if (!crypto.timingSafeEqual(sig, expectedSig)) {
