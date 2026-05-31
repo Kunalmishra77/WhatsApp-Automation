@@ -49,7 +49,18 @@ export async function POST(
       components.push({ type: 'HEADER', format: 'TEXT', text: template.header_content });
     }
 
-    components.push({ type: 'BODY', text: template.body });
+    // Build example values for variables — Meta requires this to avoid auto-rejection
+    const variables: string[] = Array.isArray(template.variables) ? template.variables : [];
+    const exampleValues = variables.map((_: string, i: number) => {
+      const samples = ['John', '+919876543210', 'REF123456', 'V4TOU Tech', '24 hours'];
+      return samples[i] ?? `Sample${i + 1}`;
+    });
+
+    const bodyComponent: Record<string, unknown> = { type: 'BODY', text: template.body };
+    if (exampleValues.length > 0) {
+      bodyComponent.example = { body_text: [exampleValues] };
+    }
+    components.push(bodyComponent);
 
     if (template.footer) {
       components.push({ type: 'FOOTER', text: template.footer });
