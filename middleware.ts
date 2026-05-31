@@ -22,10 +22,12 @@ const ROLE_PROTECTED: Array<{ path: string; roles: string[] }> = [
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
-  // Pass through static assets and Next.js internals
+  // Pass through static assets, Next.js internals, and public API routes
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api/webhooks') ||
+    pathname.startsWith('/api/cron') ||
+    pathname.startsWith('/api/data-deletion') ||
     pathname.includes('.')
   ) {
     return NextResponse.next();
