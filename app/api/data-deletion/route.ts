@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
+import { getRequiredSecret } from '@/lib/supabase-env';
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
 
     const sig = Buffer.from(encodedSig, 'base64url');
     const expectedSig = crypto
-      .createHmac('sha256', process.env.META_APP_SECRET!)
+      .createHmac('sha256', getRequiredSecret('META_APP_SECRET'))
       .update(payload, 'utf8')
       .digest();
 

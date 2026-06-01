@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { createClient } from '@/services/supabase/client';
 import { fetchMessages, sendInternalNote } from '../services/message.service';
@@ -102,7 +102,7 @@ export function useSendMessage() {
         const res = await fetch('/api/messages/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ conversationId, content, senderId: user.id }),
+          body: JSON.stringify({ conversationId, content }),
         });
         if (!res.ok) {
           const err = await res.json();
@@ -121,6 +121,23 @@ export function useSendMessage() {
       void queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
     }
   };
+}
+
+export function useSuggestedReplies(conversationId: string) {
+  // Unused but required by the useMutation signature expectations
+  const _queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/ai/suggest-replies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId }),
+      });
+      const data = await res.json() as { suggestions?: string[]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Failed to get suggestions');
+      return data.suggestions ?? [];
+    },
+  });
 }
 
 export function useTypingBroadcast(conversationId: string) {

@@ -27,7 +27,7 @@ export function ForgotPasswordForm() {
         <div className="space-y-1">
           <p className="text-body-md font-medium text-foreground">Check your inbox</p>
           <p className="text-body-md text-muted-foreground">
-            We sent a password reset link. Check spam if you don't see it.
+            We sent a password reset link. Check spam if you do not see it.
           </p>
         </div>
         <Link

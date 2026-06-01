@@ -328,17 +328,54 @@ async function handleIncomingMessage(
     }
   }
 
-  // Escalation detection — check BEFORE calling AI auto-reply
-  const isEscalation = checkEscalationKeywords(content);
+  // ── Non-blocking auto-categorization (after message saved) ─────────────────
+  const supabaseForCat = supabase;
+  const convIdForCat = conversation.id;
+  categorizeMessage(content).then(async (label) => {
+    if (!label) return;
+    const { data: conv } = await (supabaseForCat as any)
+      .from('conversations')
+      .select('labels')
+      .eq('id', convIdForCat)
+      .single();
+    const existing: string[] = conv?.labels ?? [];
+    if (!existing.includes(label)) {
+      await (supabaseForCat as any)
+        .from('conversations')
+        .update({ labels: [...existing, label] })
+        .eq('id', convIdForCat);
+    }
+  }).catch(() => {}); // silent fail
+  // ─────────────────────────────────────────────────────────────────────────────
 
-  if (isEscalation) {
+  // Escalation detection — check BEFORE calling AI auto-reply
+  const keywordEscalation = checkEscalationKeywords(content);
+  let isEscalation = keywordEscalation;
+
+  if (keywordEscalation) {
     // Update conversation status to pending (needs human agent)
     await (supabase as any)
       .from('conversations')
       .update({ status: 'pending' })
       .eq('id', conversation.id);
 
-    console.log(`[Webhook] Escalation detected for conversation ${conversation.id}`);
+    console.log(`[Webhook] Keyword escalation detected for conversation ${conversation.id}`);
+  } else if (content.length > 20) {
+    // AI sentiment escalation with 3-second timeout
+    const aiEscalation = await Promise.race([
+      detectNegativeSentiment(content),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 3000)),
+    ]);
+
+    if (aiEscalation) {
+      isEscalation = true;
+      await (supabase as any)
+        .from('conversations')
+        .update({ status: 'pending' })
+        .eq('id', conversation.id);
+
+      console.log(`[Webhook] AI sentiment escalation detected for conversation ${conversation.id}`);
+    }
   }
 
   await sendAutoReply(supabase, waId, customerName, workspaceId, content, conversation.id, contact.id, isEscalation);
@@ -353,6 +390,83 @@ const ESCALATION_KEYWORDS = [
 function checkEscalationKeywords(message: string): boolean {
   const lower = message.toLowerCase();
   return ESCALATION_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+async function detectNegativeSentiment(message: string): Promise<boolean> {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) return false;
+
+  try {
+    const timeoutSignal = AbortSignal.timeout(3000);
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      signal: timeoutSignal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
+        'X-Title': 'Agentix',
+      },
+      body: JSON.stringify({
+        model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Analyze if this customer message shows strong negative sentiment, frustration, anger, or urgent need for human help. Reply with ONLY "true" or "false".',
+          },
+          { role: 'user', content: message },
+        ],
+        max_tokens: 5,
+        temperature: 0,
+      }),
+    });
+
+    if (!res.ok) return false;
+    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const answer = data?.choices?.[0]?.message?.content?.toLowerCase().trim();
+    return answer === 'true';
+  } catch {
+    return false;
+  }
+}
+
+async function categorizeMessage(content: string): Promise<string | null> {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey || content.length < 10) return null;
+
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
+        'X-Title': 'Agentix',
+      },
+      body: JSON.stringify({
+        model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Categorize this customer message into exactly ONE of these labels: billing, support, sales, complaint, inquiry, spam, general. Reply with ONLY the label word.',
+          },
+          { role: 'user', content },
+        ],
+        max_tokens: 10,
+        temperature: 0,
+      }),
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const label = data?.choices?.[0]?.message?.content?.toLowerCase().trim();
+    const validLabels = ['billing', 'support', 'sales', 'complaint', 'inquiry', 'spam', 'general'];
+    return validLabels.includes(label ?? '') ? label! : null;
+  } catch {
+    return null;
+  }
 }
 
 async function getAIReply(customerMessage: string, customerName: string): Promise<string | null> {

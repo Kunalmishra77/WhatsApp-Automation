@@ -23,7 +23,10 @@ export function useRealtime<T extends Record<string, unknown>>({
 }: UseRealtimeOptions<T>): void {
   const channelRef  = useRef<RealtimeChannel | null>(null);
   const onEventRef  = useRef(onEvent);
-  onEventRef.current = onEvent;
+
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
 
   useEffect(() => {
     if (!enabled) return;

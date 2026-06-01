@@ -20,10 +20,10 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Send, StickyNote, LayoutList, IndianRupee } from 'lucide-react';
+import { Send, StickyNote, LayoutList, IndianRupee, Sparkles, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { useSendMessage, useTypingBroadcast } from '../../hooks/useMessages';
+import { useSendMessage, useSuggestedReplies, useTypingBroadcast } from '../../hooks/useMessages';
 import { InteractiveMessageBuilder } from '../InteractiveMessageBuilder';
 
 interface MessageInputProps {
@@ -40,7 +40,9 @@ export function MessageInput({ conversationId }: MessageInputProps) {
   const [payDescription, setPayDescription] = useState('');
   const [payCurrency, setPayCurrency] = useState('INR');
   const [isSendingPayment, setIsSendingPayment] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const sendMessage = useSendMessage();
+  const suggestReplies = useSuggestedReplies(conversationId);
   const { broadcastTyping } = useTypingBroadcast(conversationId);
   const isTypingRef = useRef(false);
   const stopTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -66,12 +68,22 @@ export function MessageInput({ conversationId }: MessageInputProps) {
     scheduleStopTyping();
   };
 
+  const handleSuggest = async () => {
+    try {
+      const result = await suggestReplies.mutateAsync();
+      setSuggestions(result);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to get suggestions');
+    }
+  };
+
   const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed || isSending) return;
     setIsSending(true);
     clearTimeout(stopTimerRef.current);
     stopTyping();
+    setSuggestions([]);
     await sendMessage(conversationId, trimmed, isNote);
     setText('');
     setIsSending(false);
@@ -127,6 +139,26 @@ export function MessageInput({ conversationId }: MessageInputProps) {
             Internal note — not sent to customer
           </p>
         )}
+        {suggestions.length > 0 && (
+          <div className="flex gap-1.5 flex-wrap mb-2 items-center">
+            {suggestions.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => { setText(s); setSuggestions([]); }}
+                className="rounded-full border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs text-brand-700 hover:bg-brand-100 transition-colors"
+              >
+                {s}
+              </button>
+            ))}
+            <button
+              onClick={() => setSuggestions([])}
+              className="ml-auto rounded-full p-1 text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Dismiss suggestions"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
         <div className="flex items-end gap-2">
           <Textarea
             value={text}
@@ -140,6 +172,23 @@ export function MessageInput({ conversationId }: MessageInputProps) {
             rows={1}
           />
           <div className="flex items-center gap-1.5 pb-0.5">
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-brand-500 hover:text-brand-700"
+                  onClick={() => void handleSuggest()}
+                  disabled={suggestReplies.isPending}
+                >
+                  {suggestReplies.isPending
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Sparkles className="h-4 w-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Suggest replies</TooltipContent>
+            </Tooltip>
+
             <Tooltip delayDuration={0}>
               <TooltipTrigger asChild>
                 <Button

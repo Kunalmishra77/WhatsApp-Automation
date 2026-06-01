@@ -1,5 +1,9 @@
+import { cleanEnvValue } from './supabase-env';
+
 export const APP_NAME = 'Agentix';
-export const APP_URL  = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+export const APP_URL = process.env.NEXT_PUBLIC_APP_URL
+  ? cleanEnvValue(process.env.NEXT_PUBLIC_APP_URL, 'NEXT_PUBLIC_APP_URL')
+  : 'http://localhost:3000';
 
 export const ROUTES = {
   LOGIN:            '/login',
