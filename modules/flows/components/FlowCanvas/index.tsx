@@ -27,6 +27,7 @@ interface FlowCanvasProps {
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
   onNodeClick: (nodeId: string) => void;
+  onNodeDelete?: (nodeId: string) => void;
 }
 
 export function FlowCanvas({
@@ -36,6 +37,7 @@ export function FlowCanvas({
   onEdgesChange,
   onConnect,
   onNodeClick,
+  onNodeDelete,
 }: FlowCanvasProps) {
   return (
     <div className="w-full h-full">
@@ -47,6 +49,8 @@ export function FlowCanvas({
         onConnect={onConnect}
         nodeTypes={nodeTypes}
         onNodeClick={(_, node) => onNodeClick(node.id)}
+        onNodesDelete={(deleted) => deleted.forEach((n) => onNodeDelete?.(n.id))}
+        deleteKeyCode={['Delete', 'Backspace']}
         fitView
         defaultEdgeOptions={{
           animated: true,

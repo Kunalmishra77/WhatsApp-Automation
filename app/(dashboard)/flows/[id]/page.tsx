@@ -60,6 +60,12 @@ export default function FlowBuilderPage() {
     );
   }, []);
 
+  const handleNodeDelete = useCallback((nodeId: string) => {
+    setNodes((nds) => nds.filter((n) => n.id !== nodeId));
+    setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
+    setSelectedNodeId((prev) => (prev === nodeId ? null : prev));
+  }, []);
+
   const handleAddNode = useCallback((node: FlowNode) => {
     setNodes((nds) => [...nds, node]);
   }, []);
@@ -148,6 +154,7 @@ export default function FlowBuilderPage() {
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodeClick={handleNodeClick}
+            onNodeDelete={handleNodeDelete}
           />
         </div>
 
@@ -156,6 +163,7 @@ export default function FlowBuilderPage() {
           <NodeConfigPanel
             node={selectedNode}
             onSave={handleNodeSave}
+            onDelete={handleNodeDelete}
             onClose={() => setSelectedNodeId(null)}
           />
         )}
