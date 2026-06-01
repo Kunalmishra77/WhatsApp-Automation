@@ -204,6 +204,9 @@ export function MessageInput({ conversationId }: MessageInputProps) {
           <DialogHeader>
             <DialogTitle>Send Payment Link</DialogTitle>
           </DialogHeader>
+          <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+            Requires Razorpay keys in <strong>Settings → Integrations</strong>
+          </div>
           <div className="space-y-4 py-2">
             <div className="flex gap-2 items-end">
               <div className="flex-1 space-y-1.5">
