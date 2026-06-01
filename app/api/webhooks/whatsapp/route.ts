@@ -283,6 +283,20 @@ async function handleIncomingMessage(
   }
   // ─────────────────────────────────────────────────────────────────────────────
 
+  // ── Opt-out / Opt-in detection ─────────────────────────────────────────────
+  const optResult = await handleOptInOut(supabase, contact.id, workspaceId, waId, content);
+  if (optResult === 'out' || optResult === 'in') {
+    console.log(`[Webhook] Contact ${waId} opted ${optResult}`);
+    return;
+  }
+
+  // Block opted-out contacts from receiving AI replies
+  if (optResult === 'blocked') {
+    console.log(`[Webhook] Skipping opted-out contact ${waId}`);
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // ── Order status detection ──────────────────────────────────────────────────
   const orderHandled = await checkAndHandleOrderQuery(supabase, waId, workspaceId, content);
   if (orderHandled) {
@@ -768,6 +782,63 @@ async function sendAutoReply(
 
 // Regex to detect order reference in a message (e.g. "order 12345", "#ORD-001", "order no. ABC")
 const ORDER_PATTERN = /(?:order|ord(?:er)?\s*(?:no\.?|#|id)?)\s*[:#]?\s*([A-Za-z0-9_-]{3,30})/i;
+
+const STOP_WORDS  = ['stop', 'unsubscribe', 'cancel', 'quit', 'opt out', 'optout', 'remove me', 'end'];
+const START_WORDS = ['start', 'subscribe', 'yes', 'opt in', 'optin', 'resume'];
+
+async function handleOptInOut(
+  supabase: AdminClient,
+  contactId: string,
+  workspaceId: string,
+  phone: string,
+  content: string,
+): Promise<'out' | 'in' | 'blocked' | null> {
+  const lower = content.trim().toLowerCase();
+  const db = supabase as any;
+
+  const isStop  = STOP_WORDS.some((w) => lower === w || lower === w + '!');
+  const isStart = START_WORDS.some((w) => lower === w || lower === w + '!');
+
+  if (isStop) {
+    await db.from('contacts').update({ opted_out: true }).eq('id', contactId);
+
+    const { data: ws } = await supabase.from('workspaces').select('phone_number_id, access_token').eq('id', workspaceId).single();
+    if (ws?.phone_number_id && ws?.access_token) {
+      await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${(ws.access_token as string).replace(/﻿/g, '').trim()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp', recipient_type: 'individual', to: phone,
+          type: 'text', text: { preview_url: false, body: 'You have been unsubscribed. You will no longer receive automated messages from us. Reply START to re-subscribe.' },
+        }),
+      }).catch(() => {});
+    }
+    return 'out';
+  }
+
+  if (isStart) {
+    await db.from('contacts').update({ opted_out: false }).eq('id', contactId);
+
+    const { data: ws } = await supabase.from('workspaces').select('phone_number_id, access_token').eq('id', workspaceId).single();
+    if (ws?.phone_number_id && ws?.access_token) {
+      await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${(ws.access_token as string).replace(/﻿/g, '').trim()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp', recipient_type: 'individual', to: phone,
+          type: 'text', text: { preview_url: false, body: 'Welcome back! You have been re-subscribed to our messages. 😊' },
+        }),
+      }).catch(() => {});
+    }
+    return 'in';
+  }
+
+  // Check if contact is already opted out
+  const { data: contact } = await db.from('contacts').select('opted_out').eq('id', contactId).single();
+  if (contact?.opted_out) return 'blocked';
+
+  return null;
+}
 
 async function checkAndHandleOrderQuery(
   supabase: AdminClient,
