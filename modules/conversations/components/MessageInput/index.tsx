@@ -20,7 +20,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Send, StickyNote, LayoutList, IndianRupee, Sparkles, Loader2, X } from 'lucide-react';
+import { Send, StickyNote, LayoutList, IndianRupee, Sparkles, Loader2, X, ShoppingBag } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useSendMessage, useSuggestedReplies, useTypingBroadcast } from '../../hooks/useMessages';
@@ -40,6 +40,11 @@ export function MessageInput({ conversationId }: MessageInputProps) {
   const [payDescription, setPayDescription] = useState('');
   const [payCurrency, setPayCurrency] = useState('INR');
   const [isSendingPayment, setIsSendingPayment] = useState(false);
+  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+  const [catalogId, setCatalogId] = useState('');
+  const [productId, setProductId] = useState('');
+  const [productBodyText, setProductBodyText] = useState('');
+  const [isSendingProduct, setIsSendingProduct] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const sendMessage = useSendMessage();
   const suggestReplies = useSuggestedReplies(conversationId);
@@ -116,6 +121,34 @@ export function MessageInput({ conversationId }: MessageInputProps) {
       toast.error(err instanceof Error ? err.message : 'Failed to send payment link');
     } finally {
       setIsSendingPayment(false);
+    }
+  };
+
+  const handleSendProduct = async () => {
+    if (!catalogId.trim() || !productId.trim()) { toast.error('Catalog ID and Product ID are required'); return; }
+    setIsSendingProduct(true);
+    try {
+      const res = await fetch('/api/messages/catalog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId,
+          catalogId: catalogId.trim(),
+          productId: productId.trim(),
+          bodyText: productBodyText.trim() || undefined,
+        }),
+      });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Failed to send product');
+      toast.success('Product sent!');
+      setIsCatalogOpen(false);
+      setCatalogId('');
+      setProductId('');
+      setProductBodyText('');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send product');
+    } finally {
+      setIsSendingProduct(false);
     }
   };
 
@@ -223,6 +256,20 @@ export function MessageInput({ conversationId }: MessageInputProps) {
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8"
+                  onClick={() => setIsCatalogOpen(true)}
+                >
+                  <ShoppingBag className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Send product from catalog</TooltipContent>
+            </Tooltip>
+
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
                   onClick={() => setIsPaymentOpen(true)}
                 >
                   <IndianRupee className="h-4 w-4" />
@@ -304,6 +351,56 @@ export function MessageInput({ conversationId }: MessageInputProps) {
               disabled={isSendingPayment || !payAmount || !payDescription}
             >
               {isSendingPayment ? 'Sending…' : 'Send Payment Link'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={isCatalogOpen} onOpenChange={setIsCatalogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Send Product from Catalog</DialogTitle>
+          </DialogHeader>
+          <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
+            Requires a <strong>Meta Commerce Catalog</strong> connected to your WhatsApp Business account.
+          </div>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="catalog-id">Catalog ID</Label>
+              <Input
+                id="catalog-id"
+                placeholder="e.g. 1234567890"
+                value={catalogId}
+                onChange={(e) => setCatalogId(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="product-id">Product Retailer ID</Label>
+              <Input
+                id="product-id"
+                placeholder="e.g. SKU-001 or product-abc"
+                value={productId}
+                onChange={(e) => setProductId(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="product-body">Message (optional)</Label>
+              <Input
+                id="product-body"
+                placeholder="e.g. Check out this product!"
+                value={productBodyText}
+                onChange={(e) => setProductBodyText(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCatalogOpen(false)} disabled={isSendingProduct}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleSendProduct()}
+              disabled={isSendingProduct || !catalogId || !productId}
+            >
+              {isSendingProduct ? 'Sending…' : 'Send Product'}
             </Button>
           </DialogFooter>
         </DialogContent>
