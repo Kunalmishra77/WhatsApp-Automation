@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { dispatchWebhookEvent } from '@/lib/outbound-webhook';
 
 const CSAT_MESSAGE = `Thank you for contacting V4TOU Tech! 🙏
 
@@ -93,6 +94,12 @@ export async function POST(
         score:           null,
       });
     }
+
+    void dispatchWebhookEvent(conversation.workspace_id as string, 'conversation.resolved', {
+      conversation_id: conversationId,
+      contact_id: contactId,
+      resolved_by: authz.userId,
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

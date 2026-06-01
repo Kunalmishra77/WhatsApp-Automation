@@ -4,6 +4,8 @@ import { createAdminClient } from '@/services/supabase/admin';
 import { getRequiredSecret } from '@/lib/supabase-env';
 import { applyInboxRules } from '@/lib/inbox-rules-engine';
 import { processFlowForMessage } from '@/lib/flow-engine';
+import { dispatchWebhookEvent } from '@/lib/outbound-webhook';
+import { checkAutoReplyLimit } from '@/lib/rate-limit';
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -312,6 +314,26 @@ async function handleIncomingMessage(
 
   const isFirstMessage = (msgCount ?? 0) <= 1;
 
+  // ── Outbound webhooks (fire-and-forget) ────────────────────────────────────
+  void dispatchWebhookEvent(workspaceId, 'message.received', {
+    message_id: msg.id,
+    conversation_id: conversation.id,
+    contact_id: contact.id,
+    contact_phone: waId,
+    contact_name: customerName,
+    content,
+    direction: 'inbound',
+  });
+  if (isFirstMessage) {
+    void dispatchWebhookEvent(workspaceId, 'conversation.created', {
+      conversation_id: conversation.id,
+      contact_id: contact.id,
+      contact_phone: waId,
+      contact_name: customerName,
+    });
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // Fetch workspace credentials for any auto_reply actions in rules
   const { data: wsForRules } = await supabase
     .from('workspaces')
@@ -399,7 +421,13 @@ async function handleIncomingMessage(
     }
   }
 
-  await sendAutoReply(supabase, waId, customerName, workspaceId, content, conversation.id, contact.id, isEscalation);
+  // Rate limit: max 1 auto-reply per 30s per contact
+  const canReply = await checkAutoReplyLimit(contact.id);
+  if (canReply) {
+    await sendAutoReply(supabase, waId, customerName, workspaceId, content, conversation.id, contact.id, isEscalation);
+  } else {
+    console.log(`[AutoReply] Rate limited for contact ${contact.id} — skipping`);
+  }
   console.log(`[Webhook] Message from ${waId}: ${content}`);
 }
 

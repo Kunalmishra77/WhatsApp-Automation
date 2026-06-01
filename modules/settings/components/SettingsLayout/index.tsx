@@ -8,6 +8,7 @@ import { InboxRules } from '../InboxRules';
 import { FollowUpSequences } from '../FollowUpSequences';
 import { IntegrationSettings } from '../IntegrationSettings';
 import { KnowledgeBase } from '../KnowledgeBase';
+import { WebhookSettings } from '../WebhookSettings';
 
 export function SettingsLayout() {
   return (
@@ -26,6 +27,7 @@ export function SettingsLayout() {
           <TabsTrigger value="sequences">Follow-Up</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
           <TabsTrigger value="knowledge-base">Knowledge Base</TabsTrigger>
+          <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile">
@@ -48,6 +50,9 @@ export function SettingsLayout() {
         </TabsContent>
         <TabsContent value="knowledge-base">
           <KnowledgeBase />
+        </TabsContent>
+        <TabsContent value="webhooks">
+          <WebhookSettings />
         </TabsContent>
       </Tabs>
     </div>
