@@ -150,6 +150,24 @@ export async function GET(request: NextRequest) {
     const deliveryRate =
       totalOutbound > 0 ? Math.round((totalDelivered / totalOutbound) * 100) : 0;
 
+    // --- CSAT stats ---
+    const { data: csatRaw } = await (supabase as any)
+      .from('csat_responses')
+      .select('score')
+      .eq('workspace_id', workspaceId)
+      .not('score', 'is', null)
+      .gte('responded_at', `${from}T00:00:00.000Z`)
+      .lte('responded_at', `${to}T23:59:59.999Z`);
+
+    const csatRows = (csatRaw ?? []) as Array<{ score: number }>;
+    const csatResponseCount = csatRows.length;
+    const csatAvgScore: number | null =
+      csatResponseCount > 0
+        ? Math.round(
+            (csatRows.reduce((sum, r) => sum + r.score, 0) / csatResponseCount) * 10,
+          ) / 10
+        : null;
+
     return NextResponse.json({
       summary: {
         totalMessages,
@@ -161,6 +179,8 @@ export async function GET(request: NextRequest) {
         resolvedConversations,
         totalContacts: totalContacts ?? 0,
         newContacts: newContacts ?? 0,
+        csatAvgScore,
+        csatResponseCount,
       },
       dailyMessages,
       senderBreakdown,

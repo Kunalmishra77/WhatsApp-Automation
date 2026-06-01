@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 import { useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/services/supabase/client';
 import { useWorkspaceStore } from '@/store/workspace.store';
-import { useAssignAgent, useChangeStatus } from '../../hooks/useConversationActions';
+import { useAssignAgent, useChangeStatus, useResolveConversation } from '../../hooks/useConversationActions';
 import type { ConversationWithContact } from '../../services/conversation.service';
 
 interface ConversationHeaderProps {
@@ -48,6 +48,7 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
 
   const assignAgent = useAssignAgent();
   const changeStatus = useChangeStatus();
+  const resolveConversation = useResolveConversation();
 
   const contact = conversation.contacts;
   const name = contact?.name ?? contact?.phone ?? 'Unknown';
@@ -202,8 +203,15 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
             variant="outline"
             size="sm"
             className="h-7 gap-1.5 text-xs"
-            onClick={() => handleStatus('resolved')}
-            disabled={changeStatus.isPending}
+            onClick={() => {
+              resolveConversation.mutate(conversation.id, {
+                onSuccess: () => {
+                  void queryClient.invalidateQueries({ queryKey: ['conversations'] });
+                  void queryClient.invalidateQueries({ queryKey: ['conversation', conversation.id] });
+                },
+              });
+            }}
+            disabled={resolveConversation.isPending}
           >
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
             Resolve

@@ -43,6 +43,32 @@ export function useAssignAgent() {
   });
 }
 
+// ─── useResolveConversation ─────────────────────────────────────────────────
+
+export function useResolveConversation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (conversationId: string) => {
+      const res = await fetch(`/api/conversations/${conversationId}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!res.ok) {
+        const err = await res.json() as { error?: string };
+        throw new Error(err.error ?? 'Failed to resolve conversation');
+      }
+
+      return res.json();
+    },
+    onSuccess: (_data, conversationId) => {
+      void queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      void queryClient.invalidateQueries({ queryKey: ['conversation', conversationId] });
+    },
+  });
+}
+
 // ─── useChangeStatus ────────────────────────────────────────────────────────
 
 export function useChangeStatus() {

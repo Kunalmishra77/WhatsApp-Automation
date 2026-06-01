@@ -50,6 +50,8 @@ export interface AnalyticsSummary {
   resolvedConversations: number;
   totalContacts: number;
   newContacts: number;
+  csatAvgScore: number | null;
+  csatResponseCount: number;
 }
 
 export interface DailyMessage {

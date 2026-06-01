@@ -267,6 +267,20 @@ async function handleIncomingMessage(
     throw new Error(messageError.message);
   }
 
+  // ── CSAT reply detection (before rules/flow/AI) ─────────────────────────────
+  const csatHandled = await checkAndHandleCsatReply(
+    supabase,
+    conversation.id,
+    workspaceId,
+    waId,
+    content,
+  );
+  if (csatHandled) {
+    console.log(`[Webhook] CSAT reply handled for conversation ${conversation.id}`);
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // Count inbound messages in this conversation (including the one just inserted)
   // If count is exactly 1, this is the first inbound message.
   const { count: msgCount } = await (supabase as any)
@@ -470,6 +484,70 @@ async function sendAutoReply(
   } catch (error) {
     console.error('[AutoReply] Failed:', error);
   }
+}
+
+async function checkAndHandleCsatReply(
+  supabase: AdminClient,
+  conversationId: string,
+  workspaceId: string,
+  contactPhone: string,
+  content: string,
+): Promise<boolean> {
+  const trimmed = content.trim();
+  const score = parseInt(trimmed, 10);
+  if (isNaN(score) || score < 1 || score > 5 || trimmed.length !== 1) return false;
+
+  // Check for pending CSAT record for this conversation
+  const db = supabase as any;
+  const { data: pending } = await db
+    .from('csat_responses')
+    .select('id')
+    .eq('conversation_id', conversationId)
+    .is('score', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!pending) return false;
+
+  // Update score
+  await db
+    .from('csat_responses')
+    .update({ score, responded_at: new Date().toISOString() })
+    .eq('id', pending.id);
+
+  // Send thank-you
+  const { data: ws } = await supabase
+    .from('workspaces')
+    .select('phone_number_id, access_token')
+    .eq('id', workspaceId)
+    .single();
+
+  if (ws?.phone_number_id && ws?.access_token) {
+    try {
+      await fetch(
+        `https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${(ws.access_token as string).replace(/﻿/g, '').trim()}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: contactPhone,
+            type: 'text',
+            text: { preview_url: false, body: 'Thank you for your feedback! ⭐ We appreciate it.' },
+          }),
+        },
+      );
+    } catch (err) {
+      console.error('[CSAT] Failed to send thank-you:', err);
+    }
+  }
+
+  return true;
 }
 
 async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {

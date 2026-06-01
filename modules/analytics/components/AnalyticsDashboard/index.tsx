@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   MessageCircle,
   UserPlus,
+  Star,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -256,6 +257,22 @@ export function AnalyticsDashboard() {
           sub={`of ${summary?.totalContacts.toLocaleString() ?? 0} total`}
           icon={UserPlus}
           iconBg="bg-[#8b5cf6]"
+          loading={isLoading}
+        />
+        <SummaryCard
+          title="Avg CSAT Score"
+          value={
+            summary?.csatAvgScore != null
+              ? `${summary.csatAvgScore} / 5`
+              : '—'
+          }
+          sub={
+            summary?.csatResponseCount != null && summary.csatResponseCount > 0
+              ? `${summary.csatResponseCount} response${summary.csatResponseCount === 1 ? '' : 's'}`
+              : 'No responses yet'
+          }
+          icon={Star}
+          iconBg="bg-[#f59e0b]"
           loading={isLoading}
         />
       </div>
