@@ -1,29 +1,12 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
-import { createClient } from '@/services/supabase/server';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 
-async function getWorkspaceId(): Promise<string | null> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: member } = await (supabase as any)
-    .from('workspace_members')
-    .select('workspace_id')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .single();
-
-  return (member?.workspace_id as string) ?? null;
-}
-
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
-    const workspaceId = await getWorkspaceId();
+    const workspaceId = request.nextUrl.searchParams.get('workspaceId');
     if (!workspaceId) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+      return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
     }
 
     await requireWorkspacePermission(workspaceId, 'manage_templates');
@@ -49,14 +32,8 @@ export async function GET(_request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const workspaceId = await getWorkspaceId();
-    if (!workspaceId) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
-    }
-
-    await requireWorkspacePermission(workspaceId, 'manage_templates');
-
     const body = await request.json() as {
+      workspaceId: string;
       name: string;
       trigger_type: string;
       trigger_value?: Record<string, unknown>;
@@ -64,6 +41,13 @@ export async function POST(request: NextRequest) {
       priority?: number;
       is_active?: boolean;
     };
+
+    const workspaceId = body.workspaceId;
+    if (!workspaceId) {
+      return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
+    }
+
+    await requireWorkspacePermission(workspaceId, 'manage_templates');
 
     if (!body.name || !body.trigger_type) {
       return NextResponse.json({ error: 'name and trigger_type are required' }, { status: 400 });

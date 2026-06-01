@@ -27,18 +27,18 @@ export interface InboxRule {
 export type CreateInboxRulePayload = Omit<InboxRule, 'id' | 'workspace_id' | 'created_at' | 'updated_at'>;
 export type UpdateInboxRulePayload = Partial<CreateInboxRulePayload>;
 
-async function fetchRules(): Promise<InboxRule[]> {
-  const res = await fetch('/api/inbox-rules');
+async function fetchRules(workspaceId: string): Promise<InboxRule[]> {
+  const res = await fetch(`/api/inbox-rules?workspaceId=${workspaceId}`);
   const data = await res.json() as { rules?: InboxRule[]; error?: string };
   if (!res.ok) throw new Error(data.error ?? 'Failed to fetch rules');
   return data.rules ?? [];
 }
 
-async function createRule(payload: CreateInboxRulePayload): Promise<InboxRule> {
+async function createRule(workspaceId: string, payload: CreateInboxRulePayload): Promise<InboxRule> {
   const res = await fetch('/api/inbox-rules', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, workspaceId }),
   });
   const data = await res.json() as { rule?: InboxRule; error?: string };
   if (!res.ok) throw new Error(data.error ?? 'Failed to create rule');
@@ -66,9 +66,10 @@ export function useInboxRules() {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   return useQuery({
     queryKey: ['inbox-rules', workspaceId],
-    queryFn: fetchRules,
+    queryFn: () => fetchRules(workspaceId!),
     enabled: !!workspaceId,
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 }
 
@@ -76,7 +77,7 @@ export function useCreateInboxRule() {
   const queryClient = useQueryClient();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   return useMutation({
-    mutationFn: (payload: CreateInboxRulePayload) => createRule(payload),
+    mutationFn: (payload: CreateInboxRulePayload) => createRule(workspaceId!, payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['inbox-rules', workspaceId] }),
   });
 }
