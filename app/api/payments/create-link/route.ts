@@ -61,27 +61,37 @@ export async function POST(request: NextRequest) {
 
     // 4. Call Razorpay API to create payment link
     const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
+
+    // Only add callback_url if it's a valid https URL (Razorpay requires https)
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    const callbackUrl = appUrl.startsWith('https://') ? `${appUrl}/payment-success` : undefined;
+
+    const razorPayload: Record<string, unknown> = {
+      amount:      Math.round(body.amount * 100), // paise
+      currency:    body.currency ?? 'INR',
+      description: body.description,
+    };
+    if (callbackUrl) {
+      razorPayload.callback_url    = callbackUrl;
+      razorPayload.callback_method = 'get';
+    }
+
     const razorRes = await fetch('https://api.razorpay.com/v1/payment_links', {
       method: 'POST',
       headers: {
         Authorization: `Basic ${auth}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        amount: Math.round(body.amount * 100), // paise
-        currency: body.currency ?? 'INR',
-        description: body.description,
-        callback_url: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/payment-success`,
-        callback_method: 'get',
-      }),
+      body: JSON.stringify(razorPayload),
     });
 
     const razorData = await razorRes.json() as RazorpayPaymentLinkResponse;
 
     if (!razorRes.ok || !razorData.short_url) {
-      console.error('[Payments] Razorpay error:', razorData);
+      const errMsg = razorData.error?.description ?? 'Razorpay API error';
+      console.error('[Payments] Razorpay error:', JSON.stringify(razorData));
       return NextResponse.json(
-        { error: razorData.error?.description ?? 'Failed to create payment link' },
+        { error: `Payment link failed: ${errMsg}. Check your Razorpay keys in Settings → Integrations.` },
         { status: 502 },
       );
     }
