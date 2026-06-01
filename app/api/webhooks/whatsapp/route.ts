@@ -534,26 +534,37 @@ async function fetchKnowledgeBaseContext(
   try {
     const { data: entries } = await (supabase as any)
       .from('knowledge_base')
-      .select('title, content')
+      .select('title, content, tags, priority')
       .eq('workspace_id', workspaceId)
       .eq('is_active', true)
-      .limit(10);
+      .eq('is_draft', false)
+      .order('priority', { ascending: false })
+      .limit(20);
 
     if (!entries || entries.length === 0) return '';
 
-    // Simple relevance: prefer entries whose title/content overlaps with query words
-    const queryWords = query.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
-    const scored = (entries as Array<{ title: string; content: string }>).map((e) => {
-      const text = `${e.title} ${e.content}`.toLowerCase();
-      const score = queryWords.reduce((n, w) => n + (text.includes(w) ? 1 : 0), 0);
-      return { ...e, score };
+    const queryWords = query.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+
+    const scored = (entries as Array<{ title: string; content: string; tags?: string[]; priority?: number }>).map((e) => {
+      const titleLower = e.title.toLowerCase();
+      const contentLower = e.content.toLowerCase();
+      const tagsText = (e.tags ?? []).join(' ').toLowerCase();
+      const combined = `${titleLower} ${tagsText} ${contentLower}`;
+
+      let score = (e.priority ?? 0) * 0.1; // base priority weight
+      for (const w of queryWords) {
+        if (titleLower.includes(w)) score += 3;       // title match = strongest
+        else if (tagsText.includes(w)) score += 2;    // tag match = strong
+        else if (contentLower.includes(w)) score += 1; // content match = weaker
+      }
+      return { title: e.title, content: e.content, score };
     });
 
-    // Take top 4 most relevant (or all if < 4)
     const top = scored
       .sort((a, b) => b.score - a.score)
-      .slice(0, 4)
-      .map((e) => `**${e.title}**\n${e.content}`)
+      .slice(0, 5)
+      .filter((e) => e.score > 0 || entries.length <= 5)
+      .map((e) => `## ${e.title}\n${e.content}`)
       .join('\n\n');
 
     return top;
