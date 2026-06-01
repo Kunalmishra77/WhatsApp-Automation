@@ -13,6 +13,7 @@ import { QuickReplies } from '../QuickReplies';
 import { BusinessHours } from '../BusinessHours';
 import { ApiKeys } from '../ApiKeys';
 import { AuditLogs } from '../AuditLogs';
+import { SlaSettings } from '../SlaSettings';
 
 export function SettingsLayout() {
   return (
@@ -36,6 +37,7 @@ export function SettingsLayout() {
           <TabsTrigger value="business-hours">Business Hours</TabsTrigger>
           <TabsTrigger value="api-keys">API Keys</TabsTrigger>
           <TabsTrigger value="audit-logs">Audit Logs</TabsTrigger>
+          <TabsTrigger value="sla">SLA</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile">
@@ -73,6 +75,9 @@ export function SettingsLayout() {
         </TabsContent>
         <TabsContent value="audit-logs">
           <AuditLogs />
+        </TabsContent>
+        <TabsContent value="sla">
+          <SlaSettings />
         </TabsContent>
       </Tabs>
     </div>

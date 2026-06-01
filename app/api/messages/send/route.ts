@@ -107,6 +107,19 @@ export async function POST(request: NextRequest) {
       .update({ status: 'sent', whatsapp_msg_id: waMessageId ?? null })
       .eq('id', message.id);
 
+    // SLA: record first_replied_at if not set yet
+    const { data: conv } = await adminDb
+      .from('conversations')
+      .select('first_replied_at')
+      .eq('id', conversationId)
+      .single();
+    if (!conv?.first_replied_at) {
+      await adminDb
+        .from('conversations')
+        .update({ first_replied_at: new Date().toISOString() })
+        .eq('id', conversationId);
+    }
+
     return NextResponse.json({ success: true, messageId: message.id, waMessageId });
   } catch (error) {
     if (error instanceof SyntaxError) {

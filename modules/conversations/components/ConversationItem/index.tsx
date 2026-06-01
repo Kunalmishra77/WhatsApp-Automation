@@ -60,6 +60,11 @@ export function ConversationItem({ conversation, isActive, onClick }: Conversati
           {conversation.last_message ?? 'No messages yet'}
         </p>
         <div className="mt-1 flex items-center gap-1.5">
+          {(conversation as any).sla_first_breach && (
+            <Badge className="h-4 px-1.5 text-[10px] bg-red-100 text-red-700 border-red-200" variant="outline">
+              ⚠️ SLA
+            </Badge>
+          )}
           {conversation.unread_count > 0 && (
             <Badge className="h-4 min-w-4 rounded-full bg-brand-500 px-1 text-[10px] text-white">
               {conversation.unread_count}
