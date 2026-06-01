@@ -16,9 +16,10 @@ import { useWorkspaceStore } from '@/store/workspace.store';
 
 interface ChatWindowProps {
   conversationId: string;
+  panelToggle?: React.ReactNode;
 }
 
-export function ChatWindow({ conversationId }: ChatWindowProps) {
+export function ChatWindow({ conversationId, panelToggle }: ChatWindowProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
@@ -49,7 +50,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <ConversationHeader conversation={conversation} />
+      <ConversationHeader conversation={conversation} panelToggle={panelToggle} />
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {isLoading ? (

@@ -21,6 +21,7 @@ import type { ConversationWithContact } from '../../services/conversation.servic
 
 interface ConversationHeaderProps {
   conversation: ConversationWithContact;
+  panelToggle?: React.ReactNode;
 }
 
 interface WorkspaceMember {
@@ -41,7 +42,7 @@ const STATUS_BADGE: Record<string, string> = {
   snoozed:  'bg-gray-100 text-gray-500',
 };
 
-export function ConversationHeader({ conversation }: ConversationHeaderProps) {
+export function ConversationHeader({ conversation, panelToggle }: ConversationHeaderProps) {
   const queryClient = useQueryClient();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
@@ -247,6 +248,8 @@ export function ConversationHeader({ conversation }: ConversationHeaderProps) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {panelToggle}
       </div>
     </div>
   );
