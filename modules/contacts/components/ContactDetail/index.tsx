@@ -7,10 +7,18 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Phone, Mail, Building2, Globe, Tag, Pencil, Trash2, Ban, X } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Phone, Mail, Building2, Globe, Tag, Pencil, Trash2, Ban, X, ListChecks } from 'lucide-react';
 import { format } from 'date-fns';
 import { useContact, useUpdateContact, useDeleteContact } from '../../hooks/useContacts';
 import { ContactForm } from '../ContactForm';
+import { useSequences } from '@/modules/settings/hooks/useSequences';
 import { toast } from 'sonner';
 
 interface ContactDetailProps {
@@ -33,9 +41,12 @@ function Row({ icon: Icon, label, value }: { icon: React.ElementType; label: str
 
 export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
   const [editOpen, setEditOpen] = useState(false);
+  const [selectedSeqId, setSelectedSeqId] = useState('');
+  const [enrolling, setEnrolling] = useState(false);
   const { data: contact, isLoading } = useContact(contactId);
   const update = useUpdateContact();
   const remove = useDeleteContact();
+  const { data: sequences = [] } = useSequences();
 
   if (isLoading) {
     return (
@@ -53,6 +64,26 @@ export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
   const toggleBlock = async () => {
     await update.mutateAsync({ id: contact.id, payload: { is_blocked: !contact.is_blocked } });
     toast.success(contact.is_blocked ? 'Contact unblocked' : 'Contact blocked');
+  };
+
+  const handleEnroll = async () => {
+    if (!selectedSeqId) { toast.error('Select a sequence first'); return; }
+    setEnrolling(true);
+    try {
+      const res = await fetch(`/api/sequences/${selectedSeqId}/enroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contactId }),
+      });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Enrollment failed');
+      toast.success('Contact enrolled in sequence');
+      setSelectedSeqId('');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Enrollment failed');
+    } finally {
+      setEnrolling(false);
+    }
   };
 
   const handleDelete = async () => {
@@ -128,6 +159,39 @@ export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
                     </Badge>
                   ))}
                 </div>
+              </div>
+            </>
+          )}
+
+          {sequences.length > 0 && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                  <ListChecks className="h-3.5 w-3.5" />
+                  Enroll in Sequence
+                </p>
+                <Select value={selectedSeqId} onValueChange={setSelectedSeqId}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Select a sequence…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sequences.filter((s) => s.is_active).map((s) => (
+                      <SelectItem key={s.id} value={s.id} className="text-xs">
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full text-xs gap-1.5"
+                  onClick={() => void handleEnroll()}
+                  disabled={!selectedSeqId || enrolling}
+                >
+                  {enrolling ? 'Enrolling…' : 'Enroll'}
+                </Button>
               </div>
             </>
           )}
