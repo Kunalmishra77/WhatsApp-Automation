@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/services/supabase/server';
 import { authzResponse } from '@/lib/authz';
 
+export const maxDuration = 30; // seconds — requires Pro; on Hobby capped at 10s
+
 export async function POST(request: NextRequest) {
   try {
     const { text, conversationId } = await request.json() as {
@@ -23,30 +25,43 @@ export async function POST(request: NextRequest) {
 
     if (!apiKey) return NextResponse.json({ error: 'AI not configured' }, { status: 503 });
 
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
-        'X-Title': 'Agentix',
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are a translation assistant. Translate the given text to English. Also detect the source language. Reply with ONLY a JSON object in this exact format: {"translated": "...", "detectedLang": "..."} where detectedLang is the ISO 639-1 code (e.g. "hi", "es", "ar"). If text is already English, set detectedLang to "en" and translated to the original text.',
-          },
-          { role: 'user', content: text },
-        ],
-        max_tokens: 500,
-        temperature: 0,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        signal: AbortSignal.timeout(8000), // 8s — stays under Vercel Hobby 10s limit
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
+          'X-Title': 'Agentix',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are a translation assistant. Translate the given text to English. Also detect the source language. Reply with ONLY a JSON object in this exact format: {"translated": "...", "detectedLang": "..."} where detectedLang is the ISO 639-1 code (e.g. "hi", "es", "ar"). If text is already English, set detectedLang to "en" and translated to the original text.',
+            },
+            { role: 'user', content: text },
+          ],
+          max_tokens: 300,
+          temperature: 0,
+        }),
+      });
+    } catch (fetchErr) {
+      const isTimeout = fetchErr instanceof Error && fetchErr.name === 'TimeoutError';
+      console.error('[Translate] Fetch error:', fetchErr);
+      return NextResponse.json(
+        { error: isTimeout ? 'AI request timed out' : 'AI request failed' },
+        { status: 502 },
+      );
+    }
 
     if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.error('[Translate] OpenRouter error:', res.status, errText);
       return NextResponse.json({ error: 'AI request failed' }, { status: 502 });
     }
 

@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/services/supabase/server';
 import { authzResponse, requireWorkspacePermission } from '@/lib/authz';
 
+export const maxDuration = 30;
+
 export async function POST(request: NextRequest) {
   try {
     const { conversationId } = await request.json() as { conversationId?: string };
@@ -72,6 +74,7 @@ export async function POST(request: NextRequest) {
 
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
+      signal: AbortSignal.timeout(8000),
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
