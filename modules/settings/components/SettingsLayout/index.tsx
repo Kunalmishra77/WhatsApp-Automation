@@ -7,6 +7,7 @@ import { WhatsAppSettings } from '../WhatsAppSettings';
 import { InboxRules } from '../InboxRules';
 import { FollowUpSequences } from '../FollowUpSequences';
 import { IntegrationSettings } from '../IntegrationSettings';
+import { KnowledgeBase } from '../KnowledgeBase';
 
 export function SettingsLayout() {
   return (
@@ -24,6 +25,7 @@ export function SettingsLayout() {
           <TabsTrigger value="inbox-rules">Inbox Rules</TabsTrigger>
           <TabsTrigger value="sequences">Follow-Up</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
+          <TabsTrigger value="knowledge-base">Knowledge Base</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile">
@@ -43,6 +45,9 @@ export function SettingsLayout() {
         </TabsContent>
         <TabsContent value="integrations">
           <IntegrationSettings />
+        </TabsContent>
+        <TabsContent value="knowledge-base">
+          <KnowledgeBase />
         </TabsContent>
       </Tabs>
     </div>

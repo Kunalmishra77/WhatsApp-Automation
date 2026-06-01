@@ -526,7 +526,43 @@ async function categorizeMessage(content: string): Promise<string | null> {
   }
 }
 
-async function getAIReply(customerMessage: string, customerName: string): Promise<string | null> {
+async function fetchKnowledgeBaseContext(
+  supabase: AdminClient,
+  workspaceId: string,
+  query: string,
+): Promise<string> {
+  try {
+    const { data: entries } = await (supabase as any)
+      .from('knowledge_base')
+      .select('title, content')
+      .eq('workspace_id', workspaceId)
+      .eq('is_active', true)
+      .limit(10);
+
+    if (!entries || entries.length === 0) return '';
+
+    // Simple relevance: prefer entries whose title/content overlaps with query words
+    const queryWords = query.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+    const scored = (entries as Array<{ title: string; content: string }>).map((e) => {
+      const text = `${e.title} ${e.content}`.toLowerCase();
+      const score = queryWords.reduce((n, w) => n + (text.includes(w) ? 1 : 0), 0);
+      return { ...e, score };
+    });
+
+    // Take top 4 most relevant (or all if < 4)
+    const top = scored
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4)
+      .map((e) => `**${e.title}**\n${e.content}`)
+      .join('\n\n');
+
+    return top;
+  } catch {
+    return '';
+  }
+}
+
+async function getAIReply(customerMessage: string, customerName: string, kbContext = ''): Promise<string | null> {
   const apiKey = process.env.OPENROUTER_API_KEY?.replace(/\uFEFF/g, '').trim();
   const model  = process.env.AI_MODEL?.trim() ?? 'openai/gpt-oss-120b:free';
 
@@ -535,10 +571,14 @@ async function getAIReply(customerMessage: string, customerName: string): Promis
     return null;
   }
 
+  const kbSection = kbContext
+    ? `\n\nKNOWLEDGE BASE \u2014 use this to answer accurately:\n${kbContext}\n\nIf the answer is in the knowledge base, use it. If not, give a helpful general response.`
+    : '';
+
   const systemPrompt = `You are a helpful customer support assistant for V4TOU Tech.
 Reply in the same language the customer uses (Hindi, English, etc.).
 Be friendly, professional, and concise \u2014 max 3 sentences.
-Customer name: ${customerName}`;
+Customer name: ${customerName}${kbSection}`;
 
   try {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -601,9 +641,13 @@ async function sendAutoReply(
   if (!ws?.phone_number_id || !ws?.access_token) return;
 
   const name = customerName !== toPhone ? (customerName.split(' ')[0] ?? customerName) : 'there';
+
+  // Fetch active KB entries for this workspace to inject as context
+  const kbContext = await fetchKnowledgeBaseContext(supabase, workspaceId, customerMessage);
+
   const message = isEscalation
     ? ESCALATION_REPLY
-    : (await getAIReply(customerMessage, name)
+    : (await getAIReply(customerMessage, name, kbContext)
       ?? `Hello ${name}, thanks for reaching out to V4TOU Tech. Our team received your message and will get back to you shortly.`);
 
   try {
