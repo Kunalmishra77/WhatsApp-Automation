@@ -13,7 +13,8 @@ export function useFlows() {
     queryKey: ['flows', workspaceId],
     queryFn: () => fetchFlows(workspaceId!),
     enabled: !!workspaceId,
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 }
 

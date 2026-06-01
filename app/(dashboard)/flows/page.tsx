@@ -1,8 +1,9 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { GitBranch, Plus, Pencil, Trash2, Zap, ZapOff } from 'lucide-react';
+import { GitBranch, Plus, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -11,14 +12,15 @@ import {
   DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { useFlows, useCreateFlow, useDeleteFlow } from '@/modules/flows/hooks/useFlows';
+import { useFlows, useCreateFlow, useDeleteFlow, useUpdateFlow } from '@/modules/flows/hooks/useFlows';
 import type { ChatbotFlow } from '@/modules/flows/types';
 
 export default function FlowsPage() {
   const router = useRouter();
   const { data: flows = [], isLoading } = useFlows();
-  const createFlow = useCreateFlow();
-  const deleteFlow = useDeleteFlow();
+  const createFlow  = useCreateFlow();
+  const deleteFlow  = useDeleteFlow();
+  const updateFlow  = useUpdateFlow();
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const handleCreate = async () => {
@@ -100,17 +102,23 @@ export default function FlowsPage() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    {flow.is_active ? (
-                      <Badge variant="outline" className="text-emerald-600 border-emerald-300 gap-1">
-                        <Zap className="h-3 w-3" />
-                        Active
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={flow.is_active}
+                        disabled={updateFlow.isPending}
+                        onCheckedChange={(val) =>
+                          void updateFlow.mutateAsync({ id: flow.id, patch: { is_active: val } })
+                        }
+                      />
+                      <Badge
+                        variant="outline"
+                        className={flow.is_active
+                          ? 'text-emerald-600 border-emerald-300'
+                          : 'text-gray-500 border-gray-300'}
+                      >
+                        {flow.is_active ? 'Active' : 'Inactive'}
                       </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-gray-500 border-gray-300 gap-1">
-                        <ZapOff className="h-3 w-3" />
-                        Inactive
-                      </Badge>
-                    )}
+                    </div>
                   </TableCell>
                   <TableCell>{(flow.nodes ?? []).length}</TableCell>
                   <TableCell className="text-muted-foreground text-xs">
