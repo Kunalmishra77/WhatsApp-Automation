@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
         workspace_id: workspaceId,
         name: name.trim(),
         url: url.trim(),
-        secret: secret?.trim() || null,
+        secret: secret?.trim() ?? null,
         events: validatedEvents,
       })
       .select()
@@ -99,9 +99,9 @@ export async function PATCH(request: NextRequest) {
     await requireWorkspacePermission(workspaceId, 'manage_workspace');
 
     const updates: Record<string, unknown> = {};
-    if (name !== undefined) updates.name = name.trim();
-    if (url !== undefined) updates.url = url.trim();
-    if (secret !== undefined) updates.secret = secret.trim() || null;
+    if (name !== undefined) updates.name = name?.trim();
+    if (url !== undefined) updates.url = url?.trim();
+    if (secret !== undefined) updates.secret = secret?.trim() || null;
     if (events !== undefined) updates.events = events.filter((e) => VALID_EVENTS.includes(e as WebhookEvent));
     if (isActive !== undefined) { updates.is_active = isActive; updates.failure_count = 0; }
 
