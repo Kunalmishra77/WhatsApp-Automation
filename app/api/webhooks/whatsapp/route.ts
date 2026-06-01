@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { createAdminClient } from '@/services/supabase/admin';
 import { getRequiredSecret } from '@/lib/supabase-env';
 import { applyInboxRules } from '@/lib/inbox-rules-engine';
+import { processFlowForMessage } from '@/lib/flow-engine';
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -294,6 +295,23 @@ async function handleIncomingMessage(
       wsForRules.phone_number_id,
       wsForRules.access_token,
     );
+
+    // Try flow engine — if a flow handles this message, skip AI auto-reply
+    const flowHandled = await processFlowForMessage(
+      supabase,
+      workspaceId,
+      conversation.id,
+      contactId,
+      content,
+      wsForRules.phone_number_id,
+      wsForRules.access_token,
+      waId,
+    );
+
+    if (flowHandled) {
+      console.log(`[Webhook] Flow handled message for conversation ${conversation.id}`);
+      return;
+    }
   }
 
   // Escalation detection — check BEFORE calling AI auto-reply

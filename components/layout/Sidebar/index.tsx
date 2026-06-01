@@ -4,7 +4,7 @@ import Link from 'next/link';
 import {
   MessageSquare, Users, Kanban, Megaphone, FileText,
   BarChart3, Settings, UserCircle, ChevronLeft, ChevronRight,
-  Users2,
+  Users2, GitBranch,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,7 @@ const NAV_ITEMS: Array<{ href: string; icon: LucideIcon; label: string }> = [
   { href: '/crm',           icon: Kanban,        label: 'CRM Pipeline'  },
   { href: '/campaigns',     icon: Megaphone,     label: 'Campaigns'     },
   { href: '/templates',     icon: FileText,      label: 'Templates'     },
+  { href: '/flows',         icon: GitBranch,     label: 'Flows'         },
   { href: '/team',          icon: Users2,        label: 'Team'          },
   { href: '/analytics',     icon: BarChart3,     label: 'Analytics'     },
 ];
