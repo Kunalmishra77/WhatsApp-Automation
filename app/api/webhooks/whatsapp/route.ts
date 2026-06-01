@@ -280,6 +280,14 @@ async function handleIncomingMessage(
   }
   // ─────────────────────────────────────────────────────────────────────────────
 
+  // ── Order status detection ──────────────────────────────────────────────────
+  const orderHandled = await checkAndHandleOrderQuery(supabase, waId, workspaceId, content);
+  if (orderHandled) {
+    console.log(`[Webhook] Order status query handled for ${waId}`);
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // ── CSAT reply detection (before rules/flow/AI) ─────────────────────────────
   const csatHandled = await checkAndHandleCsatReply(
     supabase,
@@ -647,6 +655,88 @@ async function sendAutoReply(
   } catch (error) {
     console.error('[AutoReply] Failed:', error);
   }
+}
+
+// Regex to detect order reference in a message (e.g. "order 12345", "#ORD-001", "order no. ABC")
+const ORDER_PATTERN = /(?:order|ord(?:er)?\s*(?:no\.?|#|id)?)\s*[:#]?\s*([A-Za-z0-9_-]{3,30})/i;
+
+async function checkAndHandleOrderQuery(
+  supabase: AdminClient,
+  contactPhone: string,
+  workspaceId: string,
+  content: string,
+): Promise<boolean> {
+  if (!content) return false;
+
+  const match = ORDER_PATTERN.exec(content);
+  if (!match) return false;
+
+  const orderRef = match[1];
+  const db = supabase as any;
+
+  const { data: order } = await db
+    .from('orders')
+    .select('order_ref, status, items_summary, expected_at, notes')
+    .eq('workspace_id', workspaceId)
+    .eq('order_ref', orderRef)
+    .maybeSingle();
+
+  if (!order) return false; // Order not found — let normal AI flow handle it
+
+  const statusEmoji: Record<string, string> = {
+    pending:          '⏳',
+    confirmed:        '✅',
+    processing:       '🔄',
+    shipped:          '📦',
+    out_for_delivery: '🚚',
+    delivered:        '✅',
+    cancelled:        '❌',
+    refunded:         '💰',
+  };
+
+  const emoji = statusEmoji[order.status as string] ?? '📋';
+  const expectedLine = order.expected_at
+    ? `\nExpected: ${new Date(order.expected_at as string).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+    : '';
+  const notesLine = order.notes ? `\n${order.notes as string}` : '';
+
+  const replyText =
+    `${emoji} Order Update for #${orderRef}\n` +
+    `Status: ${(order.status as string).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}` +
+    expectedLine + notesLine;
+
+  const { data: ws } = await supabase
+    .from('workspaces')
+    .select('phone_number_id, access_token')
+    .eq('id', workspaceId)
+    .single();
+
+  if (!ws?.phone_number_id || !ws?.access_token) return false;
+
+  try {
+    await fetch(
+      `https://graph.facebook.com/v19.0/${ws.phone_number_id as string}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${(ws.access_token as string).replace(/﻿/g, '').trim()}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: contactPhone,
+          type: 'text',
+          text: { preview_url: false, body: replyText },
+        }),
+      },
+    );
+  } catch (err) {
+    console.error('[OrderBot] Failed to send reply:', err);
+    return false;
+  }
+
+  return true;
 }
 
 async function checkAndHandleCsatReply(
