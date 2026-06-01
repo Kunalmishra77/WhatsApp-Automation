@@ -24,9 +24,17 @@ import {
   MessageCircle,
   UserPlus,
   Star,
+  Download,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useAnalyticsOverview, useAgentPerformance, type AgentStat } from '../../hooks/useAnalytics';
 import {
@@ -37,6 +45,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { useWorkspaceStore } from '@/store/workspace.store';
 
 // ── Brand colours ─────────────────────────────────────────────────────────────
 const BRAND   = '#6366f1';
@@ -297,6 +306,16 @@ function renderCustomLabel({
 export function AnalyticsDashboard() {
   const [range, setRange] = useState<Range>('30d');
   const { from, to } = buildDates(range);
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
+
+  const handleExport = (type: string) => {
+    if (!workspaceId) return;
+    const url = `/api/reports/export?workspaceId=${workspaceId}&type=${type}&from=${from}&to=${to}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${type}-${from}-${to}.csv`;
+    a.click();
+  };
 
   const { data, isLoading, isError } = useAnalyticsOverview(from, to);
   const { data: agentData, isLoading: agentsLoading } = useAgentPerformance(from, to);
@@ -324,22 +343,45 @@ export function AnalyticsDashboard() {
           </p>
         </div>
 
-        {/* Date range selector */}
-        <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-1 w-fit">
-          {(['7d', '30d', '90d'] as Range[]).map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={cn(
-                'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-                range === r
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {r === '7d' ? '7 days' : r === '30d' ? '30 days' : '90 days'}
-            </button>
-          ))}
+        {/* Controls: date range selector + export */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-1">
+            {(['7d', '30d', '90d'] as Range[]).map((r) => (
+              <button
+                key={r}
+                onClick={() => setRange(r)}
+                className={cn(
+                  'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                  range === r
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {r === '7d' ? '7 days' : r === '30d' ? '30 days' : '90 days'}
+              </button>
+            ))}
+          </div>
+
+          {/* Export dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5">
+                <Download className="h-3.5 w-3.5" />
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => handleExport('conversations')}>
+                Export Conversations (CSV)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExport('messages')}>
+                Export Messages (CSV)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExport('contacts')}>
+                Export Contacts (CSV)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
