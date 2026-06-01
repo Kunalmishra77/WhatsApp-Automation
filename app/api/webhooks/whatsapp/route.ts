@@ -6,6 +6,7 @@ import { applyInboxRules } from '@/lib/inbox-rules-engine';
 import { processFlowForMessage } from '@/lib/flow-engine';
 import { dispatchWebhookEvent } from '@/lib/outbound-webhook';
 import { checkAutoReplyLimit } from '@/lib/rate-limit';
+import { isWithinBusinessHours, type BusinessHoursConfig } from '@/app/api/business-hours/route';
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -419,6 +420,31 @@ async function handleIncomingMessage(
 
       console.log(`[Webhook] AI sentiment escalation detected for conversation ${conversation.id}`);
     }
+  }
+
+  // Business hours check
+  const { data: bhConfig } = await (supabase as any)
+    .from('business_hours')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+
+  if (bhConfig?.is_enabled && !isWithinBusinessHours(bhConfig as BusinessHoursConfig)) {
+    // Outside business hours — send away message and skip AI
+    const { data: ws } = await supabase.from('workspaces').select('phone_number_id, access_token').eq('id', workspaceId).single();
+    if (ws?.phone_number_id && ws?.access_token) {
+      const token = (ws.access_token as string).replace(/﻿/g, '').trim();
+      await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp', recipient_type: 'individual', to: waId,
+          type: 'text', text: { preview_url: false, body: bhConfig.away_message },
+        }),
+      }).catch(() => {});
+    }
+    console.log(`[AutoReply] Outside business hours — sent away message to ${waId}`);
+    return;
   }
 
   // Rate limit: max 1 auto-reply per 30s per contact

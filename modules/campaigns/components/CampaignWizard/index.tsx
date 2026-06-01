@@ -22,8 +22,9 @@ const STEPS = ['Name & Setup', 'Select Template', 'Audience', 'Schedule', 'Revie
 interface WizardState {
   name:          string;
   templateId:    string;
-  audienceType:  'all' | 'tag';
+  audienceType:  'all' | 'tag' | 'tags';
   audienceTag:   string;
+  audienceTags:  string; // comma-separated
   scheduledAt:   string;
 }
 
@@ -35,7 +36,7 @@ interface CampaignWizardProps {
 export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<WizardState>({
-    name: '', templateId: '', audienceType: 'all', audienceTag: '', scheduledAt: '',
+    name: '', templateId: '', audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '',
   });
   const { data: templates = [] } = useTemplates();
   const create = useCreateCampaign();
@@ -55,12 +56,16 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
         name:            state.name,
         template_id:     state.templateId,
         audience_type:   state.audienceType,
-        audience_filter: state.audienceType === 'tag' ? { tag: state.audienceTag } : {},
+        audience_filter: state.audienceType === 'tag'
+          ? { tag: state.audienceTag }
+          : state.audienceType === 'tags'
+            ? { tags: state.audienceTags.split(',').map((t) => t.trim()).filter(Boolean) }
+            : {},
         scheduled_at:    state.scheduledAt || undefined,
       });
       toast.success('Campaign created successfully!');
       setStep(0);
-      setState({ name: '', templateId: '', audienceType: 'all', audienceTag: '', scheduledAt: '' });
+      setState({ name: '', templateId: '', audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '' });
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create campaign');
@@ -69,7 +74,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
 
   const handleClose = () => {
     setStep(0);
-    setState({ name: '', templateId: '', audienceType: 'all', audienceTag: '', scheduledAt: '' });
+    setState({ name: '', templateId: '', audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '' });
     onClose();
   };
 
@@ -147,17 +152,19 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
 
           {step === 2 && (
             <div className="space-y-3">
-              <Label>Audience</Label>
+              <Label>Audience Segment</Label>
               <Select
                 value={state.audienceType}
                 onValueChange={(v) => setState((s) => ({ ...s, audienceType: v as WizardState['audienceType'] }))}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Contacts</SelectItem>
-                  <SelectItem value="tag">Filter by Tag</SelectItem>
+                  <SelectItem value="all">🌍 All Contacts</SelectItem>
+                  <SelectItem value="tag">🏷️ Single Tag</SelectItem>
+                  <SelectItem value="tags">🏷️🏷️ Multiple Tags (OR)</SelectItem>
                 </SelectContent>
               </Select>
+
               {state.audienceType === 'tag' && (
                 <div className="space-y-1.5">
                   <Label htmlFor="tag">Tag Name</Label>
@@ -165,8 +172,28 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                     id="tag"
                     value={state.audienceTag}
                     onChange={(e) => setState((s) => ({ ...s, audienceTag: e.target.value }))}
-                    placeholder="vip, leads, etc."
+                    placeholder="e.g. vip"
                   />
+                  <p className="text-[11px] text-muted-foreground">Sends to all contacts with this exact tag.</p>
+                </div>
+              )}
+
+              {state.audienceType === 'tags' && (
+                <div className="space-y-1.5">
+                  <Label>Tags (comma separated)</Label>
+                  <Input
+                    value={state.audienceTags}
+                    onChange={(e) => setState((s) => ({ ...s, audienceTags: e.target.value }))}
+                    placeholder="e.g. vip, premium, leads"
+                  />
+                  <p className="text-[11px] text-muted-foreground">Sends to contacts with ANY of these tags (OR logic).</p>
+                  {state.audienceTags && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {state.audienceTags.split(',').map((t) => t.trim()).filter(Boolean).map((tag) => (
+                        <span key={tag} className="text-[10px] bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">{tag}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -189,7 +216,11 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
               <div className="rounded-lg border border-border p-4 space-y-2">
                 <div className="flex justify-between"><span className="text-muted-foreground">Name</span><span className="font-medium">{state.name}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Template</span><span className="font-mono text-xs">{selectedTemplate?.name ?? '—'}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Audience</span><span className="font-medium capitalize">{state.audienceType === 'tag' ? `Tag: ${state.audienceTag}` : 'All Contacts'}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Audience</span><span className="font-medium capitalize">
+                  {state.audienceType === 'all' && 'All Contacts'}
+                  {state.audienceType === 'tag' && `Tag: ${state.audienceTag}`}
+                  {state.audienceType === 'tags' && `Tags: ${state.audienceTags}`}
+                </span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Schedule</span><span className="font-medium">{state.scheduledAt ? new Date(state.scheduledAt).toLocaleString() : 'Draft'}</span></div>
               </div>
             </div>

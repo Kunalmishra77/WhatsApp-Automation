@@ -119,6 +119,14 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
   if (campaign.audience_type === 'tag' && campaign.audience_filter?.tag) {
     contactQuery = contactQuery.contains('tags', [campaign.audience_filter.tag]);
+  } else if (campaign.audience_type === 'tags' && Array.isArray(campaign.audience_filter?.tags) && campaign.audience_filter.tags.length > 0) {
+    // Multiple tags — contact must have ANY of the selected tags (OR logic)
+    const tagFilters = (campaign.audience_filter.tags as string[])
+      .map((t: string) => `tags.cs.{"${t}"}`)
+      .join(',');
+    contactQuery = contactQuery.or(tagFilters);
+  } else if (campaign.audience_type === 'phone_prefix' && campaign.audience_filter?.prefix) {
+    contactQuery = contactQuery.ilike('phone', `${campaign.audience_filter.prefix}%`);
   }
 
   const { data: contacts } = await contactQuery as { data: Contact[] | null };

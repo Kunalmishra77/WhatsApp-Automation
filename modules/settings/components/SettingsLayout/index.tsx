@@ -10,6 +10,7 @@ import { IntegrationSettings } from '../IntegrationSettings';
 import { KnowledgeBase } from '../KnowledgeBase';
 import { WebhookSettings } from '../WebhookSettings';
 import { QuickReplies } from '../QuickReplies';
+import { BusinessHours } from '../BusinessHours';
 
 export function SettingsLayout() {
   return (
@@ -30,6 +31,7 @@ export function SettingsLayout() {
           <TabsTrigger value="knowledge-base">Knowledge Base</TabsTrigger>
           <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
           <TabsTrigger value="quick-replies">Quick Replies</TabsTrigger>
+          <TabsTrigger value="business-hours">Business Hours</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile">
@@ -58,6 +60,9 @@ export function SettingsLayout() {
         </TabsContent>
         <TabsContent value="quick-replies">
           <QuickReplies />
+        </TabsContent>
+        <TabsContent value="business-hours">
+          <BusinessHours />
         </TabsContent>
       </Tabs>
     </div>
