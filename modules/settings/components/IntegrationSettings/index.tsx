@@ -6,13 +6,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { IndianRupee, Eye, EyeOff } from 'lucide-react';
+import { IndianRupee, Eye, EyeOff, ShoppingCart } from 'lucide-react';
 import { toast } from 'sonner';
 import { useWorkspaceStore } from '@/store/workspace.store';
 
 interface WorkspaceSettings {
   razorpay_key_id?: string;
   razorpay_key_secret?: string;
+  shopify_webhook_secret?: string;
 }
 
 export function IntegrationSettings() {
@@ -22,6 +23,8 @@ export function IntegrationSettings() {
   const [showSecret, setShowSecret] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [shopifySecret, setShopifySecret] = useState('');
+  const [savingShopify, setSavingShopify] = useState(false);
 
   useEffect(() => {
     if (!workspace?.id || loaded) return;
@@ -32,6 +35,7 @@ export function IntegrationSettings() {
         const s = data.workspace?.settings ?? {};
         setKeyId(s.razorpay_key_id ?? '');
         setKeySecret(s.razorpay_key_secret ?? '');
+        setShopifySecret(s.shopify_webhook_secret ?? '');
         setLoaded(true);
       })
       .catch(() => {
@@ -63,6 +67,21 @@ export function IntegrationSettings() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveShopify = async () => {
+    if (!workspace?.id) return;
+    setSavingShopify(true);
+    try {
+      const res = await fetch('/api/settings/workspace', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId: workspace.id, settings: { shopify_webhook_secret: shopifySecret } }),
+      });
+      if (!res.ok) throw new Error('Failed to save');
+      toast.success('Shopify settings saved');
+    } catch { toast.error('Failed to save'); }
+    finally { setSavingShopify(false); }
   };
 
   const isConfigured = !!(keyId && keySecret);
@@ -139,6 +158,47 @@ export function IntegrationSettings() {
             {saving ? 'Saving…' : 'Save Razorpay Keys'}
           </Button>
         </div>
+      </div>
+
+      <Separator />
+
+      {/* Shopify */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-green-100">
+            <ShoppingCart className="h-5 w-5 text-green-700" />
+          </div>
+          <div>
+            <p className="font-medium text-sm">Shopify</p>
+            <p className="text-xs text-muted-foreground">Auto-send WhatsApp messages on orders, shipping, and abandoned carts</p>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3 text-xs">
+          <p className="font-medium text-sm">Setup Instructions</p>
+          <ol className="space-y-1.5 text-muted-foreground list-decimal list-inside">
+            <li>Shopify Admin → Settings → Notifications → Webhooks</li>
+            <li>Add webhook for each event you want (orders/create, orders/fulfilled, etc.)</li>
+            <li>Webhook URL: <code className="bg-muted px-1.5 py-0.5 rounded break-all">https://whatsapp-automation-kohl-six.vercel.app/api/integrations/shopify?workspaceId={workspace?.id ?? 'YOUR_WORKSPACE_ID'}</code></li>
+            <li>Copy the "Signing secret" from Shopify and paste below</li>
+          </ol>
+          <p className="text-muted-foreground"><strong>Events supported:</strong> orders/create, orders/fulfilled, orders/paid, orders/cancelled, checkouts/create (abandoned cart)</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Shopify Webhook Signing Secret</Label>
+          <Input
+            value={shopifySecret}
+            onChange={(e) => setShopifySecret(e.target.value)}
+            placeholder="shpss_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            className="font-mono text-sm"
+          />
+          <p className="text-xs text-muted-foreground">Found in Shopify Admin → Settings → Notifications → Webhooks → signing secret</p>
+        </div>
+
+        <Button size="sm" onClick={() => void handleSaveShopify()} disabled={savingShopify}>
+          {savingShopify ? 'Saving…' : 'Save Shopify Settings'}
+        </Button>
       </div>
     </div>
   );

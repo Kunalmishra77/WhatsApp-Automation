@@ -12,6 +12,7 @@ import { WebhookSettings } from '../WebhookSettings';
 import { QuickReplies } from '../QuickReplies';
 import { BusinessHours } from '../BusinessHours';
 import { ApiKeys } from '../ApiKeys';
+import { AuditLogs } from '../AuditLogs';
 
 export function SettingsLayout() {
   return (
@@ -34,6 +35,7 @@ export function SettingsLayout() {
           <TabsTrigger value="quick-replies">Quick Replies</TabsTrigger>
           <TabsTrigger value="business-hours">Business Hours</TabsTrigger>
           <TabsTrigger value="api-keys">API Keys</TabsTrigger>
+          <TabsTrigger value="audit-logs">Audit Logs</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile">
@@ -68,6 +70,9 @@ export function SettingsLayout() {
         </TabsContent>
         <TabsContent value="api-keys">
           <ApiKeys />
+        </TabsContent>
+        <TabsContent value="audit-logs">
+          <AuditLogs />
         </TabsContent>
       </Tabs>
     </div>
