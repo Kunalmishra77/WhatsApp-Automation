@@ -1,11 +1,15 @@
+'use client';
+
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { Check, CheckCheck, Clock, List } from 'lucide-react';
+import { Check, CheckCheck, Clock, List, Languages, Loader2 } from 'lucide-react';
+import { useState } from 'react';
 import type { MessageRow } from '../../services/message.service';
 import type { Json } from '@/types/database.types';
 
 interface MessageBubbleProps {
   message: MessageRow;
+  conversationId?: string;
 }
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
@@ -38,11 +42,42 @@ function parseInteractiveMeta(meta: Json): InteractiveMetadata | null {
   return meta as unknown as InteractiveMetadata;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
   const isOutbound = message.direction === 'outbound';
   const isNote = message.type === 'internal_note';
   const isInteractive = message.type === 'interactive';
   const time = format(new Date(message.created_at), 'HH:mm');
+
+  const [translated, setTranslated] = useState<string | null>(null);
+  const [showTranslated, setShowTranslated] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [detectedLang, setDetectedLang] = useState<string | null>(null);
+
+  const canTranslate = !isOutbound && !isNote && !isInteractive && !!message.content;
+
+  const handleTranslate = async () => {
+    if (translated) {
+      setShowTranslated((v) => !v);
+      return;
+    }
+    setIsTranslating(true);
+    try {
+      const res = await fetch('/api/ai/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: message.content, conversationId }),
+      });
+      const data = await res.json() as { translated?: string; detectedLang?: string };
+      if (data.translated) {
+        setTranslated(data.translated);
+        setDetectedLang(data.detectedLang ?? null);
+        setShowTranslated(true);
+      }
+    } catch { /* silent */ }
+    setIsTranslating(false);
+  };
+
+  const displayContent = showTranslated && translated ? translated : message.content;
 
   const interactiveMeta = isInteractive ? parseInteractiveMeta(message.metadata) : null;
   const interactiveType = interactiveMeta?.interactive_type;
@@ -50,7 +85,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   const replyButtons = interactiveType === 'button' ? (interactivePayload?.action?.buttons ?? []) : [];
 
   return (
-    <div className={cn('flex', isOutbound ? 'justify-end' : 'justify-start')}>
+    <div className={cn('flex flex-col', isOutbound ? 'items-end' : 'items-start')}>
       <div
         className={cn(
           'relative max-w-[70%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed shadow-sm',
@@ -69,7 +104,6 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
         {isInteractive ? (
           <>
-            {/* Interactive header */}
             {interactivePayload?.header?.text && (
               <div
                 className={cn(
@@ -83,14 +117,12 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               </div>
             )}
 
-            {/* Body */}
             <div className="px-3.5 py-2">
               {message.content && (
                 <p className="whitespace-pre-wrap break-words">{message.content}</p>
               )}
             </div>
 
-            {/* Footer */}
             {interactivePayload?.footer?.text && (
               <div
                 className={cn(
@@ -102,7 +134,6 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               </div>
             )}
 
-            {/* Timestamp row */}
             <div
               className={cn(
                 'px-3.5 pb-2 flex items-center justify-end gap-1',
@@ -113,7 +144,6 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               {isOutbound && STATUS_ICON[message.status]}
             </div>
 
-            {/* Quick reply buttons */}
             {interactiveType === 'button' && replyButtons.length > 0 && (
               <div
                 className={cn(
@@ -136,7 +166,6 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               </div>
             )}
 
-            {/* List indicator */}
             {interactiveType === 'list' && (
               <div
                 className={cn(
@@ -151,8 +180,13 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           </>
         ) : (
           <>
-            {message.content && (
-              <p className="whitespace-pre-wrap break-words">{message.content}</p>
+            {displayContent && (
+              <p className="whitespace-pre-wrap break-words">{displayContent}</p>
+            )}
+            {showTranslated && detectedLang && detectedLang !== 'en' && (
+              <p className="mt-0.5 text-[10px] text-muted-foreground italic">
+                Translated from {detectedLang.toUpperCase()}
+              </p>
             )}
             <div
               className={cn(
@@ -166,6 +200,24 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           </>
         )}
       </div>
+
+      {/* Translate toggle for inbound messages */}
+      {canTranslate && (
+        <button
+          onClick={() => void handleTranslate()}
+          disabled={isTranslating}
+          className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground hover:text-brand-500 transition-colors"
+        >
+          {isTranslating
+            ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            : <Languages className="h-2.5 w-2.5" />}
+          {isTranslating
+            ? 'Translating…'
+            : showTranslated
+              ? 'Show original'
+              : 'Translate'}
+        </button>
+      )}
     </div>
   );
 }

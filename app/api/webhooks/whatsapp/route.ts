@@ -267,6 +267,19 @@ async function handleIncomingMessage(
     throw new Error(messageError.message);
   }
 
+  // ── Non-blocking language detection for contact ────────────────────────────
+  if (content && content.length > 5) {
+    const _contactId = contactId;
+    detectLanguage(content).then(async (lang) => {
+      if (!lang || lang === 'en') return;
+      await (supabase as any)
+        .from('contacts')
+        .update({ language: lang })
+        .eq('id', _contactId);
+    }).catch(() => {});
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // ── CSAT reply detection (before rules/flow/AI) ─────────────────────────────
   const csatHandled = await checkAndHandleCsatReply(
     supabase,
@@ -428,6 +441,42 @@ async function detectNegativeSentiment(message: string): Promise<boolean> {
     return answer === 'true';
   } catch {
     return false;
+  }
+}
+
+async function detectLanguage(content: string): Promise<string | null> {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) return null;
+
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
+        'X-Title': 'Agentix',
+      },
+      body: JSON.stringify({
+        model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free',
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Detect the language of the given text. Reply with ONLY the ISO 639-1 code (e.g. "en", "hi", "es", "ar", "fr"). No explanation.',
+          },
+          { role: 'user', content: content.slice(0, 200) },
+        ],
+        max_tokens: 5,
+        temperature: 0,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const lang = data?.choices?.[0]?.message?.content?.toLowerCase().trim();
+    return /^[a-z]{2,3}$/.test(lang ?? '') ? lang! : null;
+  } catch {
+    return null;
   }
 }
 

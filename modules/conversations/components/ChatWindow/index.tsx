@@ -63,7 +63,7 @@ export function ChatWindow({ conversationId }: ChatWindowProps) {
         ) : (
           <div className="space-y-2">
             {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
+              <MessageBubble key={msg.id} message={msg} conversationId={conversationId} />
             ))}
             {typingUsers.length > 0 && <TypingIndicator />}
             <div ref={bottomRef} />
