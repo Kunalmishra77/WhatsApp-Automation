@@ -1,24 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
-import { createClient } from '@/services/supabase/server';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import type { FlowNode, FlowEdge } from '@/modules/flows/types';
-
-async function getWorkspaceId(): Promise<string | null> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: member } = await (supabase as any)
-    .from('workspace_members')
-    .select('workspace_id')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .single();
-
-  return (member?.workspace_id as string) ?? null;
-}
 
 const DEFAULT_START_NODE: FlowNode = {
   id: 'start-1',
@@ -27,11 +10,11 @@ const DEFAULT_START_NODE: FlowNode = {
   data: { label: 'Start', triggerType: 'keyword', triggerValue: '' },
 };
 
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
-    const workspaceId = await getWorkspaceId();
+    const workspaceId = request.nextUrl.searchParams.get('workspaceId');
     if (!workspaceId) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+      return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
     }
 
     await requireWorkspacePermission(workspaceId, 'manage_templates');
@@ -57,14 +40,14 @@ export async function GET(_request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const workspaceId = await getWorkspaceId();
+    const body = await request.json() as { name?: string; description?: string; workspaceId?: string };
+
+    const workspaceId = body.workspaceId;
     if (!workspaceId) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+      return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
     }
 
     await requireWorkspacePermission(workspaceId, 'manage_templates');
-
-    const body = await request.json() as { name?: string; description?: string };
 
     if (!body.name) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
