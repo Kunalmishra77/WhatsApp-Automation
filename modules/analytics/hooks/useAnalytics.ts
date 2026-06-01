@@ -100,3 +100,37 @@ export function useAnalyticsOverview(from: string, to: string) {
     staleTime: 60_000,
   });
 }
+
+// ── Agent performance hook ─────────────────────────────────────────────────────
+
+export interface AgentStat {
+  agentId: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  totalAssigned: number;
+  resolved: number;
+  avgFirstResponseMin: number;
+  csatAvgScore: number | null;
+  messagesSent: number;
+}
+
+export interface AgentPerformanceResponse {
+  agents: AgentStat[];
+}
+
+export function useAgentPerformance(from: string, to: string) {
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
+  return useQuery<AgentPerformanceResponse>({
+    queryKey: ['analytics', 'agents', workspaceId, from, to],
+    queryFn: () =>
+      fetch(
+        `/api/analytics/agents?workspaceId=${workspaceId}&from=${from}&to=${to}`,
+      ).then((r) => {
+        if (!r.ok) throw new Error('Failed to fetch agent performance');
+        return r.json() as Promise<AgentPerformanceResponse>;
+      }),
+    enabled: !!workspaceId,
+    staleTime: 60_000,
+  });
+}

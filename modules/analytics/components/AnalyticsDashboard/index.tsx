@@ -28,7 +28,15 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { useAnalyticsOverview } from '../../hooks/useAnalytics';
+import { useAnalyticsOverview, useAgentPerformance, type AgentStat } from '../../hooks/useAnalytics';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 // ── Brand colours ─────────────────────────────────────────────────────────────
 const BRAND   = '#6366f1';
@@ -116,6 +124,137 @@ function EmptyChart({ message = 'No data for this period' }: { message?: string 
   );
 }
 
+// ── Agent avatar ──────────────────────────────────────────────────────────────
+function AgentAvatar({ name, avatarUrl }: { name: string; avatarUrl: string | null }) {
+  const initials = name
+    .split(' ')
+    .map((s) => s[0] ?? '')
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
+  if (avatarUrl) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name}
+        className="h-8 w-8 rounded-full object-cover shrink-0"
+      />
+    );
+  }
+  return (
+    <div className="h-8 w-8 rounded-full bg-brand-100 flex items-center justify-center shrink-0">
+      <span className="text-xs font-semibold text-brand-700">{initials}</span>
+    </div>
+  );
+}
+
+// ── Team performance table ─────────────────────────────────────────────────────
+function TeamPerformanceTable({
+  agents,
+  loading,
+}: {
+  agents: AgentStat[];
+  loading: boolean;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold">Team Performance</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </div>
+        ) : agents.length === 0 ? (
+          <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">
+            No agents found
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Agent</TableHead>
+                  <TableHead className="text-right">Messages Sent</TableHead>
+                  <TableHead className="text-right">Assigned</TableHead>
+                  <TableHead className="text-right">Resolved</TableHead>
+                  <TableHead className="text-right">Avg Response</TableHead>
+                  <TableHead className="text-right">CSAT Score</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {agents.map((agent) => (
+                  <TableRow key={agent.agentId}>
+                    {/* Agent */}
+                    <TableCell>
+                      <div className="flex items-center gap-2 min-w-[160px]">
+                        <AgentAvatar name={agent.name} avatarUrl={agent.avatarUrl} />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">
+                            {agent.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {agent.email}
+                          </p>
+                        </div>
+                      </div>
+                    </TableCell>
+
+                    {/* Messages Sent */}
+                    <TableCell className="text-right">
+                      <span className="inline-flex items-center justify-center rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-semibold text-brand-700 min-w-[2rem]">
+                        {agent.messagesSent.toLocaleString()}
+                      </span>
+                    </TableCell>
+
+                    {/* Assigned */}
+                    <TableCell className="text-right text-sm">
+                      {agent.totalAssigned.toLocaleString()}
+                    </TableCell>
+
+                    {/* Resolved */}
+                    <TableCell className="text-right">
+                      <span className="inline-flex items-center gap-1 text-sm">
+                        {agent.resolved > 0 && (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                        )}
+                        {agent.resolved.toLocaleString()}
+                      </span>
+                    </TableCell>
+
+                    {/* Avg Response */}
+                    <TableCell className="text-right text-sm">
+                      {agent.avgFirstResponseMin > 0
+                        ? `${agent.avgFirstResponseMin} min`
+                        : '—'}
+                    </TableCell>
+
+                    {/* CSAT Score */}
+                    <TableCell className="text-right text-sm">
+                      {agent.csatAvgScore != null ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400 shrink-0" />
+                          {agent.csatAvgScore}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Custom donut label ─────────────────────────────────────────────────────────
 interface PieLabelProps {
   cx: number;
@@ -160,6 +299,7 @@ export function AnalyticsDashboard() {
   const { from, to } = buildDates(range);
 
   const { data, isLoading, isError } = useAnalyticsOverview(from, to);
+  const { data: agentData, isLoading: agentsLoading } = useAgentPerformance(from, to);
 
   const summary            = data?.summary;
   const dailyMessages      = data?.dailyMessages      ?? [];
@@ -493,6 +633,12 @@ export function AnalyticsDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Row 4 — Team Performance ────────────────────────────────────────── */}
+      <TeamPerformanceTable
+        agents={agentData?.agents ?? []}
+        loading={agentsLoading}
+      />
     </div>
   );
 }
