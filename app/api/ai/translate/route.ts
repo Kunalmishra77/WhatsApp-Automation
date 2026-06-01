@@ -1,8 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/services/supabase/server';
-import { authzResponse } from '@/lib/authz';
 
-export const maxDuration = 30; // seconds — requires Pro; on Hobby capped at 10s
+export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,21 +13,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing text' }, { status: 400 });
     }
 
-    // Auth — require the user to be logged in (workspace checked via conversation)
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const apiKey = process.env.OPENROUTER_API_KEY?.replace(/﻿/g, '').trim();
+    const model = process.env.AI_MODEL?.trim() ?? 'openai/gpt-4o-mini';
 
-    const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-    const model = process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free';
-
-    if (!apiKey) return NextResponse.json({ error: 'AI not configured' }, { status: 503 });
+    if (!apiKey) {
+      return NextResponse.json({ error: 'AI not configured' }, { status: 503 });
+    }
 
     let res: Response;
     try {
       res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
-        signal: AbortSignal.timeout(8000), // 8s — stays under Vercel Hobby 10s limit
+        signal: AbortSignal.timeout(8000),
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
@@ -42,9 +37,9 @@ export async function POST(request: NextRequest) {
             {
               role: 'system',
               content:
-                'You are a translation assistant. Translate the given text to English. Also detect the source language. Reply with ONLY a JSON object in this exact format: {"translated": "...", "detectedLang": "..."} where detectedLang is the ISO 639-1 code (e.g. "hi", "es", "ar"). If text is already English, set detectedLang to "en" and translated to the original text.',
+                'You are a translation assistant. Translate the given text to English. Also detect the source language. Reply with ONLY a JSON object: {"translated": "...", "detectedLang": "..."} where detectedLang is the ISO 639-1 code (e.g. "hi", "es", "ar"). If text is already English, return {"translated": "<original text>", "detectedLang": "en"}.',
             },
-            { role: 'user', content: text },
+            { role: 'user', content: text.slice(0, 500) },
           ],
           max_tokens: 300,
           temperature: 0,
@@ -54,15 +49,20 @@ export async function POST(request: NextRequest) {
       const isTimeout = fetchErr instanceof Error && fetchErr.name === 'TimeoutError';
       console.error('[Translate] Fetch error:', fetchErr);
       return NextResponse.json(
-        { error: isTimeout ? 'AI request timed out' : 'AI request failed' },
-        { status: 502 },
+        { error: isTimeout ? 'Translation timed out — try again' : 'Failed to reach AI service' },
+        { status: 503 },
       );
     }
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       console.error('[Translate] OpenRouter error:', res.status, errText);
-      return NextResponse.json({ error: 'AI request failed' }, { status: 502 });
+      // Return the original text as fallback so UI doesn't break
+      return NextResponse.json({
+        translated: text,
+        detectedLang: 'unknown',
+        error: `AI error: ${res.status}`,
+      });
     }
 
     const data = await res.json() as {
@@ -80,32 +80,40 @@ export async function POST(request: NextRequest) {
       translated = parsed.translated ?? text;
       detectedLang = parsed.detectedLang ?? 'en';
     } catch {
-      // If AI returned plain text instead of JSON, use it directly
+      // AI returned plain text — use it directly as translation
       translated = raw || text;
     }
 
-    // Non-blocking: update contact's detected language
-    if (conversationId && detectedLang !== 'en') {
-      void (async () => {
-        try {
-          const db = supabase as any;
-          const { data: conv } = await db
-            .from('conversations')
-            .select('contact_id')
-            .eq('id', conversationId)
-            .single();
-          if (conv?.contact_id) {
-            await db
-              .from('contacts')
-              .update({ language: detectedLang })
-              .eq('id', conv.contact_id);
-          }
-        } catch { /* silent */ }
-      })();
+    // Non-blocking: save detected language to contact (fire-and-forget)
+    if (conversationId && detectedLang !== 'en' && detectedLang !== 'unknown') {
+      void saveContactLanguage(conversationId, detectedLang, apiKey);
     }
 
     return NextResponse.json({ translated, detectedLang });
   } catch (error) {
-    return authzResponse(error);
+    console.error('[Translate] Unexpected error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
+}
+
+async function saveContactLanguage(
+  conversationId: string,
+  lang: string,
+  _apiKey: string,
+) {
+  try {
+    const { createAdminClient } = await import('@/services/supabase/admin');
+    const db = createAdminClient() as any;
+    const { data: conv } = await db
+      .from('conversations')
+      .select('contact_id')
+      .eq('id', conversationId)
+      .single();
+    if (conv?.contact_id) {
+      await db
+        .from('contacts')
+        .update({ language: lang })
+        .eq('id', conv.contact_id);
+    }
+  } catch { /* silent — non-critical */ }
 }
