@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(vercel logs *)",
+      "Bash(ls app/\\\\\\(dashboard\\\\\\)/settings/)",
+      "Bash(ls \"app/\\(dashboard\\)/settings/\")",
+      "Bash(powershell -Command \"\\(Get-Content 'modules/settings/components/KnowledgeBase/EntryList.tsx'\\) -replace 'CATEGORY_META\\\\[entry\\\\.category\\\\] \\\\?\\\\? CATEGORY_META\\\\.general', 'CATEGORY_META[entry.category] ?? CATEGORY_META[\\\\\"general\\\\\"]!' | Set-Content 'modules/settings/components/KnowledgeBase/EntryList.tsx'\")",
+      "Bash(powershell -Command \"\\(Get-Content 'modules/settings/components/KnowledgeBase/GenerateTab.tsx'\\) -replace 'CATEGORY_META\\\\[entry\\\\.category\\\\] \\\\?\\\\? CATEGORY_META\\\\.general', 'CATEGORY_META[entry.category] ?? CATEGORY_META[\\\\\"general\\\\\"]!' | Set-Content 'modules/settings/components/KnowledgeBase/GenerateTab.tsx'\")",
+      "Bash(powershell -Command \"\\(Get-Content 'modules/settings/components/KnowledgeBase/TemplatesTab.tsx'\\) -replace 'CATEGORY_META\\\\[entry\\\\.category\\\\] \\\\?\\\\? CATEGORY_META\\\\.general', 'CATEGORY_META[entry.category] ?? CATEGORY_META[\\\\\"general\\\\\"]!' | Set-Content 'modules/settings/components/KnowledgeBase/TemplatesTab.tsx'\")",
+      "Bash(powershell -Command \"\\(Get-Content 'modules/settings/components/KnowledgeBase/UploadTab.tsx'\\) -replace 'CATEGORY_META\\\\[entry\\\\.category\\\\] \\\\?\\\\? CATEGORY_META\\\\.general', 'CATEGORY_META[entry.category] ?? CATEGORY_META[\\\\\"general\\\\\"]!' | Set-Content 'modules/settings/components/KnowledgeBase/UploadTab.tsx'\")",
+      "Bash(mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\sla\" && mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\contacts\\\\[id]\\\\360\" && mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\cron\\\\check-sla-breaches\" && mkdir -p \"d:\\\\WhatsApp-Automation\\\\modules\\\\settings\\\\components\\\\SlaSettings\")",
+      "Bash(xargs grep -l \"Inbox Rules\\\\|InboxRules\\\\|SettingsTab\")",
+      "Bash(mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\campaigns\\\\[id]\\\\recipients\")",
+      "Bash(mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\\\(dashboard\\)\\\\campaigns\\\\[id]\")"
+    ],
+    "additionalDirectories": [
+      "d:\\WhatsApp-Automation\\app\\api\\contacts\\[id]"
+    ]
+  }
+}

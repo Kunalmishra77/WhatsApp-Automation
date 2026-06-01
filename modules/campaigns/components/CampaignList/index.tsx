@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { Plus, Play, Loader2 } from 'lucide-react';
+import { Plus, Play, Loader2, ChevronRight } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useCampaigns, useRunCampaign } from '../../hooks/useCampaigns';
@@ -16,6 +17,7 @@ import { CAMPAIGN_STATUS_COLORS } from '../../services/campaign.service';
 import { toast } from 'sonner';
 
 export function CampaignList() {
+  const router = useRouter();
   const [wizardOpen, setWizardOpen] = useState(false);
   const { data: campaigns = [], isLoading } = useCampaigns();
   const run = useRunCampaign();
@@ -69,7 +71,7 @@ export function CampaignList() {
                     ? Math.round((c.read_count / c.delivered_count) * 100)
                     : 0;
                   return (
-                    <TableRow key={c.id} className="hover:bg-accent">
+                    <TableRow key={c.id} className="hover:bg-accent cursor-pointer" onClick={() => router.push(`/campaigns/${c.id}`)}>
                       <TableCell className="font-medium text-sm">{c.name}</TableCell>
                       <TableCell className="text-sm font-mono text-muted-foreground">
                         {c.templates?.name ?? '—'}

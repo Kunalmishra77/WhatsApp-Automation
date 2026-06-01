@@ -11,21 +11,26 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
-import { Check, ChevronRight } from 'lucide-react';
+import { Check, ChevronRight, Paperclip, X, Loader2 as Spin } from 'lucide-react';
+import { useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useTemplates } from '@/modules/templates/hooks/useTemplates';
 import { useCreateCampaign } from '../../hooks/useCampaigns';
+import { useWorkspaceStore } from '@/store/workspace.store';
 import { toast } from 'sonner';
 
-const STEPS = ['Name & Setup', 'Select Template', 'Audience', 'Schedule', 'Review'];
+const STEPS = ['Name & Setup', 'Select Template', 'Audience', 'Schedule', 'Media', 'Review'];
 
 interface WizardState {
   name:          string;
   templateId:    string;
   audienceType:  'all' | 'tag' | 'tags';
   audienceTag:   string;
-  audienceTags:  string; // comma-separated
+  audienceTags:  string;
   scheduledAt:   string;
+  mediaId:       string;
+  mediaType:     string;
+  mediaFileName: string;
 }
 
 interface CampaignWizardProps {
@@ -37,7 +42,11 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<WizardState>({
     name: '', templateId: '', audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '',
+    mediaId: '', mediaType: '', mediaFileName: '',
   });
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
+  const workspaceId   = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
   const { data: templates = [] } = useTemplates();
   const create = useCreateCampaign();
 
@@ -48,6 +57,26 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
     if (step === 0) return state.name.trim().length > 0;
     if (step === 1) return !!state.templateId;
     return true;
+  };
+
+  const handleMediaUpload = async (file: File) => {
+    if (!file) return;
+    setIsUploadingMedia(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('workspaceId', workspaceId);
+      const res  = await fetch('/api/campaigns/upload-media', { method: 'POST', body: form });
+      const data = await res.json() as { mediaId?: string; mediaType?: string; fileName?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
+      setState((s) => ({ ...s, mediaId: data.mediaId ?? '', mediaType: data.mediaType ?? '', mediaFileName: data.fileName ?? file.name }));
+      toast.success('Media uploaded!');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setIsUploadingMedia(false);
+      if (mediaInputRef.current) mediaInputRef.current.value = '';
+    }
   };
 
   const handleCreate = async () => {
@@ -62,10 +91,12 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
             ? { tags: state.audienceTags.split(',').map((t) => t.trim()).filter(Boolean) }
             : {},
         scheduled_at:    state.scheduledAt || undefined,
-      });
-      toast.success('Campaign created successfully!');
+        media_id:        state.mediaId   || undefined,
+        media_type:      state.mediaType || undefined,
+      } as Parameters<typeof create.mutateAsync>[0]);
+      toast.success('Campaign created!');
       setStep(0);
-      setState({ name: '', templateId: '', audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '' });
+      setState({ name: '', templateId: '', audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '', mediaId: '', mediaType: '', mediaFileName: '' });
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create campaign');
@@ -74,7 +105,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
 
   const handleClose = () => {
     setStep(0);
-    setState({ name: '', templateId: '', audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '' });
+    setState({ name: '', templateId: '', audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '', mediaId: '', mediaType: '', mediaFileName: '' });
     onClose();
   };
 
@@ -212,6 +243,46 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
           )}
 
           {step === 4 && (
+            <div className="space-y-3">
+              <div>
+                <Label>Attach Media (Optional)</Label>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Image / video / PDF sent after the template. Only reaches contacts with an active 24-hr session.
+                </p>
+              </div>
+              {state.mediaId ? (
+                <div className="flex items-center gap-2 rounded-lg border border-brand-300 bg-brand-50 p-3">
+                  <Paperclip className="h-4 w-4 text-brand-600 shrink-0" />
+                  <span className="flex-1 text-sm text-brand-700 truncate">{state.mediaFileName}</span>
+                  <button
+                    onClick={() => setState((s) => ({ ...s, mediaId: '', mediaType: '', mediaFileName: '' }))}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => mediaInputRef.current?.click()}
+                  disabled={isUploadingMedia}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border p-6 text-sm text-muted-foreground hover:border-brand-300 hover:text-brand-600 transition-colors disabled:opacity-50"
+                >
+                  {isUploadingMedia
+                    ? <><Spin className="h-4 w-4 animate-spin" /> Uploading…</>
+                    : <><Paperclip className="h-4 w-4" /> Click to attach image / video / PDF</>}
+                </button>
+              )}
+              <input
+                ref={mediaInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleMediaUpload(f); }}
+              />
+            </div>
+          )}
+
+          {step === 5 && (
             <div className="space-y-3 text-sm">
               <div className="rounded-lg border border-border p-4 space-y-2">
                 <div className="flex justify-between"><span className="text-muted-foreground">Name</span><span className="font-medium">{state.name}</span></div>
@@ -222,6 +293,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   {state.audienceType === 'tags' && `Tags: ${state.audienceTags}`}
                 </span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Schedule</span><span className="font-medium">{state.scheduledAt ? new Date(state.scheduledAt).toLocaleString() : 'Draft'}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Media</span><span className="font-medium">{state.mediaFileName || '—'}</span></div>
               </div>
             </div>
           )}

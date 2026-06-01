@@ -319,6 +319,26 @@ async function handleIncomingMessage(
   }
   // ─────────────────────────────────────────────────────────────────────────────
 
+  // ── Campaign reply detection ─────────────────────────────────────────────────
+  {
+    const { data: pendingCr } = await (supabase as any)
+      .from('campaign_recipients')
+      .select('id')
+      .eq('contact_id', contactId)
+      .not('status', 'in', '("failed","replied")')
+      .order('sent_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (pendingCr) {
+      await (supabase as any)
+        .from('campaign_recipients')
+        .update({ status: 'replied', replied_at: new Date().toISOString() })
+        .eq('id', pendingCr.id);
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // Count inbound messages in this conversation (including the one just inserted)
   // If count is exactly 1, this is the first inbound message.
   const { count: msgCount } = await (supabase as any)
@@ -991,12 +1011,20 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
   if (status.status === 'delivered') patch.delivered_at = new Date(parseInt(status.timestamp, 10) * 1000).toISOString();
   if (status.status === 'read') patch.read_at = new Date(parseInt(status.timestamp, 10) * 1000).toISOString();
 
-  const { error } = await (supabase as any)
+  const db = supabase as any;
+
+  const { error } = await db
     .from('messages')
     .update(patch)
     .eq('whatsapp_msg_id', status.id);
 
   if (error) throw new Error(error.message);
+
+  // Mirror status to campaign_recipients if this was a campaign message
+  await db
+    .from('campaign_recipients')
+    .update(patch)
+    .eq('whatsapp_msg_id', status.id);
 }
 
 function toMessageType(type: string) {

@@ -37,6 +37,8 @@ export async function createCampaign(
     audience_type: string;
     audience_filter: Record<string, unknown>;
     scheduled_at?: string;
+    media_id?: string;
+    media_type?: string;
   },
 ): Promise<CampaignRow> {
   const supabase = createClient() as any;
@@ -51,6 +53,8 @@ export async function createCampaign(
       audience_filter: payload.audience_filter,
       scheduled_at:    payload.scheduled_at ?? null,
       status:          payload.scheduled_at ? 'scheduled' : 'draft',
+      media_id:        payload.media_id   ?? null,
+      media_type:      payload.media_type ?? null,
     })
     .select()
     .single();

@@ -70,6 +70,32 @@ async function sendTemplateMessage(
   return { success: true, waMessageId: data?.messages?.[0]?.id };
 }
 
+async function sendMediaMessage(
+  ws: Workspace,
+  toPhone: string,
+  mediaId: string,
+  mediaType: string,
+): Promise<void> {
+  try {
+    await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${ws.access_token.replace(/﻿/g, '').trim()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: toPhone,
+        type: mediaType,
+        [mediaType]: { id: mediaId },
+      }),
+    });
+  } catch (err) {
+    console.error(`[Campaign] Media send failed → ${toPhone}:`, err);
+  }
+}
+
 export interface CampaignRunResult {
   campaignId: string;
   total: number;
@@ -120,7 +146,6 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   if (campaign.audience_type === 'tag' && campaign.audience_filter?.tag) {
     contactQuery = contactQuery.contains('tags', [campaign.audience_filter.tag]);
   } else if (campaign.audience_type === 'tags' && Array.isArray(campaign.audience_filter?.tags) && campaign.audience_filter.tags.length > 0) {
-    // Multiple tags — contact must have ANY of the selected tags (OR logic)
     const tagFilters = (campaign.audience_filter.tags as string[])
       .map((t: string) => `tags.cs.{"${t}"}`)
       .join(',');
@@ -152,6 +177,8 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
     if (result.success) {
       sentCount++;
+
+      // Find or note conversation
       const convQuery = await db
         .from('conversations')
         .select('id')
@@ -159,9 +186,11 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
         .eq('contact_id', contact.id)
         .maybeSingle();
 
-      if (convQuery.data?.id) {
+      const conversationId: string | null = convQuery.data?.id ?? null;
+
+      if (conversationId) {
         await db.from('messages').insert({
-          conversation_id: convQuery.data.id,
+          conversation_id: conversationId,
           workspace_id:    campaign.workspace_id,
           sender_type:     'agent',
           direction:       'outbound',
@@ -172,9 +201,37 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
           metadata:        { campaign_id: campaignId, template_name: template.name },
         });
       }
+
+      // Save per-recipient row for tracking
+      await db.from('campaign_recipients').insert({
+        campaign_id:     campaignId,
+        workspace_id:    campaign.workspace_id,
+        contact_id:      contact.id,
+        phone:           contact.phone,
+        name:            contact.name ?? null,
+        status:          'sent',
+        whatsapp_msg_id: result.waMessageId ?? null,
+        conversation_id: conversationId,
+      });
+
+      // Send optional media attachment (non-blocking; works only in active 24hr window)
+      if (campaign.media_id && campaign.media_type) {
+        await sendMediaMessage(ws, contact.phone, campaign.media_id as string, campaign.media_type as string);
+        await new Promise((r) => setTimeout(r, 100));
+      }
     } else {
       failedCount++;
       console.error(`[Campaign ${campaignId}] Failed → ${contact.phone}:`, result.error);
+
+      await db.from('campaign_recipients').insert({
+        campaign_id:   campaignId,
+        workspace_id:  campaign.workspace_id,
+        contact_id:    contact.id,
+        phone:         contact.phone,
+        name:          contact.name ?? null,
+        status:        'failed',
+        error_message: result.error ?? 'WhatsApp API error',
+      });
     }
 
     await new Promise((r) => setTimeout(r, 200));
