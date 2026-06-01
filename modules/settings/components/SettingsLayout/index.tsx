@@ -11,6 +11,7 @@ import { KnowledgeBase } from '../KnowledgeBase';
 import { WebhookSettings } from '../WebhookSettings';
 import { QuickReplies } from '../QuickReplies';
 import { BusinessHours } from '../BusinessHours';
+import { ApiKeys } from '../ApiKeys';
 
 export function SettingsLayout() {
   return (
@@ -32,6 +33,7 @@ export function SettingsLayout() {
           <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
           <TabsTrigger value="quick-replies">Quick Replies</TabsTrigger>
           <TabsTrigger value="business-hours">Business Hours</TabsTrigger>
+          <TabsTrigger value="api-keys">API Keys</TabsTrigger>
         </TabsList>
 
         <TabsContent value="profile">
@@ -63,6 +65,9 @@ export function SettingsLayout() {
         </TabsContent>
         <TabsContent value="business-hours">
           <BusinessHours />
+        </TabsContent>
+        <TabsContent value="api-keys">
+          <ApiKeys />
         </TabsContent>
       </Tabs>
     </div>
