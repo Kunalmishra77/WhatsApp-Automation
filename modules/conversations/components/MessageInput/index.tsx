@@ -20,11 +20,12 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Send, StickyNote, LayoutList, IndianRupee, Sparkles, Loader2, X, ShoppingBag } from 'lucide-react';
+import { Send, StickyNote, LayoutList, IndianRupee, Sparkles, Loader2, X, ShoppingBag, Paperclip, Image } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useSendMessage, useSuggestedReplies, useTypingBroadcast } from '../../hooks/useMessages';
 import { InteractiveMessageBuilder } from '../InteractiveMessageBuilder';
+import { useWorkspaceStore } from '@/store/workspace.store';
 
 interface MessageInputProps {
   conversationId: string;
@@ -46,6 +47,11 @@ export function MessageInput({ conversationId }: MessageInputProps) {
   const [productBodyText, setProductBodyText] = useState('');
   const [isSendingProduct, setIsSendingProduct] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [quickReplies, setQuickReplies] = useState<Array<{ id: string; shortcut: string; title: string; content: string }>>([]);
+  const [showQuickReplies, setShowQuickReplies] = useState(false);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   const sendMessage = useSendMessage();
   const suggestReplies = useSuggestedReplies(conversationId);
   const { broadcastTyping } = useTypingBroadcast(conversationId);
@@ -65,12 +71,47 @@ export function MessageInput({ conversationId }: MessageInputProps) {
   }, [stopTyping]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setText(e.target.value);
+    const val = e.target.value;
+    setText(val);
     if (!isTypingRef.current) {
       isTypingRef.current = true;
       void broadcastTyping(true);
     }
     scheduleStopTyping();
+
+    // Quick replies: show popup when text starts with "/"
+    if (val.startsWith('/') && workspaceId) {
+      const q = val.slice(1).toLowerCase();
+      void fetch(`/api/quick-replies?workspaceId=${workspaceId}&q=${encodeURIComponent(q)}`)
+        .then((r) => r.json())
+        .then((data: { replies?: Array<{ id: string; shortcut: string; title: string; content: string }> }) => {
+          setQuickReplies(data.replies ?? []);
+          setShowQuickReplies(true);
+        })
+        .catch(() => {});
+    } else {
+      setShowQuickReplies(false);
+      setQuickReplies([]);
+    }
+  };
+
+  const handleMediaUpload = async (file: File) => {
+    if (!file) return;
+    setIsUploadingMedia(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('conversationId', conversationId);
+      const res = await fetch('/api/messages/media', { method: 'POST', body: form });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
+      toast.success('Media sent!');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setIsUploadingMedia(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const handleSuggest = async () => {
@@ -172,6 +213,30 @@ export function MessageInput({ conversationId }: MessageInputProps) {
             Internal note — not sent to customer
           </p>
         )}
+        {/* Quick replies popup */}
+        {showQuickReplies && quickReplies.length > 0 && (
+          <div className="mb-2 rounded-lg border border-border bg-card shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+            <p className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wide border-b border-border">Quick Replies</p>
+            {quickReplies.map((qr) => (
+              <button
+                key={qr.id}
+                className="w-full text-left px-3 py-2 hover:bg-muted transition-colors flex items-start gap-2.5"
+                onClick={() => {
+                  setText(qr.content);
+                  setShowQuickReplies(false);
+                  setQuickReplies([]);
+                }}
+              >
+                <span className="shrink-0 rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-mono font-medium text-brand-700 mt-0.5">{qr.shortcut}</span>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium">{qr.title}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">{qr.content}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
         {suggestions.length > 0 && (
           <div className="flex gap-1.5 flex-wrap mb-2 items-center">
             {suggestions.map((s, i) => (
@@ -277,6 +342,30 @@ export function MessageInput({ conversationId }: MessageInputProps) {
               </TooltipTrigger>
               <TooltipContent side="top">Send payment link</TooltipContent>
             </Tooltip>
+
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingMedia}
+                >
+                  {isUploadingMedia
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Paperclip className="h-4 w-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Send image / file</TooltipContent>
+            </Tooltip>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,video/mp4,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleMediaUpload(f); }}
+            />
 
             <Button
               size="icon"
