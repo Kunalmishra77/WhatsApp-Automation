@@ -412,6 +412,10 @@ async function handleIncomingMessage(
     }
   }
 
+  // ── AI Auto-Lead Creation — non-blocking ────────────────────────────────────
+  // On every inbound message, create/update a lead with AI-determined temperature
+  autoCreateOrUpdateLead(supabase as any, workspaceId, contact.id, conversation.id, content).catch(() => {});
+
   // ── VIP contact — skip bot, route straight to human agent ──────────────────
   if (contact.is_vip) {
     await (supabase as any)
@@ -806,6 +810,76 @@ Customer name: ${customerName}${kbSection}`;
   } catch (error) {
     console.error('[AI] Network/parse error:', error);
     return null;
+  }
+}
+
+// ── AI Auto-Lead: create/update lead based on conversation content ───────────
+const HOT_KEYWORDS  = ['buy', 'purchase', 'price', 'cost', 'how much', 'interested', 'want', 'need', 'demo', 'trial', 'order', 'book', 'plan', 'pricing', 'quote', 'kharidna', 'lena hai', 'chahiye', 'kitna', 'rate'];
+const COLD_KEYWORDS = ['later', 'maybe', 'not now', 'baad mein', 'sochenge', 'dekhenge', 'no thanks', 'nahi chahiye', 'wrong number'];
+
+function detectLeadTemperature(text: string): 'hot' | 'warm' | 'cold' {
+  const lower = text.toLowerCase();
+  if (HOT_KEYWORDS.some((k)  => lower.includes(k))) return 'hot';
+  if (COLD_KEYWORDS.some((k) => lower.includes(k))) return 'cold';
+  return 'warm';
+}
+
+async function autoCreateOrUpdateLead(
+  db: any,
+  workspaceId: string,
+  contactId: string,
+  conversationId: string,
+  messageContent: string,
+) {
+  try {
+    const temperature = detectLeadTemperature(messageContent);
+
+    // Check if lead already exists for this contact
+    const { data: existing } = await db
+      .from('leads')
+      .select('id, temperature, stage')
+      .eq('workspace_id', workspaceId)
+      .eq('contact_id', contactId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      // Update temperature only if escalating (cold → warm → hot, never downgrade)
+      const rank: Record<string, number> = { cold: 0, warm: 1, hot: 2 };
+      const currentRank = rank[existing.temperature as string] ?? 1;
+      const newRank     = rank[temperature] ?? 1;
+      if (newRank > currentRank) {
+        await db.from('leads').update({ temperature, conversation_id: conversationId }).eq('id', existing.id);
+      }
+      return;
+    }
+
+    // Fetch contact name to build lead title
+    const { data: contactRow } = await db
+      .from('contacts')
+      .select('name, phone')
+      .eq('id', contactId)
+      .single();
+
+    const displayName = contactRow?.name ?? contactRow?.phone ?? 'Unknown Contact';
+
+    // Create new lead automatically
+    await db.from('leads').insert({
+      workspace_id:    workspaceId,
+      contact_id:      contactId,
+      conversation_id: conversationId,
+      title:           `Lead — ${displayName}`,
+      stage:           'new',
+      temperature,
+      priority:        'medium',
+      tags:            [],
+      custom_fields:   {},
+    });
+
+    console.log(`[AutoLead] Created lead for contact ${contactId} — temperature: ${temperature}`);
+  } catch {
+    // silent fail — lead creation is non-critical
   }
 }
 

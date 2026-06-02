@@ -12,7 +12,7 @@ import {
 } from '@dnd-kit/core';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Plus } from 'lucide-react';
+import { Plus, Flame, Thermometer, Snowflake, LayoutGrid } from 'lucide-react';
 import { KanbanColumn } from '../KanbanColumn';
 import { LeadCard } from '../LeadCard';
 import { LeadDetail } from '../LeadDetail';
@@ -22,10 +22,10 @@ import { LEAD_STAGES } from '../../services/lead.service';
 import type { LeadStage, LeadWithContact } from '../../services/lead.service';
 
 const TEMP_FILTERS = [
-  { key: '',     label: 'All',  emoji: '📋' },
-  { key: 'hot',  label: 'Hot',  emoji: '🔥' },
-  { key: 'warm', label: 'Warm', emoji: '🌡️' },
-  { key: 'cold', label: 'Cold', emoji: '❄️' },
+  { key: '',     label: 'All',  Icon: LayoutGrid,  color: 'text-muted-foreground' },
+  { key: 'hot',  label: 'Hot',  Icon: Flame,       color: 'text-red-500'          },
+  { key: 'warm', label: 'Warm', Icon: Thermometer, color: 'text-amber-500'        },
+  { key: 'cold', label: 'Cold', Icon: Snowflake,   color: 'text-blue-500'         },
 ] as const;
 
 export function KanbanBoard() {
@@ -89,19 +89,24 @@ export function KanbanBoard() {
             <h1 className="text-base font-semibold text-foreground">CRM Pipeline</h1>
             {/* Temperature filter pills */}
             <div className="flex items-center gap-1">
-              {TEMP_FILTERS.map((f) => (
-                <button
-                  key={f.key}
-                  onClick={() => setTempFilter(f.key)}
-                  className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-all ${
-                    tempFilter === f.key
-                      ? 'bg-brand-500 text-white border-brand-500'
-                      : 'text-muted-foreground border-border hover:border-brand-300'
-                  }`}
-                >
-                  {f.emoji} {f.label}
-                </button>
-              ))}
+              {TEMP_FILTERS.map((f) => {
+                const Icon = f.Icon;
+                const active = tempFilter === f.key;
+                return (
+                  <button
+                    key={f.key}
+                    onClick={() => setTempFilter(f.key)}
+                    className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full border transition-all ${
+                      active
+                        ? 'bg-brand-500 text-white border-brand-500 shadow-sm'
+                        : 'text-muted-foreground border-border hover:border-brand-300 hover:bg-muted/50'
+                    }`}
+                  >
+                    <Icon className={`h-3 w-3 ${active ? 'text-white' : f.color}`} />
+                    {f.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
           <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setCreateOpen(true)}>

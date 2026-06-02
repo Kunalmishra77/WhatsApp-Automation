@@ -4,7 +4,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { DollarSign } from 'lucide-react';
+import { DollarSign, Flame, Thermometer, Snowflake } from 'lucide-react';
 import type { LeadWithContact } from '../../services/lead.service';
 
 interface LeadCardProps {
@@ -18,10 +18,10 @@ const PRIORITY_STYLES: Record<string, string> = {
   low:    'text-gray-500 bg-gray-50 border-gray-200',
 };
 
-const TEMPERATURE_CONFIG: Record<string, { label: string; classes: string; emoji: string }> = {
-  hot:  { label: 'Hot',  classes: 'text-red-700 bg-red-100 border-red-300',       emoji: '🔥' },
-  warm: { label: 'Warm', classes: 'text-amber-700 bg-amber-100 border-amber-300', emoji: '🌡️' },
-  cold: { label: 'Cold', classes: 'text-blue-700 bg-blue-100 border-blue-300',    emoji: '❄️' },
+const TEMPERATURE_CONFIG: Record<string, { label: string; classes: string; icon: React.ElementType }> = {
+  hot:  { label: 'Hot',  classes: 'text-red-700 bg-red-100 border-red-300',       icon: Flame       },
+  warm: { label: 'Warm', classes: 'text-amber-700 bg-amber-100 border-amber-300', icon: Thermometer },
+  cold: { label: 'Cold', classes: 'text-blue-700 bg-blue-100 border-blue-300',    icon: Snowflake   },
 };
 
 export function LeadCard({ lead, onClick }: LeadCardProps) {
@@ -63,9 +63,11 @@ export function LeadCard({ lead, onClick }: LeadCardProps) {
           {(() => {
             const temp   = ((lead as any).temperature as string) || 'warm';
             const config = TEMPERATURE_CONFIG[temp] ?? TEMPERATURE_CONFIG.warm!;
+            const Icon   = config.icon;
             return (
-              <span className={cn('rounded border px-1.5 py-0.5 text-[10px] font-bold', config.classes)}>
-                {config.emoji} {config.label}
+              <span className={cn('inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold', config.classes)}>
+                <Icon className="h-3 w-3" />
+                {config.label}
               </span>
             );
           })()}
