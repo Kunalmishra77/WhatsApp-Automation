@@ -19,19 +19,26 @@ import { useUIStore } from '@/store/ui.store';
 import { useAuthStore } from '@/store/auth.store';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { signOutAction } from '@/app/actions/auth.actions';
+import { hasFeature } from '@/lib/plan-features';
 import { cn } from '@/lib/utils';
 import type { LucideIcon } from 'lucide-react';
 
-const NAV_ITEMS: Array<{ href: string; icon: LucideIcon; label: string }> = [
+const NAV_ITEMS: Array<{
+  href:             string;
+  icon:             LucideIcon;
+  label:            string;
+  requiredFeature?: string;
+  requiredPlan?:    string;
+}> = [
   { href: '/conversations', icon: MessageSquare, label: 'Conversations' },
   { href: '/contacts',      icon: Users,         label: 'Contacts'      },
-  { href: '/crm',           icon: Kanban,        label: 'CRM Pipeline'  },
+  { href: '/crm',           icon: Kanban,        label: 'CRM Pipeline', requiredFeature: 'crm',   requiredPlan: 'Pro' },
   { href: '/campaigns',     icon: Megaphone,     label: 'Campaigns'     },
   { href: '/templates',     icon: FileText,      label: 'Templates'     },
-  { href: '/flows',          icon: GitBranch, label: 'Flows'          },
-  { href: '/team',           icon: Users2,    label: 'Team'           },
-  { href: '/analytics',      icon: BarChart3, label: 'Analytics'      },
-  { href: '/knowledge-base', icon: BookOpen,  label: 'Knowledge Base' },
+  { href: '/flows',         icon: GitBranch,     label: 'Flows',        requiredFeature: 'flows', requiredPlan: 'Pro' },
+  { href: '/team',          icon: Users2,        label: 'Team'          },
+  { href: '/analytics',     icon: BarChart3,     label: 'Analytics'     },
+  { href: '/knowledge-base',icon: BookOpen,      label: 'Knowledge Base'},
 ];
 
 export function Sidebar() {
@@ -39,6 +46,7 @@ export function Sidebar() {
   const toggleSidebar  = useUIStore((s) => s.toggleSidebar);
   const user           = useAuthStore((s) => s.user);
   const workspace      = useWorkspaceStore((s) => s.activeWorkspace);
+  const plan           = workspace?.plan ?? 'free';
 
   const initials = user?.full_name
     ? user.full_name.split(' ').map((n) => n[0] ?? '').join('').slice(0, 2).toUpperCase()
@@ -71,15 +79,20 @@ export function Sidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
-          {NAV_ITEMS.map((item) => (
-            <NavItem
-              key={item.href}
-              href={item.href}
-              icon={item.icon}
-              label={item.label}
-              collapsed={collapsed}
-            />
-          ))}
+          {NAV_ITEMS.map((item) => {
+            const locked = item.requiredFeature ? !hasFeature(plan, item.requiredFeature) : false;
+            return (
+              <NavItem
+                key={item.href}
+                href={item.href}
+                icon={item.icon}
+                label={item.label}
+                collapsed={collapsed}
+                locked={locked}
+                requiredPlan={item.requiredPlan}
+              />
+            );
+          })}
           <Separator className="my-2" />
           <NavItem href="/settings" icon={Settings} label="Settings" collapsed={collapsed} />
         </nav>

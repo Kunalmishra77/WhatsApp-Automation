@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { hasFeature } from '@/lib/plan-features';
 import type { FlowNode, FlowEdge } from '@/modules/flows/types';
 
 const DEFAULT_START_NODE: FlowNode = {
@@ -19,7 +20,15 @@ export async function GET(request: NextRequest) {
 
     await requireWorkspacePermission(workspaceId, 'manage_templates');
 
+    // Check Flows feature access
     const supabase = createAdminClient();
+    const { data: ws } = await (supabase as any).from('workspaces').select('plan').eq('id', workspaceId).single();
+    if (!hasFeature(ws?.plan ?? 'free', 'flows')) {
+      return NextResponse.json(
+        { error: 'Flows is not available on your current plan. Please upgrade to Pro.' },
+        { status: 403 },
+      );
+    }
     const { data, error } = await (supabase as any)
       .from('chatbot_flows')
       .select('*')
@@ -57,6 +66,16 @@ export async function POST(request: NextRequest) {
 
     await requireWorkspacePermission(workspaceId, 'manage_templates');
 
+    // Check Flows feature access
+    const supabase = createAdminClient();
+    const { data: ws } = await (supabase as any).from('workspaces').select('plan').eq('id', workspaceId).single();
+    if (!hasFeature(ws?.plan ?? 'free', 'flows')) {
+      return NextResponse.json(
+        { error: 'Flows is not available on your current plan. Please upgrade to Pro.' },
+        { status: 403 },
+      );
+    }
+
     if (!body.name) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
     }
@@ -64,7 +83,6 @@ export async function POST(request: NextRequest) {
     const nodes = body.nodes ?? [DEFAULT_START_NODE];
     const edges = body.edges ?? [];
 
-    const supabase = createAdminClient();
     const { data, error } = await (supabase as any)
       .from('chatbot_flows')
       .insert({

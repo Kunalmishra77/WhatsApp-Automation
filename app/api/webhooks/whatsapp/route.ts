@@ -276,6 +276,9 @@ async function handleIncomingMessage(
     throw new Error(messageError.message);
   }
 
+  // Track inbound message usage (non-blocking)
+  void import('@/lib/usage-tracker').then(({ trackMessageIn }) => trackMessageIn(workspaceId)).catch(() => {});
+
   // ── Non-blocking language detection for contact ────────────────────────────
   if (content && content.length > 5) {
     const _contactId = contactId;
@@ -505,6 +508,18 @@ async function handleIncomingMessage(
     }
     console.log(`[AutoReply] Outside business hours — sent away message to ${waId}`);
     return;
+  }
+
+  // Check message limit before auto-reply
+  try {
+    const { getWorkspacePlan, guardMessageLimit } = await import('@/lib/plan-guard');
+    const workspacePlan = await getWorkspacePlan(workspaceId);
+    await guardMessageLimit(workspaceId, workspacePlan);
+  } catch (e: unknown) {
+    if (e && typeof e === 'object' && 'name' in e && (e as { name: string }).name === 'PlanLimitError') {
+      console.log(`[Webhook] Message limit exceeded for workspace ${workspaceId} — skipping auto-reply`);
+      return;
+    }
   }
 
   // Rate limit: max 1 auto-reply per 30s per contact

@@ -50,10 +50,22 @@ export async function POST(
       audienceCount = count ?? 0;
     }
 
+    // Check campaign limit before running
+    try {
+      const { getWorkspacePlan, guardCampaignLimit } = await import('@/lib/plan-guard');
+      const wsPlan = await getWorkspacePlan(campaign.workspace_id);
+      await guardCampaignLimit(campaign.workspace_id, wsPlan);
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'name' in e && (e as { name: string }).name === 'PlanLimitError') {
+        return NextResponse.json({ error: 'Monthly campaign limit reached. Please upgrade your plan.' }, { status: 402 });
+      }
+    }
+
     // Small campaigns (≤50): run synchronously as before
     if (audienceCount <= 50) {
       const { executeCampaign } = await import('@/lib/campaign-executor');
       const result = await executeCampaign(campaignId);
+      void import('@/lib/usage-tracker').then(({ trackCampaignRun }) => trackCampaignRun(campaign.workspace_id)).catch(() => {});
       return NextResponse.json({ success: true, mode: 'sync', ...result });
     }
 
@@ -75,6 +87,7 @@ export async function POST(
       total:        audienceCount,
       status:       'pending',
     });
+    void import('@/lib/usage-tracker').then(({ trackCampaignRun }) => trackCampaignRun(campaign.workspace_id)).catch(() => {});
 
     // Mark campaign as running
     await db.from('campaigns').update({ status: 'running' }).eq('id', campaignId);

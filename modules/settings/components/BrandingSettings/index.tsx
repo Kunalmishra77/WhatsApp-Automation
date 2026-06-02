@@ -23,11 +23,13 @@ const PRESET_COLORS = [
 ];
 
 export function BrandingSettings() {
-  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
+  const activeWorkspace = useWorkspaceStore((s) => s.activeWorkspace);
+  const workspaceId = activeWorkspace?.id ?? '';
   const queryClient  = useQueryClient();
   const [brandColor,    setBrandColor]    = useState('#6366f1');
   const [customDomain,  setCustomDomain]  = useState('');
   const [widgetUrl,     setWidgetUrl]     = useState('');
+  const [savingDomain,  setSavingDomain]  = useState(false);
 
   const { data: ws, isLoading } = useQuery({
     queryKey: ['workspace-branding', workspaceId],
@@ -36,6 +38,8 @@ export function BrandingSettings() {
         .then((r) => r.json() as Promise<{ workspace?: Record<string, unknown> }>),
     enabled: !!workspaceId,
   });
+
+  const workspacePlan = (ws?.workspace?.plan as string | null) ?? activeWorkspace?.plan ?? 'free';
 
   useEffect(() => {
     if (ws?.workspace) {
@@ -50,7 +54,7 @@ export function BrandingSettings() {
       const supabase = createClient() as any;
       const { error } = await supabase
         .from('workspaces')
-        .update({ brand_color: brandColor, custom_domain: customDomain.trim() || null })
+        .update({ brand_color: brandColor })
         .eq('id', workspaceId);
       if (error) throw new Error(error.message);
     },
@@ -59,6 +63,24 @@ export function BrandingSettings() {
       toast.success('Branding saved');
     },
   });
+
+  const saveDomain = async () => {
+    setSavingDomain(true);
+    try {
+      const res = await fetch('/api/settings/workspace', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId, custom_domain: customDomain.trim() || null }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      void queryClient.invalidateQueries({ queryKey: ['workspace-branding', workspaceId] });
+      toast.success('Custom domain saved');
+    } catch {
+      toast.error('Failed to save custom domain');
+    } finally {
+      setSavingDomain(false);
+    }
+  };
 
   if (isLoading) return <div className="space-y-3"><Skeleton className="h-8 w-48" /><Skeleton className="h-32 w-full" /></div>;
 
@@ -104,19 +126,40 @@ export function BrandingSettings() {
         </div>
       </div>
 
-      {/* Custom Domain */}
-      <div className="rounded-xl border border-border p-4 space-y-3 bg-card">
-        <div className="flex items-center gap-2">
-          <Globe className="h-4 w-4 text-muted-foreground" />
-          <p className="text-sm font-medium">Custom Domain</p>
+      {/* Custom Domain — Enterprise only */}
+      {workspacePlan === 'enterprise' ? (
+        <div className="rounded-xl border border-border p-4 space-y-3 bg-card">
+          <div className="flex items-center gap-2">
+            <Globe className="h-4 w-4 text-muted-foreground" />
+            <p className="text-sm font-medium">Custom Domain</p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Point your own domain to Agentix. First add a DNS CNAME record:
+          </p>
+          <code className="block rounded bg-muted px-3 py-2 text-xs font-mono break-all">
+            crm.yourbusiness.com → agentix-cname.vercel.app
+          </code>
+          <div className="flex gap-2">
+            <Input
+              value={customDomain}
+              onChange={(e) => setCustomDomain(e.target.value)}
+              placeholder="crm.yourbusiness.com"
+              className="flex-1"
+            />
+            <Button onClick={() => void saveDomain()} disabled={savingDomain}>
+              {savingDomain ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
         </div>
-        <Input
-          value={customDomain}
-          onChange={(e) => setCustomDomain(e.target.value)}
-          placeholder="app.yourdomain.com"
-        />
-        <p className="text-xs text-muted-foreground">Point your domain CNAME to <code className="bg-muted px-1 py-0.5 rounded text-xs">cname.vercel-dns.com</code></p>
-      </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-border p-4 space-y-1 bg-muted/30">
+          <div className="flex items-center gap-2">
+            <Globe className="h-4 w-4 text-muted-foreground" />
+            <p className="text-sm font-medium text-muted-foreground">Custom Domain</p>
+          </div>
+          <p className="text-xs text-muted-foreground">Available on the Enterprise plan. Upgrade to use your own domain.</p>
+        </div>
+      )}
 
       {/* Web Chat Widget */}
       <div className="rounded-xl border border-border p-4 space-y-3 bg-card">
@@ -153,7 +196,7 @@ export function BrandingSettings() {
 
       <Button onClick={() => void save.mutate()} disabled={save.isPending} className="gap-1.5">
         <Palette className="h-4 w-4" />
-        {save.isPending ? 'Saving…' : 'Save Branding'}
+        {save.isPending ? 'Saving…' : 'Save Brand Color'}
       </Button>
     </div>
   );
