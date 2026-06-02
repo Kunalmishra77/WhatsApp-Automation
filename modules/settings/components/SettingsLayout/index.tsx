@@ -22,12 +22,15 @@ import { LabelSettings } from '../LabelSettings';
 import { CustomFieldSettings } from '../CustomFieldSettings';
 import { TimeTriggerSettings } from '../TimeTriggerSettings';
 import { QrCodeSettings } from '../QrCodeSettings';
+import { LlmSettings } from '../LlmSettings';
+import { BrandingSettings } from '../BrandingSettings';
+import { BillingSettings } from '../BillingSettings';
 
 type SettingKey =
-  | 'profile' | 'workspace'
+  | 'profile' | 'workspace' | 'branding' | 'billing'
   | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code'
   | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers'
-  | 'integrations' | 'webhooks' | 'api-keys'
+  | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models'
   | 'audit-logs';
 
 interface NavSection {
@@ -39,8 +42,10 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Account',
     items: [
-      { key: 'profile',    label: 'Profile',    icon: User },
-      { key: 'workspace',  label: 'Workspace',  icon: Building2 },
+      { key: 'profile',   label: 'Profile',   icon: User },
+      { key: 'workspace', label: 'Workspace', icon: Building2 },
+      { key: 'branding',  label: 'Branding',  icon: Layers },
+      { key: 'billing',   label: 'Billing',   icon: Key },
     ],
   },
   {
@@ -69,6 +74,7 @@ const NAV_SECTIONS: NavSection[] = [
       { key: 'integrations', label: 'Integrations', icon: Shield },
       { key: 'webhooks',     label: 'Webhooks',     icon: Webhook },
       { key: 'api-keys',     label: 'API Keys',     icon: Key },
+      { key: 'ai-models',    label: 'AI Models',    icon: Zap },
     ],
   },
   {
@@ -82,6 +88,8 @@ const NAV_SECTIONS: NavSection[] = [
 const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'profile':        <ProfileSettings />,
   'workspace':      <WorkspaceSettings />,
+  'branding':       <BrandingSettings />,
+  'billing':        <BillingSettings />,
   'whatsapp':       <WhatsAppSettings />,
   'business-hours': <BusinessHours />,
   'quick-replies':  <QuickReplies />,
@@ -95,6 +103,7 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'integrations':   <IntegrationSettings />,
   'webhooks':       <WebhookSettings />,
   'api-keys':       <ApiKeys />,
+  'ai-models':      <LlmSettings />,
   'audit-logs':     <AuditLogs />,
 };
 

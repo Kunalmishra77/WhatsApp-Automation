@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { generateEmbedding, formatEmbedding } from '@/lib/embeddings';
 
 // GET /api/knowledge-base?workspaceId=
 export async function GET(request: NextRequest) {
@@ -41,9 +42,17 @@ export async function POST(request: NextRequest) {
     await requireWorkspacePermission(workspaceId, 'manage_workspace');
 
     const db = createAdminClient() as any;
+
+    // Generate embedding non-blocking (fails silently — keyword search is fallback)
+    const embeddingVec = await generateEmbedding(`${title.trim()}\n${content.trim()}`);
+    const insertPayload: Record<string, unknown> = {
+      workspace_id: workspaceId, title: title.trim(), content: content.trim(), category,
+    };
+    if (embeddingVec) insertPayload.embedding = formatEmbedding(embeddingVec);
+
     const { data, error } = await db
       .from('knowledge_base')
-      .insert({ workspace_id: workspaceId, title: title.trim(), content: content.trim(), category })
+      .insert(insertPayload)
       .select()
       .single();
 

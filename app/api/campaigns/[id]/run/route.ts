@@ -1,21 +1,22 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { authzResponse, requireWorkspacePermission } from '@/lib/authz';
-import { executeCampaign } from '@/lib/campaign-executor';
+import { authzResponse, requireWorkspacePermission, AuthzError } from '@/lib/authz';
 import { createAdminClient } from '@/services/supabase/admin';
 
+// POST /api/campaigns/[id]/run
+// Instead of executing synchronously (timeout risk), enqueues to campaign_queue.
+// A cron job processes the queue in batches every day.
+// For immediate small campaigns (<= 50 contacts) we still execute inline.
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id: campaignId } = await params;
-    const admin = createAdminClient();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db = admin as any;
+    const db = createAdminClient() as any;
 
     const { data: campaign, error: campError } = await db
       .from('campaigns')
-      .select('workspace_id, status')
+      .select('workspace_id, status, audience_type, audience_filter')
       .eq('id', campaignId)
       .single();
 
@@ -32,13 +33,61 @@ export async function POST(
       return NextResponse.json({ error: 'Campaign already completed' }, { status: 409 });
     }
 
-    const result = await executeCampaign(campaignId);
-
-    return NextResponse.json({ success: true, ...result });
-  } catch (error) {
-    if (error instanceof Error && error.message !== 'Internal server error') {
-      return authzResponse(error);
+    // Count audience to decide sync vs async
+    let audienceCount = 0;
+    {
+      const filter = (campaign.audience_filter ?? {}) as Record<string, unknown>;
+      let q = db.from('contacts').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', campaign.workspace_id)
+        .eq('opted_out', false)
+        .eq('is_blocked', false);
+      if (campaign.audience_type === 'tag' && filter.tag) {
+        q = q.contains('tags', [filter.tag]);
+      } else if (campaign.audience_type === 'tags' && Array.isArray(filter.tags)) {
+        q = q.overlaps('tags', filter.tags as string[]);
+      }
+      const { count } = await q;
+      audienceCount = count ?? 0;
     }
+
+    // Small campaigns (≤50): run synchronously as before
+    if (audienceCount <= 50) {
+      const { executeCampaign } = await import('@/lib/campaign-executor');
+      const result = await executeCampaign(campaignId);
+      return NextResponse.json({ success: true, mode: 'sync', ...result });
+    }
+
+    // Large campaigns: enqueue for async processing
+    const { data: existing } = await db
+      .from('campaign_queue')
+      .select('id, status')
+      .eq('campaign_id', campaignId)
+      .in('status', ['pending', 'processing'])
+      .maybeSingle();
+
+    if (existing) {
+      return NextResponse.json({ error: 'Campaign already queued' }, { status: 409 });
+    }
+
+    await db.from('campaign_queue').insert({
+      workspace_id: campaign.workspace_id,
+      campaign_id:  campaignId,
+      total:        audienceCount,
+      status:       'pending',
+    });
+
+    // Mark campaign as running
+    await db.from('campaigns').update({ status: 'running' }).eq('id', campaignId);
+
+    return NextResponse.json({
+      success: true,
+      mode: 'async',
+      queued: true,
+      total: audienceCount,
+      message: `Campaign queued for ${audienceCount} contacts. Processing will start within the hour.`,
+    });
+  } catch (error) {
+    if (error instanceof AuthzError) return authzResponse(error);
     console.error('[Campaign Run] Error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }

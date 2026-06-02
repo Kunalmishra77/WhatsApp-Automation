@@ -53,7 +53,15 @@ export function ConversationItem({ conversation, isActive, onClick }: Conversati
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-1">
-          <p className="truncate text-sm font-semibold text-foreground">{name}</p>
+          <div className="flex items-center gap-1 min-w-0">
+            <p className="truncate text-sm font-semibold text-foreground">{name}</p>
+            {conversation.channel === 'instagram' && (
+              <span className="shrink-0 text-[10px] font-bold px-1 py-0.5 rounded bg-gradient-to-r from-purple-500 to-pink-500 text-white leading-none">IG</span>
+            )}
+            {conversation.channel === 'messenger' && (
+              <span className="shrink-0 text-[10px] font-bold px-1 py-0.5 rounded bg-blue-500 text-white leading-none">FB</span>
+            )}
+          </div>
           <span className="shrink-0 text-[11px] text-muted-foreground">{timeAgo}</span>
         </div>
         <p className="truncate text-xs text-muted-foreground mt-0.5">

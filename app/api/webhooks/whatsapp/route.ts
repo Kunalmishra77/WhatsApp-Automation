@@ -662,7 +662,30 @@ async function fetchKnowledgeBaseContext(
   query: string,
 ): Promise<string> {
   try {
-    const { data: entries } = await (supabase as any)
+    const db = supabase as any;
+
+    // Try semantic vector search first (pgvector)
+    try {
+      const { generateEmbedding, formatEmbedding } = await import('@/lib/embeddings');
+      const queryEmbedding = await generateEmbedding(query);
+      if (queryEmbedding) {
+        const { data: vecResults } = await db.rpc('match_knowledge_base', {
+          query_embedding: formatEmbedding(queryEmbedding),
+          workspace_id_param: workspaceId,
+          match_count: 5,
+        });
+        if (vecResults?.length > 0) {
+          return (vecResults as Array<{ title: string; content: string }>)
+            .map((e) => `## ${e.title}\n${e.content}`)
+            .join('\n\n');
+        }
+      }
+    } catch {
+      // pgvector function not yet created — fall through to keyword search
+    }
+
+    // Fallback: keyword scoring
+    const { data: entries } = await db
       .from('knowledge_base')
       .select('title, content, tags, priority')
       .eq('workspace_id', workspaceId)
@@ -674,29 +697,25 @@ async function fetchKnowledgeBaseContext(
     if (!entries || entries.length === 0) return '';
 
     const queryWords = query.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
-
     const scored = (entries as Array<{ title: string; content: string; tags?: string[]; priority?: number }>).map((e) => {
       const titleLower = e.title.toLowerCase();
       const contentLower = e.content.toLowerCase();
       const tagsText = (e.tags ?? []).join(' ').toLowerCase();
-
-      let score = (e.priority ?? 0) * 0.1; // base priority weight
+      let score = (e.priority ?? 0) * 0.1;
       for (const w of queryWords) {
-        if (titleLower.includes(w)) score += 3;       // title match = strongest
-        else if (tagsText.includes(w)) score += 2;    // tag match = strong
-        else if (contentLower.includes(w)) score += 1; // content match = weaker
+        if (titleLower.includes(w)) score += 3;
+        else if (tagsText.includes(w)) score += 2;
+        else if (contentLower.includes(w)) score += 1;
       }
       return { title: e.title, content: e.content, score };
     });
 
-    const top = scored
+    return scored
       .sort((a, b) => b.score - a.score)
       .slice(0, 5)
       .filter((e) => e.score > 0 || entries.length <= 5)
       .map((e) => `## ${e.title}\n${e.content}`)
       .join('\n\n');
-
-    return top;
   } catch {
     return '';
   }
@@ -721,10 +740,13 @@ async function getAIReply(
   customerName: string,
   kbContext = '',
   imageUrl?: string,
+  wsSettings?: Record<string, unknown>,
 ): Promise<string | null> {
   const apiKey = process.env.OPENROUTER_API_KEY?.replace(/\uFEFF/g, '').trim();
-  // Use gpt-4o-mini for vision requests (supports image_url content blocks)
-  const model  = imageUrl ? 'openai/gpt-4o-mini' : (process.env.AI_MODEL?.trim() ?? 'openai/gpt-oss-120b:free');
+  const { getModel } = await import('@/lib/ai-router');
+  const model = imageUrl
+    ? getModel(wsSettings ?? null, 'vision_model')
+    : getModel(wsSettings ?? null, 'auto_reply_model');
 
   if (!apiKey) {
     console.warn('[AI] OPENROUTER_API_KEY not set \u2014 using fallback reply');
@@ -870,9 +892,9 @@ async function sendAutoReply(
   isEscalation = false,
   imageUrl?: string,
 ) {
-  const { data: ws } = await supabase
+  const { data: ws } = await (supabase as any)
     .from('workspaces')
-    .select('phone_number_id, access_token')
+    .select('phone_number_id, access_token, settings')
     .eq('id', workspaceId)
     .single();
 
@@ -883,9 +905,10 @@ async function sendAutoReply(
   // Fetch active KB entries for this workspace to inject as context
   const kbContext = await fetchKnowledgeBaseContext(supabase, workspaceId, customerMessage);
 
+  const wsSettings = (ws?.settings ?? {}) as Record<string, unknown>;
   const message = isEscalation
     ? ESCALATION_REPLY
-    : (await getAIReply(customerMessage, name, kbContext, imageUrl)
+    : (await getAIReply(customerMessage, name, kbContext, imageUrl, wsSettings)
       ?? `Hello ${name}, thanks for reaching out to V4TOU Tech. Our team received your message and will get back to you shortly.`);
 
   try {
