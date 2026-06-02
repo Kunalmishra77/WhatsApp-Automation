@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CheckCircle2, Zap, Building2, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
-import { STRIPE_PLANS } from '@/lib/stripe';
+import { RAZORPAY_PLANS as STRIPE_PLANS } from '@/lib/razorpay-billing';
 import { cn } from '@/lib/utils';
 
 interface PlanLimits { agents: number; messages_per_month: number; campaigns_per_month: number; kb_entries: number }
@@ -31,14 +31,14 @@ export function BillingSettings() {
   const handleUpgrade = async (plan: 'pro' | 'enterprise') => {
     setLoading(plan);
     try {
-      const res = await fetch('/api/billing/checkout', {
+      const res = await fetch('/api/billing/razorpay-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspaceId, plan }),
       });
-      const data = await res.json() as { url?: string; error?: string };
+      const data = await res.json() as { checkoutUrl?: string; error?: string };
       if (data.error) { toast.error(data.error); return; }
-      if (data.url) window.location.href = data.url;
+      if (data.checkoutUrl) window.location.href = data.checkoutUrl;
     } catch {
       toast.error('Failed to start checkout');
     } finally {
@@ -131,10 +131,11 @@ export function BillingSettings() {
       </div>
 
       <div className="rounded-xl border border-border p-4 bg-muted/30 text-xs text-muted-foreground space-y-1.5">
-        <p className="font-medium text-foreground text-sm">How to activate paid plan:</p>
-        <p>1. Add <code className="bg-muted px-1 rounded">STRIPE_SECRET_KEY</code>, <code className="bg-muted px-1 rounded">STRIPE_PRO_PRICE_ID</code>, and <code className="bg-muted px-1 rounded">STRIPE_WEBHOOK_SECRET</code> to Vercel environment variables.</p>
-        <p>2. In Stripe dashboard, add webhook endpoint: <code className="bg-muted px-1 rounded">/api/billing/webhook</code></p>
-        <p>3. Click Upgrade → complete Stripe Checkout → plan activates automatically.</p>
+        <p className="font-medium text-foreground text-sm">How to activate paid plans (Razorpay):</p>
+        <p>1. Razorpay dashboard → Subscriptions → Plans → Create <strong>Pro</strong> (₹2999/mo) &amp; <strong>Enterprise</strong> (₹9999/mo) plans.</p>
+        <p>2. Add to Vercel env vars: <code className="bg-muted px-1 rounded">RAZORPAY_KEY_ID</code>, <code className="bg-muted px-1 rounded">RAZORPAY_KEY_SECRET</code>, <code className="bg-muted px-1 rounded">RAZORPAY_PRO_PLAN_ID</code>, <code className="bg-muted px-1 rounded">RAZORPAY_ENTERPRISE_PLAN_ID</code>, <code className="bg-muted px-1 rounded">RAZORPAY_WEBHOOK_SECRET</code></p>
+        <p>3. Razorpay → Settings → Webhooks → Add: <code className="bg-muted px-1 rounded">/api/billing/razorpay-webhook</code></p>
+        <p>4. Click Upgrade → Razorpay hosted page → pay → plan activates.</p>
       </div>
     </div>
   );
