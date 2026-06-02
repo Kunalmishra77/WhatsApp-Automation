@@ -7,22 +7,19 @@ import {
 } from 'recharts';
 import {
   MessageSquare, ArrowDownLeft, ArrowUpRight, CheckCircle2,
-  MessageCircle, UserPlus, Star, Download, Clock, Users, X, ExternalLink, Phone,
+  MessageCircle, UserPlus, Star, Download, Clock, Users, Phone,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetClose } from '@/components/ui/sheet';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
-import { useRouter } from 'next/navigation';
 import {
-  useAnalyticsOverview, useAgentPerformance, useAnalyticsDetail,
+  useAnalyticsOverview, useAgentPerformance,
   type AgentStat, type DrawerType,
 } from '../../hooks/useAnalytics';
+import { AnalyticsDrawer } from '../AnalyticsDrawer';
 import { useWorkspaceStore } from '@/store/workspace.store';
 
 const BRAND = '#6366f1', GREEN = '#10b981', AMBER = '#f59e0b', ROSE = '#f43f5e', SKY = '#0ea5e9', VIOLET = '#8b5cf6';
@@ -108,137 +105,6 @@ function HourlyHeatmap({ data, loading }: { data: number[][]; loading: boolean }
         </div>
       </div>
     </div>
-  );
-}
-
-// ── Detail Drawer ──────────────────────────────────────────────────────────────
-const DRAWER_TITLES: Record<DrawerType, string> = {
-  open: 'Open Conversations', resolved: 'Resolved Conversations', pending: 'Pending Conversations',
-  assigned: 'Assigned Conversations', 'new-contacts': 'New Contacts', csat: 'CSAT Responses',
-  inbound: 'Inbound Messages', outbound: 'Outbound Messages', delivery: 'Delivery Breakdown',
-};
-
-function DetailDrawer({ type, from, to, open, onClose }: { type: DrawerType | null; from: string; to: string; open: boolean; onClose: () => void }) {
-  const router = useRouter();
-  const { data, isLoading } = useAnalyticsDetail(type, from, to);
-  const rows = (data?.rows ?? []) as Record<string, unknown>[];
-
-  return (
-    <Sheet open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
-        <SheetHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0">
-          <div className="flex items-center justify-between">
-            <SheetTitle className="text-base">{type ? DRAWER_TITLES[type] : ''}</SheetTitle>
-            <SheetClose asChild><Button variant="ghost" size="icon" className="h-7 w-7"><X className="h-4 w-4" /></Button></SheetClose>
-          </div>
-          <p className="text-xs text-muted-foreground">{from} → {to} · {rows.length} records</p>
-        </SheetHeader>
-
-        {type === 'delivery' && data?.buckets ? (
-          <div className="p-6 space-y-4">
-            {Object.entries(data.buckets).map(([status, count]) => {
-              const total = Object.values(data.buckets!).reduce((a, b) => a + b, 0);
-              const pct   = total > 0 ? Math.round((count / total) * 100) : 0;
-              return (
-                <div key={status}>
-                  <div className="flex justify-between text-sm mb-1"><span className="capitalize font-medium">{status}</span><span className="text-muted-foreground">{count.toLocaleString()} ({pct}%)</span></div>
-                  <div className="h-3 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: `${pct}%` }} /></div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="flex-1 overflow-y-auto">
-            {isLoading ? (
-              <div className="p-6 space-y-3">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
-            ) : rows.length === 0 ? (
-              <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">No data found</div>
-            ) : (type === 'open' || type === 'resolved' || type === 'pending' || type === 'assigned') ? (
-              <Table>
-                <TableHeader className="sticky top-0 bg-card z-10">
-                  <TableRow><TableHead>Contact</TableHead><TableHead>Phone</TableHead><TableHead>Assigned</TableHead><TableHead>Updated</TableHead><TableHead /></TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((r, i) => {
-                    const c = r.contacts as { name?: string; phone?: string } | null;
-                    const a = r.assigned_agent as { full_name?: string } | null;
-                    return (
-                      <TableRow key={i} className="hover:bg-accent cursor-pointer" onClick={() => { router.push(`/conversations/${r.id as string}`); onClose(); }}>
-                        <TableCell className="font-medium text-sm">{c?.name ?? <span className="italic text-muted-foreground">Unknown</span>}</TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">{c?.phone ?? '—'}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{a?.full_name ?? 'Unassigned'}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{r.updated_at ? format(new Date(r.updated_at as string), 'MMM d, HH:mm') : '—'}</TableCell>
-                        <TableCell><ExternalLink className="h-3.5 w-3.5 text-brand-500" /></TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            ) : type === 'new-contacts' ? (
-              <Table>
-                <TableHeader className="sticky top-0 bg-card z-10">
-                  <TableRow><TableHead>Name</TableHead><TableHead>Phone</TableHead><TableHead>Tags</TableHead><TableHead>Joined</TableHead></TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((r, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="font-medium text-sm">{(r.name as string) || <span className="italic text-muted-foreground">—</span>}</TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">{r.phone as string}</TableCell>
-                      <TableCell className="text-xs">{((r.tags as string[]) ?? []).map((t) => <Badge key={t} variant="secondary" className="text-[10px] mr-1">{t}</Badge>)}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{r.created_at ? format(new Date(r.created_at as string), 'MMM d, HH:mm') : '—'}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ) : type === 'csat' ? (
-              <Table>
-                <TableHeader className="sticky top-0 bg-card z-10">
-                  <TableRow><TableHead>Contact</TableHead><TableHead>Phone</TableHead><TableHead>Score</TableHead><TableHead>Date</TableHead></TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((r, i) => {
-                    const c = r.contacts as { name?: string; phone?: string } | null;
-                    const score = r.score as number;
-                    return (
-                      <TableRow key={i}>
-                        <TableCell className="font-medium text-sm">{c?.name ?? '—'}</TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">{c?.phone ?? '—'}</TableCell>
-                        <TableCell>
-                          <span className="inline-flex items-center gap-1">
-                            <span className="text-amber-400">{'★'.repeat(score)}{'☆'.repeat(5 - score)}</span>
-                            <span className="text-sm font-bold text-amber-600 ml-1">{score}/5</span>
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{r.responded_at ? format(new Date(r.responded_at as string), 'MMM d, HH:mm') : '—'}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            ) : (
-              <Table>
-                <TableHeader className="sticky top-0 bg-card z-10">
-                  <TableRow><TableHead>Message</TableHead><TableHead>Contact</TableHead><TableHead>Type</TableHead><TableHead>Time</TableHead></TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((r, i) => {
-                    const c = r.contacts as { name?: string; phone?: string } | null;
-                    return (
-                      <TableRow key={i}>
-                        <TableCell className="text-sm max-w-xs truncate">{(r.content as string) || <span className="italic text-muted-foreground">[{r.type as string}]</span>}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{c?.name ?? c?.phone ?? '—'}</TableCell>
-                        <TableCell><Badge variant="outline" className="text-[10px]">{r.type as string}</Badge></TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{r.created_at ? format(new Date(r.created_at as string), 'MMM d, HH:mm') : '—'}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            )}
-          </div>
-        )}
-      </SheetContent>
-    </Sheet>
   );
 }
 
@@ -517,8 +383,7 @@ export function AnalyticsDashboard() {
       {/* ── Team performance ─────────────────────────────────────────────────── */}
       <AgentTable agents={agentData?.agents ?? []} loading={agentsLoading} />
 
-      {/* ── Detail drawer ─────────────────────────────────────────────────────── */}
-      <DetailDrawer type={drawer} from={from} to={to} open={!!drawer} onClose={() => setDrawer(null)} />
+      <AnalyticsDrawer type={drawer} from={from} to={to} open={!!drawer} onClose={() => setDrawer(null)} />
     </div>
   );
 }
