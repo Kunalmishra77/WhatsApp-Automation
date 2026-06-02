@@ -11,10 +11,12 @@
       "Bash(mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\sla\" && mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\contacts\\\\[id]\\\\360\" && mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\cron\\\\check-sla-breaches\" && mkdir -p \"d:\\\\WhatsApp-Automation\\\\modules\\\\settings\\\\components\\\\SlaSettings\")",
       "Bash(xargs grep -l \"Inbox Rules\\\\|InboxRules\\\\|SettingsTab\")",
       "Bash(mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\campaigns\\\\[id]\\\\recipients\")",
-      "Bash(mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\\\(dashboard\\)\\\\campaigns\\\\[id]\")"
+      "Bash(mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\\\(dashboard\\)\\\\campaigns\\\\[id]\")",
+      "Bash(mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\conversations\\\\[id]\\\\mark-read\")"
     ],
     "additionalDirectories": [
-      "d:\\WhatsApp-Automation\\app\\api\\contacts\\[id]"
+      "d:\\WhatsApp-Automation\\app\\api\\contacts\\[id]",
+      "d:\\WhatsApp-Automation\\app\\api\\conversations\\[id]"
     ]
   }
 }

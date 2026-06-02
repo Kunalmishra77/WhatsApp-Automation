@@ -33,10 +33,22 @@ async function sendTemplateMessage(
   templateName: string,
   language: string,
   variables: string[],
+  headerMediaId?: string,    // WhatsApp media ID for IMAGE/VIDEO/DOCUMENT header
+  headerMediaType?: string,  // image | video | document
 ): Promise<{ success: boolean; waMessageId?: string; error?: string }> {
-  const components = variables.length > 0
-    ? [{ type: 'body', parameters: variables.map((v) => ({ type: 'text', text: v || ' ' })) }]
-    : [];
+  const components: Array<Record<string, unknown>> = [];
+
+  // Include header media component when template has IMAGE/VIDEO/DOCUMENT header
+  if (headerMediaId && headerMediaType) {
+    components.push({
+      type: 'header',
+      parameters: [{ type: headerMediaType, [headerMediaType]: { id: headerMediaId } }],
+    });
+  }
+
+  if (variables.length > 0) {
+    components.push({ type: 'body', parameters: variables.map((v) => ({ type: 'text', text: v || ' ' })) });
+  }
 
   const res = await fetch(
     `https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`,
@@ -111,7 +123,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
   const { data: campaign, error: campError } = await db
     .from('campaigns')
-    .select('*, templates(name, language, body, variables)')
+    .select('*, templates(name, language, body, variables, header_type, header_content)')
     .eq('id', campaignId)
     .single();
 
@@ -120,7 +132,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   if (campaign.status === 'running')   return { campaignId, total: 0, sent: 0, failed: 0, skipped: 'already running' };
   if (campaign.status === 'completed') return { campaignId, total: 0, sent: 0, failed: 0, skipped: 'already completed' };
 
-  const template = campaign.templates as Template | null;
+  const template = campaign.templates as (Template & { header_type?: string; header_content?: string }) | null;
   if (!template) throw new Error(`No template for campaign ${campaignId}`);
 
   const { data: workspace } = await db
@@ -173,7 +185,14 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
   for (const contact of recipients) {
     const variables = buildVariables(template, contact);
-    const result    = await sendTemplateMessage(ws, contact.phone, template.name, template.language ?? 'en', variables);
+
+    // Determine header media: prefer campaign's own media_id, fall back to template's example handle
+    const tmplHeaderType = template.header_type?.toUpperCase();
+    const isMediaHeader  = tmplHeaderType && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(tmplHeaderType);
+    const headerMediaId  = isMediaHeader ? (campaign.media_id as string | undefined ?? undefined) : undefined;
+    const headerMediaType = headerMediaId ? (tmplHeaderType?.toLowerCase() ?? undefined) : undefined;
+
+    const result = await sendTemplateMessage(ws, contact.phone, template.name, template.language ?? 'en', variables, headerMediaId, headerMediaType);
 
     if (result.success) {
       sentCount++;

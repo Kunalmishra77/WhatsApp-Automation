@@ -45,8 +45,16 @@ export async function POST(
 
     const components: Array<Record<string, unknown>> = [];
 
-    if (template.header_content) {
+    const headerType = (template.header_type as string | null)?.toUpperCase() ?? 'TEXT';
+    if (template.header_content && (!template.header_type || headerType === 'TEXT')) {
       components.push({ type: 'HEADER', format: 'TEXT', text: template.header_content });
+    } else if (template.header_content && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType)) {
+      // Media header — header_content stores the WhatsApp media handle uploaded as example
+      components.push({
+        type:    'HEADER',
+        format:  headerType,
+        example: { header_handle: [template.header_content] },
+      });
     }
 
     // Build example values for variables — Meta requires this to avoid auto-rejection

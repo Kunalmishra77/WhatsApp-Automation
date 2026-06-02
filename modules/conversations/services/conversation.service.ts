@@ -76,10 +76,6 @@ export async function assignConversation(id: string, agentId: string) {
 }
 
 export async function markConversationRead(conversationId: string) {
-  const supabase = createClient();
-  // Reset unread count on conversation
-  await supabase
-    .from('conversations')
-    .update({ unread_count: 0 } as never)
-    .eq('id', conversationId);
+  // Calls backend which: (1) resets unread count in DB, (2) sends WhatsApp read receipt (blue tick)
+  await fetch(`/api/conversations/${conversationId}/mark-read`, { method: 'POST' });
 }

@@ -1,13 +1,57 @@
+import { Image, Video, FileText } from 'lucide-react';
+
 interface WhatsAppPreviewProps {
-  header?: string;
-  body: string;
-  footer?: string;
-  buttons?: Array<{ type: string; text: string }>;
+  headerType?:    string;           // NONE | TEXT | IMAGE | VIDEO | DOCUMENT
+  headerText?:    string;           // for TEXT type
+  mediaFileName?: string;           // for media types
+  header?:        string;           // legacy — treated as TEXT
+  body:           string;
+  footer?:        string;
+  buttons?:       Array<{ type: string; text: string }>;
 }
 
-export function WhatsAppPreview({ header, body, footer, buttons }: WhatsAppPreviewProps) {
+export function WhatsAppPreview({
+  headerType,
+  headerText,
+  mediaFileName,
+  header,
+  body,
+  footer,
+  buttons,
+}: WhatsAppPreviewProps) {
   const renderText = (text: string) =>
     text.replace(/\{\{(\d+)\}\}/g, (_, n) => `[Variable ${n}]`);
+
+  const resolvedHeaderType = headerType ?? (header ? 'TEXT' : 'NONE');
+  const resolvedHeaderText = headerText ?? header ?? '';
+
+  const MediaPlaceholder = () => {
+    if (resolvedHeaderType === 'IMAGE') {
+      return (
+        <div className="mb-1.5 flex h-28 w-full items-center justify-center rounded-lg bg-[#f0f2f5]">
+          <Image className="h-8 w-8 text-[#8696a0]" />
+          {mediaFileName && <span className="ml-2 text-[10px] text-[#8696a0] truncate max-w-20">{mediaFileName}</span>}
+        </div>
+      );
+    }
+    if (resolvedHeaderType === 'VIDEO') {
+      return (
+        <div className="mb-1.5 flex h-28 w-full items-center justify-center rounded-lg bg-[#1c2b33]">
+          <Video className="h-8 w-8 text-white/60" />
+          {mediaFileName && <span className="ml-2 text-[10px] text-white/60 truncate max-w-20">{mediaFileName}</span>}
+        </div>
+      );
+    }
+    if (resolvedHeaderType === 'DOCUMENT') {
+      return (
+        <div className="mb-1.5 flex items-center gap-2 rounded-lg bg-[#f0f2f5] px-3 py-2">
+          <FileText className="h-5 w-5 text-[#53bdeb] shrink-0" />
+          <span className="text-[11px] text-[#111b21] truncate">{mediaFileName || 'document.pdf'}</span>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <div className="flex flex-col items-center justify-center rounded-xl bg-[#e5ddd5] p-4">
@@ -22,11 +66,14 @@ export function WhatsAppPreview({ header, body, footer, buttons }: WhatsAppPrevi
 
         <div className="min-h-32 bg-[#e5ddd5] p-3">
           <div className="max-w-[85%] rounded-b-xl rounded-tr-xl bg-white p-2.5 shadow-sm">
-            {header && (
+            <MediaPlaceholder />
+
+            {resolvedHeaderType === 'TEXT' && resolvedHeaderText && (
               <p className="mb-1.5 text-[13px] font-semibold text-[#111b21]">
-                {renderText(header)}
+                {renderText(resolvedHeaderText)}
               </p>
             )}
+
             <p className="text-[13px] text-[#111b21] whitespace-pre-wrap leading-snug">
               {renderText(body || 'Your message preview will appear here…')}
             </p>
@@ -38,10 +85,7 @@ export function WhatsAppPreview({ header, body, footer, buttons }: WhatsAppPrevi
             {buttons && buttons.length > 0 && (
               <div className="mt-2 border-t border-[#e9edef] pt-2 space-y-1">
                 {buttons.map((btn, i) => (
-                  <div
-                    key={i}
-                    className="rounded-md bg-[#f0f2f5] px-2 py-1.5 text-center text-[12px] font-medium text-[#00a884]"
-                  >
+                  <div key={i} className="rounded-md bg-[#f0f2f5] px-2 py-1.5 text-center text-[12px] font-medium text-[#00a884]">
                     {btn.text}
                   </div>
                 ))}
