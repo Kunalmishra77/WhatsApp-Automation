@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const supabase = createAdminClient();
     const { data, error } = await (supabase as any)
       .from('workspaces')
-      .select('id, name, slug, plan, settings')
+      .select('id, name, slug, plan, settings, custom_domain')
       .eq('id', workspaceId)
       .single();
 
@@ -43,6 +43,7 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json() as {
       workspaceId?: string;
       settings?: Record<string, unknown>;
+      custom_domain?: string | null;
     };
 
     const workspaceId = body.workspaceId;
@@ -52,33 +53,43 @@ export async function PATCH(request: NextRequest) {
 
     await requireWorkspacePermission(workspaceId, 'manage_workspace');
 
-    if (!body.settings || typeof body.settings !== 'object') {
-      return NextResponse.json({ error: 'settings object required' }, { status: 400 });
+    if (!body.settings && !('custom_domain' in body)) {
+      return NextResponse.json({ error: 'settings object or custom_domain required' }, { status: 400 });
     }
 
     const supabase = createAdminClient();
     const db = supabase as any;
 
-    // Merge settings with existing to avoid overwriting unrelated keys
-    const { data: existing } = await db
-      .from('workspaces')
-      .select('settings')
-      .eq('id', workspaceId)
-      .single();
+    const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
-    const existingSettings = (existing?.settings ?? {}) as Record<string, unknown>;
+    // Handle settings JSONB merge
+    if (body.settings && typeof body.settings === 'object') {
+      // Merge settings with existing to avoid overwriting unrelated keys
+      const { data: existing } = await db
+        .from('workspaces')
+        .select('settings')
+        .eq('id', workspaceId)
+        .single();
 
-    // If incoming razorpay_key_secret is masked, preserve existing
-    const incoming = { ...body.settings };
-    if (incoming.razorpay_key_secret === '••••••••') {
-      delete incoming.razorpay_key_secret;
+      const existingSettings = (existing?.settings ?? {}) as Record<string, unknown>;
+
+      // If incoming razorpay_key_secret is masked, preserve existing
+      const incoming = { ...body.settings };
+      if (incoming.razorpay_key_secret === '••••••••') {
+        delete incoming.razorpay_key_secret;
+      }
+
+      updatePayload.settings = { ...existingSettings, ...incoming } as Json;
     }
 
-    const merged = { ...existingSettings, ...incoming } as Json;
+    // Handle custom_domain as a direct column update
+    if ('custom_domain' in body) {
+      updatePayload.custom_domain = body.custom_domain ?? null;
+    }
 
     const { error } = await db
       .from('workspaces')
-      .update({ settings: merged, updated_at: new Date().toISOString() })
+      .update(updatePayload)
       .eq('id', workspaceId);
 
     if (error) {

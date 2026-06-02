@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { hasFeature } from '@/lib/plan-features';
 
 async function getLeadWorkspaceId(leadId: string): Promise<string | null> {
   const supabase = createAdminClient();
@@ -25,6 +26,15 @@ export async function PATCH(
     }
 
     await requireWorkspacePermission(workspaceId, 'manage_leads');
+
+    // Check CRM feature access
+    const { data: ws } = await (createAdminClient() as any).from('workspaces').select('plan').eq('id', workspaceId).single();
+    if (!hasFeature(ws?.plan ?? 'free', 'crm')) {
+      return NextResponse.json(
+        { error: 'CRM is not available on your current plan. Please upgrade to Pro.' },
+        { status: 403 },
+      );
+    }
 
     const body = await request.json() as {
       stage?: string;
@@ -78,6 +88,15 @@ export async function DELETE(
     }
 
     await requireWorkspacePermission(workspaceId, 'manage_leads');
+
+    // Check CRM feature access
+    const { data: wsDelete } = await (createAdminClient() as any).from('workspaces').select('plan').eq('id', workspaceId).single();
+    if (!hasFeature(wsDelete?.plan ?? 'free', 'crm')) {
+      return NextResponse.json(
+        { error: 'CRM is not available on your current plan. Please upgrade to Pro.' },
+        { status: 403 },
+      );
+    }
 
     const supabase = createAdminClient();
     const { error } = await (supabase as any)

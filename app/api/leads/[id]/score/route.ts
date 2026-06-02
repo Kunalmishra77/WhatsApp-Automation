@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { hasFeature } from '@/lib/plan-features';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -14,6 +15,15 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     await requireWorkspacePermission(workspaceId, 'handle_conversations');
     const db = createAdminClient() as any;
+
+    // Check CRM feature access
+    const { data: ws } = await db.from('workspaces').select('plan').eq('id', workspaceId).single();
+    if (!hasFeature(ws?.plan ?? 'free', 'crm')) {
+      return NextResponse.json(
+        { error: 'CRM is not available on your current plan. Please upgrade to Pro.' },
+        { status: 403 },
+      );
+    }
 
     // Fetch the lead + linked conversation messages
     const { data: lead } = await db

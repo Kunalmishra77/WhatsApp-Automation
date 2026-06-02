@@ -13,6 +13,12 @@ import { cn } from '@/lib/utils';
 
 interface PlanLimits { agents: number; messages_per_month: number; campaigns_per_month: number; kb_entries: number }
 interface WorkspaceData { plan: string; plan_limits: PlanLimits; stripe_customer_id: string | null }
+interface UsageMetric { used: number; limit: number; pct: number }
+interface UsageResponse {
+  plan: string;
+  month: string;
+  usage: { messages: UsageMetric; contacts: UsageMetric; campaigns: UsageMetric };
+}
 
 export function BillingSettings() {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
@@ -24,6 +30,15 @@ export function BillingSettings() {
       fetch(`/api/settings/workspace?workspaceId=${workspaceId}`)
         .then((r) => r.json() as Promise<{ workspace?: WorkspaceData }>),
     enabled: !!workspaceId,
+  });
+
+  const { data: usageData } = useQuery({
+    queryKey: ['workspace-usage', workspaceId],
+    queryFn: () =>
+      fetch(`/api/billing/usage?workspaceId=${workspaceId}`)
+        .then((r) => r.json() as Promise<UsageResponse>),
+    enabled: !!workspaceId,
+    refetchInterval: 60_000,
   });
 
   const currentPlan = (ws?.workspace?.plan ?? 'free') as string;
@@ -50,27 +65,39 @@ export function BillingSettings() {
 
   const fmt = (v: number) => v === -1 ? 'Unlimited' : v.toLocaleString();
 
+  // Starter plan data (not in RAZORPAY_PLANS, defined inline)
+  const STARTER_PLAN = { name: 'Starter', price: 1499 };
+
   const plans = [
     {
-      key: 'free' as const,
+      key: 'starter' as const,
+      displayKey: ['free', 'starter'] as string[],
       icon: Zap,
       color: 'border-gray-200',
       badge: 'bg-gray-100 text-gray-600',
+      name: STARTER_PLAN.name,
+      price: STARTER_PLAN.price,
       features: ['3 agents', '1,000 messages/mo', '5 campaigns/mo', '50 KB entries', 'All core features'],
     },
     {
       key: 'pro' as const,
+      displayKey: ['pro'] as string[],
       icon: CreditCard,
       color: 'border-brand-300 ring-1 ring-brand-200',
       badge: 'bg-brand-100 text-brand-700',
+      name: STRIPE_PLANS.pro.name,
+      price: STRIPE_PLANS.pro.price,
       features: ['10 agents', '25,000 messages/mo', '50 campaigns/mo', '500 KB entries', 'Priority support', 'A/B Testing', 'AI features'],
       recommended: true,
     },
     {
       key: 'enterprise' as const,
+      displayKey: ['enterprise'] as string[],
       icon: Building2,
       color: 'border-purple-200',
       badge: 'bg-purple-100 text-purple-700',
+      name: STRIPE_PLANS.enterprise.name,
+      price: STRIPE_PLANS.enterprise.price,
       features: ['Unlimited agents', 'Unlimited messages', 'Unlimited campaigns', 'Unlimited KB entries', 'White label', 'Custom domain', 'SLA support'],
     },
   ];
@@ -84,10 +111,73 @@ export function BillingSettings() {
         </p>
       </div>
 
+      {/* Usage this month */}
+      <div className="rounded-xl border border-border p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-foreground">Usage this month</p>
+          <span className="text-xs text-muted-foreground">{usageData?.month ?? '...'}</span>
+        </div>
+
+        {/* Messages */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Messages</span>
+            <span className={cn('font-medium', (usageData?.usage.messages.pct ?? 0) >= 90 ? 'text-red-600' : (usageData?.usage.messages.pct ?? 0) >= 70 ? 'text-amber-600' : 'text-foreground')}>
+              {(usageData?.usage.messages.used ?? 0).toLocaleString()} / {(usageData?.usage.messages.limit ?? 0).toLocaleString()}
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className={cn('h-full rounded-full transition-all', (usageData?.usage.messages.pct ?? 0) >= 90 ? 'bg-red-500' : (usageData?.usage.messages.pct ?? 0) >= 70 ? 'bg-amber-500' : 'bg-brand-500')}
+              style={{ width: `${Math.min(usageData?.usage.messages.pct ?? 0, 100)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Contacts */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Contacts</span>
+            <span className={cn('font-medium', (usageData?.usage.contacts.pct ?? 0) >= 90 ? 'text-red-600' : (usageData?.usage.contacts.pct ?? 0) >= 70 ? 'text-amber-600' : 'text-foreground')}>
+              {(usageData?.usage.contacts.used ?? 0).toLocaleString()} / {(usageData?.usage.contacts.limit ?? 0).toLocaleString()}
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className={cn('h-full rounded-full transition-all', (usageData?.usage.contacts.pct ?? 0) >= 90 ? 'bg-red-500' : (usageData?.usage.contacts.pct ?? 0) >= 70 ? 'bg-amber-500' : 'bg-brand-500')}
+              style={{ width: `${Math.min(usageData?.usage.contacts.pct ?? 0, 100)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Campaigns */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Campaigns</span>
+            <span className={cn('font-medium', (usageData?.usage.campaigns.pct ?? 0) >= 90 ? 'text-red-600' : (usageData?.usage.campaigns.pct ?? 0) >= 70 ? 'text-amber-600' : 'text-foreground')}>
+              {(usageData?.usage.campaigns.used ?? 0).toLocaleString()} / {(usageData?.usage.campaigns.limit ?? 0).toLocaleString()}
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className={cn('h-full rounded-full transition-all', (usageData?.usage.campaigns.pct ?? 0) >= 90 ? 'bg-red-500' : (usageData?.usage.campaigns.pct ?? 0) >= 70 ? 'bg-amber-500' : 'bg-brand-500')}
+              style={{ width: `${Math.min(usageData?.usage.campaigns.pct ?? 0, 100)}%` }}
+            />
+          </div>
+        </div>
+
+        {((usageData?.usage.messages.pct ?? 0) >= 80 ||
+          (usageData?.usage.contacts.pct ?? 0) >= 80 ||
+          (usageData?.usage.campaigns.pct ?? 0) >= 80) && (
+          <p className="text-xs text-amber-600 font-medium">
+            ⚠️ You&apos;re approaching your monthly limit. Consider upgrading your plan.
+          </p>
+        )}
+      </div>
+
       <div className="grid grid-cols-3 gap-4">
         {plans.map((p) => {
-          const planData = STRIPE_PLANS[p.key];
-          const isActive = currentPlan === p.key;
+          const isActive = p.displayKey.includes(currentPlan);
           return (
             <div key={p.key} className={cn('rounded-xl border p-4 space-y-3 relative', p.color, isActive && 'bg-brand-50/50')}>
               {p.recommended && (
@@ -96,14 +186,14 @@ export function BillingSettings() {
                 </span>
               )}
               <div className="flex items-center justify-between">
-                <p className="font-semibold text-sm">{planData.name}</p>
+                <p className="font-semibold text-sm">{p.name}</p>
                 {isActive && <Badge className="text-[10px] bg-emerald-100 text-emerald-700 border-0">Active</Badge>}
               </div>
               <div>
                 <span className="text-2xl font-bold">
-                  {planData.price === 0 ? 'Free' : `₹${planData.price.toLocaleString()}`}
+                  {p.price === 0 ? 'Free' : `₹${p.price.toLocaleString()}`}
                 </span>
-                {planData.price > 0 && <span className="text-xs text-muted-foreground">/month</span>}
+                {p.price > 0 && <span className="text-xs text-muted-foreground">/month</span>}
               </div>
               <ul className="space-y-1.5">
                 {p.features.map((f) => (
@@ -112,14 +202,14 @@ export function BillingSettings() {
                   </li>
                 ))}
               </ul>
-              {!isActive && p.key !== 'free' && (
+              {!isActive && p.key !== 'starter' && (
                 <Button
                   size="sm"
                   className="w-full text-xs gap-1.5"
-                  onClick={() => void handleUpgrade(p.key)}
+                  onClick={() => void handleUpgrade(p.key as 'pro' | 'enterprise')}
                   disabled={loading === p.key}
                 >
-                  {loading === p.key ? 'Redirecting…' : `Upgrade to ${planData.name}`}
+                  {loading === p.key ? 'Redirecting…' : `Upgrade to ${p.name}`}
                 </Button>
               )}
               {isActive && (

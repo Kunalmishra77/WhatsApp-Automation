@@ -61,7 +61,11 @@ export async function POST(request: NextRequest) {
         console.error('[Import] Batch error:', error.message);
         failed += batch.length;
       } else {
-        inserted += data?.length ?? 0;
+        const batchInserted = data?.length ?? 0;
+        inserted += batchInserted;
+        if (batchInserted > 0) {
+          void import('@/lib/usage-tracker').then(({ trackContactCreated }) => trackContactCreated(workspaceId)).catch(() => {});
+        }
       }
     }
 
