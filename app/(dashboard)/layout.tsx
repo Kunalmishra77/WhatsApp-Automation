@@ -19,7 +19,13 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
     getUserWorkspaces(user.id),
     getProfile(user.id),
   ]);
-  if (workspaces.length === 0) redirect(ROUTES.WORKSPACE_NEW);
+  // Platform admins don't need a workspace — send them to /admin directly
+  if (workspaces.length === 0) {
+    const db = createAdminClient() as any;
+    const { data: prof } = await db.from('profiles').select('is_platform_admin').eq('id', user.id).single();
+    if (prof?.is_platform_admin) redirect('/admin');
+    redirect(ROUTES.WORKSPACE_NEW);
+  }
 
   const initUser = {
     id:         user.id,
