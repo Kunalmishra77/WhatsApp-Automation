@@ -57,6 +57,28 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     },
   );
 
+  // ── Custom domain lookup (Enterprise plan) ──────────────────────────────
+  const hostname = request.headers.get('host') ?? '';
+  const domain = hostname.split(':')[0] ?? '';
+  const appDomains = ['localhost', 'app.agentix.in', 'whatsapp-automation-kohl-six.vercel.app'];
+  const isAppDomain = appDomains.some((d) => domain === d || domain.endsWith(`.${d}`) || domain.endsWith('.vercel.app'));
+  if (!isAppDomain && domain.includes('.')) {
+    const { createClient: createSvcClient } = await import('@supabase/supabase-js');
+    const svcClient = createSvcClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } },
+    );
+    const { data: ws } = await (svcClient as any)
+      .from('workspaces').select('id').eq('custom_domain', domain).single();
+    if (ws?.id) {
+      const headers = new Headers(request.headers);
+      headers.set('x-workspace-domain', ws.id as string);
+      return NextResponse.next({ request: { headers } });
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
