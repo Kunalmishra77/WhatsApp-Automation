@@ -101,7 +101,7 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
       setHeaderType(ht || 'NONE');
       setMediaHandle(ht !== 'TEXT' && ht !== 'NONE' ? (template?.header_content ?? '') : '');
       setMediaFileName('');
-      const existingBtns = Array.isArray(template?.buttons) ? template.buttons as TemplateButton[] : [];
+      const existingBtns = Array.isArray(template?.buttons) ? template.buttons as unknown as TemplateButton[] : [];
       setButtons(existingBtns);
       reset({
         name:           template?.name ?? '',
