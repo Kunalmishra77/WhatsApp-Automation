@@ -15,17 +15,21 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
   const user = await getUser();
   if (!user) redirect(ROUTES.LOGIN);
 
+  const db = createAdminClient() as any;
+
+  // Platform admins always go to /admin — check before workspace lookup
+  const { data: adminCheck } = await db
+    .from('profiles')
+    .select('is_platform_admin')
+    .eq('id', user.id)
+    .single();
+  if (adminCheck?.is_platform_admin) redirect('/admin');
+
   const [workspaces, profile] = await Promise.all([
     getUserWorkspaces(user.id),
     getProfile(user.id),
   ]);
-  // Platform admins don't need a workspace — send them to /admin directly
-  if (workspaces.length === 0) {
-    const db = createAdminClient() as any;
-    const { data: prof } = await db.from('profiles').select('is_platform_admin').eq('id', user.id).single();
-    if (prof?.is_platform_admin) redirect('/admin');
-    redirect(ROUTES.WORKSPACE_NEW);
-  }
+  if (workspaces.length === 0) redirect(ROUTES.WORKSPACE_NEW);
 
   const initUser = {
     id:         user.id,
@@ -37,7 +41,6 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
   const activeWorkspace = workspaces[0]!;
 
   // Guard: redirect to onboarding if workspace setup isn't complete
-  const db = createAdminClient() as any;
   const { data: ws } = await db
     .from('workspaces')
     .select('onboarding_complete')
