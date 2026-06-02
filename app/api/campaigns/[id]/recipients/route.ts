@@ -40,11 +40,12 @@ export async function GET(
     for (const r of (statsRaw ?? [])) {
       stats.total++;
       const s = r.status as string;
-      if (s === 'sent')      stats.sent++;
-      if (s === 'delivered') stats.delivered++;
-      if (s === 'read')      stats.read++;
-      if (s === 'failed')    stats.failed++;
-      if (s === 'replied')   stats.replied++;
+      // Cumulative funnel: read means also delivered and sent; replied means all of the above
+      if (['sent', 'delivered', 'read', 'replied'].includes(s)) stats.sent++;
+      if (['delivered', 'read', 'replied'].includes(s))         stats.delivered++;
+      if (['read', 'replied'].includes(s))                      stats.read++;
+      if (s === 'replied') stats.replied++;
+      if (s === 'failed')  stats.failed++;
     }
 
     // Recipients list (paginated, optionally filtered)
