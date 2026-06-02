@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchCampaigns, createCampaign, updateCampaignStatus } from '../services/campaign.service';
+import { fetchCampaigns, createCampaign, updateCampaignStatus, deleteCampaign } from '../services/campaign.service';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { useAuthStore } from '@/store/auth.store';
 
@@ -46,6 +46,15 @@ export function useRunCampaign() {
       if (!res.ok) throw new Error(data?.error ?? 'Failed to run campaign');
       return data;
     },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['campaigns', workspaceId] }),
+  });
+}
+
+export function useDeleteCampaign() {
+  const queryClient = useQueryClient();
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
+  return useMutation({
+    mutationFn: (campaignId: string) => deleteCampaign(campaignId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['campaigns', workspaceId] }),
   });
 }

@@ -15,17 +15,26 @@ export const CAMPAIGN_STATUS_COLORS: Record<string, string> = {
 
 export type CampaignWithTemplate = CampaignRow & {
   templates: { name: string; body: string } | null;
+  live_total:     number;
+  live_sent:      number;
+  live_delivered: number;
+  live_read:      number;
+  live_replied:   number;
+  live_failed:    number;
 };
 
 export async function fetchCampaigns(workspaceId: string): Promise<CampaignWithTemplate[]> {
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from('campaigns')
-    .select('*, templates(name, body)')
-    .eq('workspace_id', workspaceId)
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as CampaignWithTemplate[];
+  const res = await fetch(`/api/campaigns/list?workspaceId=${workspaceId}`);
+  if (!res.ok) throw new Error('Failed to fetch campaigns');
+  return res.json() as Promise<CampaignWithTemplate[]>;
+}
+
+export async function deleteCampaign(campaignId: string): Promise<void> {
+  const res = await fetch(`/api/campaigns/${campaignId}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const data = await res.json() as { error?: string };
+    throw new Error(data.error ?? 'Failed to delete campaign');
+  }
 }
 
 export async function createCampaign(
