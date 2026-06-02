@@ -42,6 +42,8 @@
     "**/*.mts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "wacrm-main",
+    "pagarbook-whatsapp-agent-main"
   ]
 }
