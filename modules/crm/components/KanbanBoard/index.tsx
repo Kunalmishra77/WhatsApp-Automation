@@ -21,10 +21,18 @@ import { useLeads, useMoveLeadStage } from '../../hooks/useLeads';
 import { LEAD_STAGES } from '../../services/lead.service';
 import type { LeadStage, LeadWithContact } from '../../services/lead.service';
 
+const TEMP_FILTERS = [
+  { key: '',     label: 'All',  emoji: '📋' },
+  { key: 'hot',  label: 'Hot',  emoji: '🔥' },
+  { key: 'warm', label: 'Warm', emoji: '🌡️' },
+  { key: 'cold', label: 'Cold', emoji: '❄️' },
+] as const;
+
 export function KanbanBoard() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [dragging, setDragging] = useState<LeadWithContact | null>(null);
+  const [createOpen, setCreateOpen]         = useState(false);
+  const [dragging,   setDragging]           = useState<LeadWithContact | null>(null);
+  const [tempFilter, setTempFilter]         = useState('');
   const { data: pipeline, isLoading } = useLeads();
   const moveStage = useMoveLeadStage();
 
@@ -77,7 +85,25 @@ export function KanbanBoard() {
     <>
       <div className="flex h-full flex-col overflow-hidden">
         <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-6 py-3">
-          <h1 className="text-base font-semibold text-foreground">CRM Pipeline</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-base font-semibold text-foreground">CRM Pipeline</h1>
+            {/* Temperature filter pills */}
+            <div className="flex items-center gap-1">
+              {TEMP_FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  onClick={() => setTempFilter(f.key)}
+                  className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-all ${
+                    tempFilter === f.key
+                      ? 'bg-brand-500 text-white border-brand-500'
+                      : 'text-muted-foreground border-border hover:border-brand-300'
+                  }`}
+                >
+                  {f.emoji} {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setCreateOpen(true)}>
             <Plus className="h-3.5 w-3.5" /> New Lead
           </Button>
@@ -91,14 +117,19 @@ export function KanbanBoard() {
             onDragEnd={handleDragEnd}
           >
             <div className="flex gap-4 p-6 h-full">
-              {LEAD_STAGES.map((stage) => (
-                <KanbanColumn
-                  key={stage}
-                  stage={stage}
-                  leads={pipeline?.[stage] ?? []}
-                  onLeadClick={setSelectedLeadId}
-                />
-              ))}
+              {LEAD_STAGES.map((stage) => {
+                const leads = (pipeline?.[stage] ?? []).filter(
+                  (l) => !tempFilter || ((l as any).temperature || 'warm') === tempFilter,
+                );
+                return (
+                  <KanbanColumn
+                    key={stage}
+                    stage={stage}
+                    leads={leads}
+                    onLeadClick={setSelectedLeadId}
+                  />
+                );
+              })}
             </div>
 
             <DragOverlay>

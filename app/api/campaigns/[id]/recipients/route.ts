@@ -11,7 +11,8 @@ export async function GET(
     const workspaceId = request.nextUrl.searchParams.get('workspaceId');
     const status      = request.nextUrl.searchParams.get('status'); // filter
     const page        = parseInt(request.nextUrl.searchParams.get('page') ?? '1', 10);
-    const limit       = 50;
+    const isExport    = request.nextUrl.searchParams.get('export') === '1';
+    const limit       = isExport ? 10000 : 50;
     const offset      = (page - 1) * limit;
 
     if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
@@ -60,10 +61,48 @@ export async function GET(
 
     const { data: recipients, count } = await query;
 
+    // For export: build a map of phone → lead data (temperature, stage, value)
+    let leadsMap: Record<string, { stage: string; temperature: string; value: number | null }> = {};
+    if (isExport && (recipients?.length ?? 0) > 0) {
+      const phones = (recipients ?? []).map((r: { phone: string }) => r.phone);
+      const { data: contacts } = await db
+        .from('contacts')
+        .select('phone, id')
+        .eq('workspace_id', workspaceId)
+        .in('phone', phones);
+
+      if (contacts?.length) {
+        const contactIds = (contacts as Array<{ id: string; phone: string }>).map((c) => c.id);
+        const { data: leads } = await db
+          .from('leads')
+          .select('contact_id, stage, temperature, value')
+          .eq('workspace_id', workspaceId)
+          .in('contact_id', contactIds)
+          .order('created_at', { ascending: false });
+
+        const contactMap: Record<string, string> = {};
+        for (const c of (contacts as Array<{ id: string; phone: string }>)) {
+          contactMap[c.id] = c.phone;
+        }
+
+        const seenContacts = new Set<string>();
+        for (const lead of (leads ?? []) as Array<{ contact_id: string; stage: string; temperature: string; value: number | null }>) {
+          if (!seenContacts.has(lead.contact_id)) {
+            seenContacts.add(lead.contact_id);
+            const phone = contactMap[lead.contact_id];
+            if (phone) {
+              leadsMap[phone] = { stage: lead.stage, temperature: lead.temperature, value: lead.value };
+            }
+          }
+        }
+      }
+    }
+
     return NextResponse.json({
       campaign,
       stats,
-      recipients: recipients ?? [],
+      recipients:  recipients ?? [],
+      leads_map:   isExport ? leadsMap : undefined,
       total: count ?? 0,
       page,
       pages: Math.ceil((count ?? 0) / limit),

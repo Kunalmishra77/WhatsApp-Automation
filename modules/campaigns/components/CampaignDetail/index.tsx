@@ -13,10 +13,28 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import {
   ArrowLeft, Download, MessageSquare,
-  Send, CheckCheck, Eye, XCircle, Reply, Users,
+  Send, CheckCheck, Eye, XCircle, Reply, Users, Clock, Timer,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, formatDistanceStrict } from 'date-fns';
 import { cn } from '@/lib/utils';
+
+// Formats duration between two timestamps to human-readable string
+function formatDuration(startedAt: string | null, completedAt: string | null): string | null {
+  if (!startedAt) return null;
+  const start = new Date(startedAt);
+  const end   = completedAt ? new Date(completedAt) : new Date();
+  return formatDistanceStrict(start, end);
+}
+
+// Calculates send speed: messages per minute
+function sendSpeed(total: number, startedAt: string | null, completedAt: string | null): string | null {
+  if (!startedAt || total === 0) return null;
+  const start = new Date(startedAt);
+  const end   = completedAt ? new Date(completedAt) : new Date();
+  const mins  = (end.getTime() - start.getTime()) / 60_000;
+  if (mins < 0.01) return null;
+  return `${Math.round(total / mins)}/min`;
+}
 
 interface Recipient {
   id: string;
@@ -95,25 +113,50 @@ async function fetchCampaignDetail(campaignId: string, workspaceId: string, stat
   return res.json() as Promise<CampaignDetailData>;
 }
 
-function exportCSV(recipients: Recipient[], campaignName: string) {
-  const header = ['Name', 'Phone', 'Status', 'Sent At', 'Delivered At', 'Read At', 'Replied At', 'Error'].join(',');
-  const rows = recipients.map((r) => [
-    r.name ?? '',
-    r.phone,
-    r.status,
-    r.sent_at      ? format(new Date(r.sent_at), 'yyyy-MM-dd HH:mm') : '',
-    r.delivered_at ? format(new Date(r.delivered_at), 'yyyy-MM-dd HH:mm') : '',
-    r.read_at      ? format(new Date(r.read_at), 'yyyy-MM-dd HH:mm') : '',
-    r.replied_at   ? format(new Date(r.replied_at), 'yyyy-MM-dd HH:mm') : '',
-    r.error_message ?? '',
-  ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','));
+interface RecipientWithLead extends Recipient {
+  lead_stage?:       string;
+  lead_temperature?: string;
+  lead_value?:       number | null;
+}
+
+async function exportCSVWithLeads(campaignId: string, workspaceId: string, campaignName: string) {
+  // Fetch ALL recipients (no pagination) with lead data
+  const params = new URLSearchParams({ workspaceId, status: 'all', page: '1', limit: '10000', export: '1' });
+  const res    = await fetch(`/api/campaigns/${campaignId}/recipients?${params}`);
+  const data   = await res.json() as { recipients?: RecipientWithLead[]; leads_map?: Record<string, { stage: string; temperature: string; value: number | null }> };
+
+  const recipients = data?.recipients ?? [];
+
+  const header = [
+    'Name', 'Phone', 'Status',
+    'Sent At', 'Delivered At', 'Read At', 'Replied At',
+    'Lead Stage', 'Lead Temperature', 'Lead Value (₹)',
+    'Error',
+  ].join(',');
+
+  const rows = recipients.map((r) => {
+    const lead = data?.leads_map?.[r.phone] ?? null;
+    return [
+      r.name ?? '',
+      r.phone,
+      r.status,
+      r.sent_at      ? format(new Date(r.sent_at),      'yyyy-MM-dd HH:mm') : '',
+      r.delivered_at ? format(new Date(r.delivered_at), 'yyyy-MM-dd HH:mm') : '',
+      r.read_at      ? format(new Date(r.read_at),      'yyyy-MM-dd HH:mm') : '',
+      r.replied_at   ? format(new Date(r.replied_at),   'yyyy-MM-dd HH:mm') : '',
+      lead?.stage       ?? '',
+      lead?.temperature ?? '',
+      lead?.value != null ? String(lead.value) : '',
+      r.error_message ?? '',
+    ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',');
+  });
 
   const csv  = [header, ...rows].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }); // BOM for Excel
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = `${campaignName.replace(/\s+/g, '_')}_recipients.csv`;
+  a.download = `${campaignName.replace(/\s+/g, '_')}_full_export.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -160,8 +203,8 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
         )}
         <Button
           size="sm" variant="outline" className="h-7 gap-1.5 text-xs"
-          onClick={() => recipients.length > 0 && exportCSV(recipients, campaign?.name ?? 'campaign')}
-          disabled={recipients.length === 0}
+          onClick={() => campaign && void exportCSVWithLeads(campaignId, workspaceId, campaign.name)}
+          disabled={!campaign || campaign.status === 'draft'}
         >
           <Download className="h-3.5 w-3.5" /> Export CSV
         </Button>
@@ -189,6 +232,48 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
             </div>
           ))}
         </div>
+
+        {/* Duration + Speed row */}
+        {campaign?.started_at && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Timer className="h-4 w-4 text-amber-500" />
+                <span className="text-xs text-muted-foreground">Duration</span>
+              </div>
+              <p className="text-lg font-bold text-foreground">
+                {formatDuration(campaign.started_at, campaign.completed_at) ?? 'Running…'}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {campaign.started_at ? `Started ${format(new Date(campaign.started_at), 'HH:mm, MMM d')}` : ''}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Clock className="h-4 w-4 text-brand-500" />
+                <span className="text-xs text-muted-foreground">Send Speed</span>
+              </div>
+              <p className="text-lg font-bold text-foreground">
+                {sendSpeed(stats.sent, campaign.started_at, campaign.completed_at) ?? '—'}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">messages per minute</p>
+            </div>
+            {campaign.completed_at && (
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <CheckCheck className="h-4 w-4 text-emerald-500" />
+                  <span className="text-xs text-muted-foreground">Completed</span>
+                </div>
+                <p className="text-lg font-bold text-foreground">
+                  {format(new Date(campaign.completed_at), 'HH:mm')}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {format(new Date(campaign.completed_at), 'MMM d, yyyy')}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Progress bars */}
         <div className="rounded-xl border border-border bg-card p-5 space-y-4">

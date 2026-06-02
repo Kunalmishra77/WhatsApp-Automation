@@ -25,12 +25,13 @@ import { QrCodeSettings } from '../QrCodeSettings';
 import { LlmSettings } from '../LlmSettings';
 import { BrandingSettings } from '../BrandingSettings';
 import { BillingSettings } from '../BillingSettings';
+import { MediaLibrary } from '../MediaLibrary';
 
 type SettingKey =
   | 'profile' | 'workspace' | 'branding' | 'billing'
   | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code'
   | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers'
-  | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models'
+  | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models' | 'media-library'
   | 'audit-logs';
 
 interface NavSection {
@@ -55,6 +56,7 @@ const NAV_SECTIONS: NavSection[] = [
       { key: 'business-hours', label: 'Business Hours', icon: Clock },
       { key: 'quick-replies',  label: 'Quick Replies',  icon: MessagesSquare },
       { key: 'qr-code',        label: 'QR Code',        icon: Layers },
+      { key: 'media-library',  label: 'Media Library',  icon: MessagesSquare },
     ],
   },
   {
@@ -104,6 +106,7 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'webhooks':       <WebhookSettings />,
   'api-keys':       <ApiKeys />,
   'ai-models':      <LlmSettings />,
+  'media-library':  <MediaLibrary />,
   'audit-logs':     <AuditLogs />,
 };
 

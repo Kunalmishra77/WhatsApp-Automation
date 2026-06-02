@@ -18,10 +18,10 @@ const PRIORITY_STYLES: Record<string, string> = {
   low:    'text-gray-500 bg-gray-50 border-gray-200',
 };
 
-const TEMPERATURE_CONFIG: Record<string, { label: string; classes: string; dot: string }> = {
-  hot:  { label: 'Hot',  classes: 'text-red-600 bg-red-50 border-red-200',     dot: '🔴' },
-  warm: { label: 'Warm', classes: 'text-amber-600 bg-amber-50 border-amber-200', dot: '🟡' },
-  cold: { label: 'Cold', classes: 'text-blue-600 bg-blue-50 border-blue-200',   dot: '🔵' },
+const TEMPERATURE_CONFIG: Record<string, { label: string; classes: string; emoji: string }> = {
+  hot:  { label: 'Hot',  classes: 'text-red-700 bg-red-100 border-red-300',       emoji: '🔥' },
+  warm: { label: 'Warm', classes: 'text-amber-700 bg-amber-100 border-amber-300', emoji: '🌡️' },
+  cold: { label: 'Cold', classes: 'text-blue-700 bg-blue-100 border-blue-300',    emoji: '❄️' },
 };
 
 export function LeadCard({ lead, onClick }: LeadCardProps) {
@@ -59,18 +59,16 @@ export function LeadCard({ lead, onClick }: LeadCardProps) {
 
       <div className="flex items-center justify-between gap-1.5">
         <div className="flex items-center gap-1.5">
-          {/* Temperature badge — shown always (hot/warm/cold) */}
-          {(lead as any).temperature && (lead as any).temperature !== 'warm' && (
-            <span
-              className={cn(
-                'rounded border px-1.5 py-0.5 text-[10px] font-medium',
-                TEMPERATURE_CONFIG[(lead as any).temperature as string]?.classes ?? '',
-              )}
-            >
-              {TEMPERATURE_CONFIG[(lead as any).temperature as string]?.dot}{' '}
-              {TEMPERATURE_CONFIG[(lead as any).temperature as string]?.label}
-            </span>
-          )}
+          {/* Temperature badge — always visible for ALL leads */}
+          {(() => {
+            const temp   = ((lead as any).temperature as string) || 'warm';
+            const config = TEMPERATURE_CONFIG[temp] ?? TEMPERATURE_CONFIG.warm!;
+            return (
+              <span className={cn('rounded border px-1.5 py-0.5 text-[10px] font-bold', config.classes)}>
+                {config.emoji} {config.label}
+              </span>
+            );
+          })()}
           {lead.priority !== 'medium' && (
             <span
               className={cn(
