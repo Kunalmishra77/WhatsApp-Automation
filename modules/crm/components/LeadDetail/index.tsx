@@ -9,7 +9,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Pencil, Trash2, DollarSign, User, Tag } from 'lucide-react';
+import { Pencil, Trash2, DollarSign, User, Tag, Sparkles } from 'lucide-react';
 import { format } from 'date-fns';
 import { useDeleteLead } from '../../hooks/useLeads';
 import { LeadForm } from '../LeadForm';
@@ -17,6 +17,8 @@ import type { LeadRow } from '../../services/lead.service';
 import { STAGE_LABELS, STAGE_COLORS } from '../../services/lead.service';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useWorkspaceStore } from '@/store/workspace.store';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 async function fetchLeadDetail(id: string): Promise<(LeadRow & { contacts: { name: string | null; phone: string } | null }) | null> {
   const supabase = createClient();
@@ -35,12 +37,29 @@ interface LeadDetailProps {
 
 export function LeadDetail({ leadId, onClose }: LeadDetailProps) {
   const [editOpen, setEditOpen] = useState(false);
-  const remove = useDeleteLead();
+  const remove      = useDeleteLead();
+  const queryClient = useQueryClient();
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
 
   const { data: lead } = useQuery({
     queryKey: ['lead', leadId],
     queryFn: () => fetchLeadDetail(leadId!),
     enabled: !!leadId,
+  });
+
+  const scoreLead = useMutation({
+    mutationFn: () =>
+      fetch(`/api/leads/${leadId}/score`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId }),
+      }).then((r) => r.json() as Promise<{ score: number; error?: string }>),
+    onSuccess: (data) => {
+      if (data.error) { toast.error(data.error); return; }
+      toast.success(`AI Score: ${data.score}/100`);
+      void queryClient.invalidateQueries({ queryKey: ['lead', leadId] });
+      void queryClient.invalidateQueries({ queryKey: ['leads', workspaceId] });
+    },
   });
 
   const handleDelete = async () => {
@@ -58,10 +77,36 @@ export function LeadDetail({ leadId, onClose }: LeadDetailProps) {
             <SheetHeader className="pb-4">
               <div className="flex items-start justify-between gap-2">
                 <SheetTitle className="text-base leading-snug">{lead.title}</SheetTitle>
-                <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize', STAGE_COLORS[lead.stage])}>
-                  {STAGE_LABELS[lead.stage]}
-                </span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {(lead as any).ai_score != null && (
+                    <span
+                      className={cn(
+                        'text-[11px] font-bold px-2 py-0.5 rounded-full border',
+                        (lead as any).ai_score >= 71
+                          ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                          : (lead as any).ai_score >= 31
+                          ? 'text-amber-700 bg-amber-50 border-amber-200'
+                          : 'text-red-700 bg-red-50 border-red-200',
+                      )}
+                    >
+                      Score: {(lead as any).ai_score}
+                    </span>
+                  )}
+                  <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize', STAGE_COLORS[lead.stage])}>
+                    {STAGE_LABELS[lead.stage]}
+                  </span>
+                </div>
               </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-xs border-purple-200 text-purple-700 hover:bg-purple-50 w-full"
+                onClick={() => void scoreLead.mutate()}
+                disabled={scoreLead.isPending}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                {scoreLead.isPending ? 'Scoring…' : 'Calculate AI Score'}
+              </Button>
             </SheetHeader>
 
             <div className="space-y-4 overflow-y-auto">

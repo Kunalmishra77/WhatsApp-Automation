@@ -18,6 +18,12 @@ const PRIORITY_STYLES: Record<string, string> = {
   low:    'text-gray-500 bg-gray-50 border-gray-200',
 };
 
+const TEMPERATURE_CONFIG: Record<string, { label: string; classes: string; dot: string }> = {
+  hot:  { label: 'Hot',  classes: 'text-red-600 bg-red-50 border-red-200',     dot: '🔴' },
+  warm: { label: 'Warm', classes: 'text-amber-600 bg-amber-50 border-amber-200', dot: '🟡' },
+  cold: { label: 'Cold', classes: 'text-blue-600 bg-blue-50 border-blue-200',   dot: '🔵' },
+};
+
 export function LeadCard({ lead, onClick }: LeadCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: lead.id,
@@ -53,6 +59,18 @@ export function LeadCard({ lead, onClick }: LeadCardProps) {
 
       <div className="flex items-center justify-between gap-1.5">
         <div className="flex items-center gap-1.5">
+          {/* Temperature badge — shown always (hot/warm/cold) */}
+          {(lead as any).temperature && (lead as any).temperature !== 'warm' && (
+            <span
+              className={cn(
+                'rounded border px-1.5 py-0.5 text-[10px] font-medium',
+                TEMPERATURE_CONFIG[(lead as any).temperature as string]?.classes ?? '',
+              )}
+            >
+              {TEMPERATURE_CONFIG[(lead as any).temperature as string]?.dot}{' '}
+              {TEMPERATURE_CONFIG[(lead as any).temperature as string]?.label}
+            </span>
+          )}
           {lead.priority !== 'medium' && (
             <span
               className={cn(
@@ -67,12 +85,30 @@ export function LeadCard({ lead, onClick }: LeadCardProps) {
             <Badge variant="outline" className="h-4 px-1 text-[10px]">{lead.source}</Badge>
           )}
         </div>
-        {lead.value != null && lead.value > 0 && (
-          <div className="flex items-center gap-0.5 text-[11px] font-medium text-emerald-600">
-            <DollarSign className="h-3 w-3" />
-            {lead.value.toLocaleString()}
-          </div>
-        )}
+        <div className="flex items-center gap-1.5">
+          {lead.value != null && lead.value > 0 && (
+            <div className="flex items-center gap-0.5 text-[11px] font-medium text-emerald-600">
+              <DollarSign className="h-3 w-3" />
+              {lead.value.toLocaleString()}
+            </div>
+          )}
+          {/* AI Score badge */}
+          {(lead as any).ai_score != null && (
+            <span
+              className={cn(
+                'text-[10px] font-bold px-1.5 py-0.5 rounded border',
+                (lead as any).ai_score >= 71
+                  ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                  : (lead as any).ai_score >= 31
+                  ? 'text-amber-700 bg-amber-50 border-amber-200'
+                  : 'text-red-700 bg-red-50 border-red-200',
+              )}
+              title="AI Lead Score"
+            >
+              {(lead as any).ai_score}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

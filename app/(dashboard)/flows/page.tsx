@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { GitBranch, Plus, Pencil, Trash2 } from 'lucide-react';
+import { GitBranch, Plus, Pencil, Trash2, Sparkles, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -14,21 +14,52 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { useFlows, useCreateFlow, useDeleteFlow, useUpdateFlow } from '@/modules/flows/hooks/useFlows';
 import type { ChatbotFlow } from '@/modules/flows/types';
+import { FLOW_TEMPLATES } from '@/lib/flow-templates';
+import { useWorkspaceStore } from '@/store/workspace.store';
+import { cn } from '@/lib/utils';
 
 export default function FlowsPage() {
   const router = useRouter();
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
   const { data: flows = [], isLoading } = useFlows();
   const createFlow  = useCreateFlow();
   const deleteFlow  = useDeleteFlow();
   const updateFlow  = useUpdateFlow();
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId]       = useState<string | null>(null);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
-  const handleCreate = async () => {
+  const handleCreateBlank = async () => {
+    setShowTemplatePicker(false);
     try {
       const flow = await createFlow.mutateAsync(`New Flow ${Date.now()}`);
       router.push(`/flows/${flow.id}`);
     } catch (err) {
       console.error('[FlowsPage] create error', err);
+    }
+  };
+
+  const handleCreateFromTemplate = async (templateId: string) => {
+    const tpl = FLOW_TEMPLATES.find((t) => t.id === templateId);
+    if (!tpl) return;
+    setShowTemplatePicker(false);
+    try {
+      const res = await fetch('/api/flows', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId,
+          name: tpl.name,
+          description: tpl.description,
+          trigger_type: tpl.trigger_type,
+          trigger_value: tpl.trigger_value,
+          nodes: tpl.nodes,
+          edges: tpl.edges,
+        }),
+      });
+      const data = await res.json() as { flow?: ChatbotFlow };
+      if (data.flow) router.push(`/flows/${data.flow.id}`);
+    } catch (err) {
+      console.error('[FlowsPage] template create error', err);
     }
   };
 
@@ -54,7 +85,7 @@ export default function FlowsPage() {
             <p className="text-xs text-muted-foreground">Automate conversations with visual flow builder</p>
           </div>
         </div>
-        <Button onClick={handleCreate} disabled={createFlow.isPending} className="gap-2">
+        <Button onClick={() => setShowTemplatePicker(true)} className="gap-2">
           <Plus className="h-4 w-4" />
           New Flow
         </Button>
@@ -73,7 +104,7 @@ export default function FlowsPage() {
               <p className="font-medium text-foreground">No flows yet</p>
               <p className="text-sm text-muted-foreground mt-1">Create a chatbot flow to automate your conversations</p>
             </div>
-            <Button onClick={handleCreate} disabled={createFlow.isPending} variant="outline" className="gap-2">
+            <Button onClick={() => setShowTemplatePicker(true)} variant="outline" className="gap-2">
               <Plus className="h-4 w-4" />
               Create your first flow
             </Button>
@@ -150,6 +181,60 @@ export default function FlowsPage() {
           </Table>
         )}
       </div>
+
+      {/* Template Picker Dialog */}
+      <Dialog open={showTemplatePicker} onOpenChange={setShowTemplatePicker}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create New Flow</DialogTitle>
+            <DialogDescription>
+              Start from a template or build from scratch.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Blank option */}
+          <button
+            onClick={() => void handleCreateBlank()}
+            className="flex items-center gap-4 w-full rounded-xl border-2 border-dashed border-border p-4 text-left hover:border-brand-400 hover:bg-brand-50/50 transition-all"
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 text-xl shrink-0">
+              <FileText className="h-5 w-5 text-gray-500" />
+            </div>
+            <div>
+              <p className="font-medium text-sm">Blank Flow</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Start from scratch with an empty canvas</p>
+            </div>
+          </button>
+
+          {/* Templates grid */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-amber-500" /> Templates
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              {FLOW_TEMPLATES.map((tpl) => (
+                <button
+                  key={tpl.id}
+                  onClick={() => void handleCreateFromTemplate(tpl.id)}
+                  className={cn(
+                    'flex items-start gap-3 rounded-xl border border-border p-4 text-left',
+                    'hover:border-brand-400 hover:bg-brand-50/50 hover:shadow-sm transition-all',
+                  )}
+                >
+                  <span className="text-2xl shrink-0">{tpl.icon}</span>
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm truncate">{tpl.name}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{tpl.description}</p>
+                    <span className="mt-2 inline-block text-[10px] bg-muted px-1.5 py-0.5 rounded capitalize">
+                      {tpl.trigger_type === 'keyword' ? `keyword: "${tpl.trigger_value}"` : 'first message'}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete dialog */}
       <Dialog open={!!deletingId} onOpenChange={(open) => !open && setDeletingId(null)}>

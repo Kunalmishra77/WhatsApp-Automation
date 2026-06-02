@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
   User, Building2, MessageSquare, Shield, Clock,
-  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag,
+  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProfileSettings } from '../ProfileSettings';
@@ -19,11 +19,14 @@ import { ApiKeys } from '../ApiKeys';
 import { AuditLogs } from '../AuditLogs';
 import { SlaSettings } from '../SlaSettings';
 import { LabelSettings } from '../LabelSettings';
+import { CustomFieldSettings } from '../CustomFieldSettings';
+import { TimeTriggerSettings } from '../TimeTriggerSettings';
+import { QrCodeSettings } from '../QrCodeSettings';
 
 type SettingKey =
   | 'profile' | 'workspace'
-  | 'whatsapp' | 'business-hours' | 'quick-replies'
-  | 'inbox-rules' | 'sequences' | 'sla' | 'labels'
+  | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code'
+  | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers'
   | 'integrations' | 'webhooks' | 'api-keys'
   | 'audit-logs';
 
@@ -46,15 +49,18 @@ const NAV_SECTIONS: NavSection[] = [
       { key: 'whatsapp',       label: 'Configuration', icon: MessageSquare },
       { key: 'business-hours', label: 'Business Hours', icon: Clock },
       { key: 'quick-replies',  label: 'Quick Replies',  icon: MessagesSquare },
+      { key: 'qr-code',        label: 'QR Code',        icon: Layers },
     ],
   },
   {
     label: 'Automation',
     items: [
-      { key: 'inbox-rules', label: 'Inbox Rules',   icon: SlidersHorizontal },
-      { key: 'sequences',   label: 'Follow-Up',     icon: Zap },
-      { key: 'sla',         label: 'SLA',           icon: Timer },
-      { key: 'labels',      label: 'Labels',        icon: Tag },
+      { key: 'inbox-rules',    label: 'Inbox Rules',    icon: SlidersHorizontal },
+      { key: 'sequences',      label: 'Follow-Up',      icon: Zap },
+      { key: 'sla',            label: 'SLA',            icon: Timer },
+      { key: 'labels',         label: 'Labels',         icon: Tag },
+      { key: 'custom-fields',  label: 'Custom Fields',  icon: Layers },
+      { key: 'time-triggers',  label: 'Time Triggers',  icon: AlarmClock },
     ],
   },
   {
@@ -83,6 +89,9 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'sequences':      <FollowUpSequences />,
   'sla':            <SlaSettings />,
   'labels':         <LabelSettings />,
+  'custom-fields':  <CustomFieldSettings />,
+  'time-triggers':  <TimeTriggerSettings />,
+  'qr-code':        <QrCodeSettings />,
   'integrations':   <IntegrationSettings />,
   'webhooks':       <WebhookSettings />,
   'api-keys':       <ApiKeys />,

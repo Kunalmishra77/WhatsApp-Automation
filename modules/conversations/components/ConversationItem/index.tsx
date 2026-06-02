@@ -60,6 +60,17 @@ export function ConversationItem({ conversation, isActive, onClick }: Conversati
           {conversation.last_message ?? 'No messages yet'}
         </p>
         <div className="mt-1 flex items-center gap-1.5">
+          {/* Sentiment dot */}
+          {(conversation as any).sentiment === 'positive' && (
+            <span className="h-2 w-2 rounded-full bg-emerald-400 shrink-0" title="Positive sentiment" />
+          )}
+          {(conversation as any).sentiment === 'negative' && (
+            <span className="h-2 w-2 rounded-full bg-red-400 shrink-0" title="Negative sentiment" />
+          )}
+          {/* VIP star */}
+          {(conversation as any).contacts?.is_vip && (
+            <span className="text-[10px] text-amber-500" title="VIP contact">⭐</span>
+          )}
           {(conversation as any).sla_first_breach && (
             <Badge className="h-4 px-1.5 text-[10px] bg-red-100 text-red-700 border-red-200" variant="outline">
               ⚠️ SLA

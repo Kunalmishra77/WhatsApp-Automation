@@ -18,11 +18,12 @@ import type { LeadRow } from '../../services/lead.service';
 import { toast } from 'sonner';
 
 const schema = z.object({
-  title:    z.string().min(1, 'Title is required').max(255),
-  stage:    z.enum(['new', 'contacted', 'follow_up', 'interested', 'converted', 'lost']),
-  value:    z.coerce.number().nonnegative().optional(),
-  priority: z.enum(['low', 'medium', 'high']),
-  source:   z.string().max(100).optional().or(z.literal('')),
+  title:       z.string().min(1, 'Title is required').max(255),
+  stage:       z.enum(['new', 'contacted', 'follow_up', 'interested', 'converted', 'lost']),
+  value:       z.coerce.number().nonnegative().optional(),
+  priority:    z.enum(['low', 'medium', 'high']),
+  temperature: z.enum(['hot', 'warm', 'cold']),
+  source:      z.string().max(100).optional().or(z.literal('')),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -42,16 +43,18 @@ export function LeadForm({ open, onClose, lead, defaultStage }: LeadFormProps) {
     useForm<FormValues>({
       resolver: zodResolver(schema),
       defaultValues: {
-        title:    lead?.title ?? '',
-        stage:    (lead?.stage ?? defaultStage ?? 'new') as FormValues['stage'],
-        value:    lead?.value ?? undefined,
-        priority: (lead?.priority ?? 'medium') as FormValues['priority'],
-        source:   lead?.source ?? '',
+        title:       lead?.title ?? '',
+        stage:       (lead?.stage ?? defaultStage ?? 'new') as FormValues['stage'],
+        value:       lead?.value ?? undefined,
+        priority:    (lead?.priority ?? 'medium') as FormValues['priority'],
+        temperature: ((lead as any)?.temperature ?? 'warm') as FormValues['temperature'],
+        source:      lead?.source ?? '',
       },
     });
 
-  const stageValue = watch('stage');
-  const priorityValue = watch('priority');
+  const stageValue       = watch('stage');
+  const priorityValue    = watch('priority');
+  const temperatureValue = watch('temperature');
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -105,6 +108,18 @@ export function LeadForm({ open, onClose, lead, defaultStage }: LeadFormProps) {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Lead Temperature</Label>
+            <Select value={temperatureValue} onValueChange={(v) => setValue('temperature', v as FormValues['temperature'])}>
+              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="hot">🔴 Hot — very interested, ready to buy</SelectItem>
+                <SelectItem value="warm">🟡 Warm — engaged, needs nurturing</SelectItem>
+                <SelectItem value="cold">🔵 Cold — not yet engaged</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

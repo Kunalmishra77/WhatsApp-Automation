@@ -1,16 +1,20 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Phone, Mail, Tag, Globe, MessageSquare, ShoppingBag, Star, CheckCircle2, Clock } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Phone, Mail, Tag, Globe, MessageSquare, ShoppingBag, Star, CheckCircle2, Clock, StickyNote, Layers, Plus, Trash2 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { createClient } from '@/services/supabase/client';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 interface CustomerPanelProps { conversationId: string; }
 
@@ -41,7 +45,9 @@ const ORDER_STATUS_COLOR: Record<string, string> = {
 };
 
 export function CustomerPanel({ conversationId }: CustomerPanelProps) {
-  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
+  const workspaceId  = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
+  const queryClient  = useQueryClient();
+  const [noteText, setNoteText] = useState('');
 
   const { data: contactId } = useQuery({
     queryKey: ['conv-contact', conversationId],
@@ -55,6 +61,28 @@ export function CustomerPanel({ conversationId }: CustomerPanelProps) {
     enabled:  !!contactId && !!workspaceId,
   });
 
+  const addNote = useMutation({
+    mutationFn: () =>
+      fetch(`/api/contacts/${contactId}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId, content: noteText.trim() }),
+      }).then((r) => r.json()),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['customer-360', contactId, workspaceId] });
+      setNoteText('');
+      toast.success('Note saved');
+    },
+  });
+
+  const deleteNote = useMutation({
+    mutationFn: (noteId: string) =>
+      fetch(`/api/contacts/${contactId}/notes?noteId=${noteId}&workspaceId=${workspaceId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['customer-360', contactId, workspaceId] });
+    },
+  });
+
   if (isLoading || !data) {
     return (
       <div className="w-72 shrink-0 border-l border-border bg-card p-4 space-y-3">
@@ -66,17 +94,20 @@ export function CustomerPanel({ conversationId }: CustomerPanelProps) {
     );
   }
 
-  const { contact, stats, conversations, orders, csatResponses } = data as {
+  const { contact, stats, conversations, orders, csatResponses, notes = [], customFieldDefs = [] } = data as {
     contact: Record<string, unknown>;
     stats: { totalConversations: number; resolvedConversations: number; avgCsat: number | null; totalOrders: number; totalSpent: number };
     conversations: Array<Record<string, unknown>>;
     orders: Array<Record<string, unknown>>;
     csatResponses: Array<Record<string, unknown>>;
+    notes: Array<Record<string, unknown>>;
+    customFieldDefs: Array<{ id: string; name: string; label: string; field_type: string; options: string[] | null }>;
   };
 
-  const name    = (contact.name as string | null) ?? (contact.phone as string);
+  const name     = (contact.name as string | null) ?? (contact.phone as string);
   const initials = name.slice(0, 2).toUpperCase();
-  const tags    = (contact.tags as string[] | null) ?? [];
+  const tags     = (contact.tags as string[] | null) ?? [];
+  const customFields = (contact.custom_fields as Record<string, unknown> | null) ?? {};
 
   return (
     <ScrollArea className="w-72 shrink-0 border-l border-border bg-card">
@@ -99,7 +130,7 @@ export function CustomerPanel({ conversationId }: CustomerPanelProps) {
             { label: 'Chats',    value: stats.totalConversations },
             { label: 'Resolved', value: stats.resolvedConversations },
             { label: 'CSAT',     value: stats.avgCsat != null ? `${stats.avgCsat}/5 ⭐` : '—' },
-            { label: 'Orders',   value: stats.totalOrders },
+            { label: 'Revenue',  value: stats.totalSpent > 0 ? `₹${stats.totalSpent.toLocaleString()}` : '—' },
           ].map((s) => (
             <div key={s.label} className="rounded-lg border border-border p-2 text-center">
               <p className="text-sm font-bold text-foreground">{s.value}</p>
@@ -141,20 +172,27 @@ export function CustomerPanel({ conversationId }: CustomerPanelProps) {
           </div>
         </div>
 
-        {/* Tabs: Conversations / Orders / CSAT */}
+        {/* Tabs */}
         <Tabs defaultValue="conversations" className="w-full">
-          <TabsList className="w-full h-7">
-            <TabsTrigger value="conversations" className="flex-1 text-[11px]">
-              <MessageSquare className="h-3 w-3 mr-1" />Chats
+          <TabsList className="w-full h-7 grid grid-cols-5">
+            <TabsTrigger value="conversations" className="text-[10px] px-1">
+              <MessageSquare className="h-3 w-3" />
             </TabsTrigger>
-            <TabsTrigger value="orders" className="flex-1 text-[11px]">
-              <ShoppingBag className="h-3 w-3 mr-1" />Orders
+            <TabsTrigger value="orders" className="text-[10px] px-1">
+              <ShoppingBag className="h-3 w-3" />
             </TabsTrigger>
-            <TabsTrigger value="csat" className="flex-1 text-[11px]">
-              <Star className="h-3 w-3 mr-1" />CSAT
+            <TabsTrigger value="csat" className="text-[10px] px-1">
+              <Star className="h-3 w-3" />
+            </TabsTrigger>
+            <TabsTrigger value="notes" className="text-[10px] px-1">
+              <StickyNote className="h-3 w-3" />
+            </TabsTrigger>
+            <TabsTrigger value="fields" className="text-[10px] px-1">
+              <Layers className="h-3 w-3" />
             </TabsTrigger>
           </TabsList>
 
+          {/* Chats */}
           <TabsContent value="conversations" className="mt-2 space-y-1.5">
             {conversations.length === 0 ? (
               <p className="text-xs text-muted-foreground text-center py-4">No conversations</p>
@@ -177,6 +215,7 @@ export function CustomerPanel({ conversationId }: CustomerPanelProps) {
             )}
           </TabsContent>
 
+          {/* Orders */}
           <TabsContent value="orders" className="mt-2 space-y-1.5">
             {orders.length === 0 ? (
               <p className="text-xs text-muted-foreground text-center py-4">No orders</p>
@@ -199,6 +238,7 @@ export function CustomerPanel({ conversationId }: CustomerPanelProps) {
             )}
           </TabsContent>
 
+          {/* CSAT */}
           <TabsContent value="csat" className="mt-2 space-y-1.5">
             {csatResponses.length === 0 ? (
               <p className="text-xs text-muted-foreground text-center py-4">No ratings yet</p>
@@ -218,6 +258,68 @@ export function CustomerPanel({ conversationId }: CustomerPanelProps) {
                   </span>
                 </div>
               ))
+            )}
+          </TabsContent>
+
+          {/* Notes */}
+          <TabsContent value="notes" className="mt-2 space-y-2">
+            <div className="space-y-1.5">
+              <Textarea
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="Add a note about this contact…"
+                className="text-xs resize-none h-16"
+              />
+              <Button
+                size="sm"
+                className="h-7 w-full gap-1.5 text-xs"
+                disabled={!noteText.trim() || addNote.isPending}
+                onClick={() => void addNote.mutate()}
+              >
+                <Plus className="h-3 w-3" /> Add Note
+              </Button>
+            </div>
+            {notes.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-3">No notes yet</p>
+            ) : (
+              notes.map((n) => (
+                <div key={n.id as string} className="rounded-lg border border-border bg-amber-50/50 p-2.5 space-y-1.5">
+                  <p className="text-xs text-foreground whitespace-pre-wrap">{String(n.content)}</p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground">
+                      {formatDistanceToNow(new Date(n.created_at as string), { addSuffix: true })}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 text-muted-foreground hover:text-destructive"
+                      onClick={() => void deleteNote.mutate(n.id as string)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </TabsContent>
+
+          {/* Custom Fields */}
+          <TabsContent value="fields" className="mt-2 space-y-1.5">
+            {customFieldDefs.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-4">
+                No custom fields defined.{' '}
+                <span className="text-brand-600">Go to Settings → Custom Fields</span>
+              </p>
+            ) : (
+              customFieldDefs.map((def) => {
+                const val = customFields[def.name];
+                return (
+                  <div key={def.id} className="rounded-lg border border-border p-2 space-y-0.5">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{def.label}</p>
+                    <p className="text-xs text-foreground">{val != null && String(val) !== '' ? String(val) : '—'}</p>
+                  </div>
+                );
+              })
             )}
           </TabsContent>
         </Tabs>

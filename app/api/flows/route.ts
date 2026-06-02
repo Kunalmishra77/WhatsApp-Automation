@@ -40,7 +40,15 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { name?: string; description?: string; workspaceId?: string };
+    const body = await request.json() as {
+      name?: string;
+      description?: string;
+      workspaceId?: string;
+      trigger_type?: string;
+      trigger_value?: string | null;
+      nodes?: FlowNode[];
+      edges?: FlowEdge[];
+    };
 
     const workspaceId = body.workspaceId;
     if (!workspaceId) {
@@ -53,8 +61,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
     }
 
-    const defaultNodes: FlowNode[] = [DEFAULT_START_NODE];
-    const defaultEdges: FlowEdge[] = [];
+    const nodes = body.nodes ?? [DEFAULT_START_NODE];
+    const edges = body.edges ?? [];
 
     const supabase = createAdminClient();
     const { data, error } = await (supabase as any)
@@ -64,10 +72,10 @@ export async function POST(request: NextRequest) {
         name:          body.name,
         description:   body.description ?? null,
         is_active:     false,
-        trigger_type:  'keyword',
-        trigger_value: null,
-        nodes:         defaultNodes,
-        edges:         defaultEdges,
+        trigger_type:  body.trigger_type ?? 'keyword',
+        trigger_value: body.trigger_value ?? null,
+        nodes,
+        edges,
       })
       .select()
       .single();

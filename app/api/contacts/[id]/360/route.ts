@@ -17,7 +17,7 @@ export async function GET(
     const db = createAdminClient() as any;
 
     // Fetch all data in parallel
-    const [contactRes, conversationsRes, ordersRes, csatRes, activitiesRes] = await Promise.all([
+    const [contactRes, conversationsRes, ordersRes, csatRes, activitiesRes, notesRes, customFieldDefsRes] = await Promise.all([
       // Contact info
       db.from('contacts').select('*').eq('id', contactId).eq('workspace_id', workspaceId).single(),
 
@@ -53,15 +53,31 @@ export async function GET(
         .or(`metadata->>'contact_id'.eq.${contactId},entity_id.eq.${contactId}`)
         .order('created_at', { ascending: false })
         .limit(20),
+
+      // Contact notes
+      db.from('contact_notes')
+        .select('id, content, created_at, created_by, profiles:created_by(full_name, email)')
+        .eq('contact_id', contactId)
+        .eq('workspace_id', workspaceId)
+        .order('created_at', { ascending: false })
+        .limit(50),
+
+      // Custom field definitions for this workspace
+      db.from('custom_field_definitions')
+        .select('id, name, label, field_type, options')
+        .eq('workspace_id', workspaceId)
+        .order('created_at'),
     ]);
 
     const contact = contactRes.data;
     if (!contact) return NextResponse.json({ error: 'Contact not found' }, { status: 404 });
 
-    const conversations  = conversationsRes.data  ?? [];
-    const orders         = ordersRes.data         ?? [];
-    const csatResponses  = csatRes.data            ?? [];
-    const activities     = activitiesRes.data      ?? [];
+    const conversations      = conversationsRes.data      ?? [];
+    const orders             = ordersRes.data             ?? [];
+    const csatResponses      = csatRes.data               ?? [];
+    const activities         = activitiesRes.data         ?? [];
+    const notes              = notesRes.data              ?? [];
+    const customFieldDefs    = customFieldDefsRes.data    ?? [];
 
     // Stats
     const totalConversations  = conversations.length;
@@ -79,6 +95,8 @@ export async function GET(
       orders,
       csatResponses,
       activities,
+      notes,
+      customFieldDefs,
     });
   } catch (error) {
     return authzResponse(error);

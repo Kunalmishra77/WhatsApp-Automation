@@ -11,19 +11,22 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
-import { Check, ChevronRight, Paperclip, X, Loader2 as Spin } from 'lucide-react';
+import { Check, ChevronRight, Paperclip, X, Loader2 as Spin, FlaskConical } from 'lucide-react';
 import { useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useTemplates } from '@/modules/templates/hooks/useTemplates';
 import { useCreateCampaign } from '../../hooks/useCampaigns';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { toast } from 'sonner';
+import { Switch } from '@/components/ui/switch';
 
 const STEPS = ['Name & Setup', 'Select Template', 'Audience', 'Schedule', 'Media', 'Review'];
 
 interface WizardState {
   name:          string;
   templateId:    string;
+  templateIdB:   string;  // A/B version B template
+  abTest:        boolean;
   audienceType:  'all' | 'tag' | 'tags';
   audienceTag:   string;
   audienceTags:  string;
@@ -41,7 +44,8 @@ interface CampaignWizardProps {
 export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const [step, setStep] = useState(0);
   const [state, setState] = useState<WizardState>({
-    name: '', templateId: '', audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '',
+    name: '', templateId: '', templateIdB: '', abTest: false,
+    audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '',
     mediaId: '', mediaType: '', mediaFileName: '',
   });
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
@@ -82,22 +86,54 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
 
   const handleCreate = async () => {
     try {
-      await create.mutateAsync({
-        name:            state.name,
-        template_id:     state.templateId,
-        audience_type:   state.audienceType,
-        audience_filter: state.audienceType === 'tag'
-          ? { tag: state.audienceTag }
-          : state.audienceType === 'tags'
-            ? { tags: state.audienceTags.split(',').map((t) => t.trim()).filter(Boolean) }
-            : {},
-        scheduled_at:    state.scheduledAt || undefined,
-        media_id:        state.mediaId   || undefined,
-        media_type:      state.mediaType || undefined,
-      } as Parameters<typeof create.mutateAsync>[0]);
-      toast.success('Campaign created!');
+      const audienceFilter = state.audienceType === 'tag'
+        ? { tag: state.audienceTag }
+        : state.audienceType === 'tags'
+          ? { tags: state.audienceTags.split(',').map((t) => t.trim()).filter(Boolean) }
+          : {};
+
+      if (state.abTest) {
+        // Create Version A
+        const campA = await create.mutateAsync({
+          name:            `${state.name} — Version A`,
+          template_id:     state.templateId,
+          audience_type:   state.audienceType,
+          audience_filter: audienceFilter,
+          scheduled_at:    state.scheduledAt || undefined,
+          media_id:        state.mediaId || undefined,
+          media_type:      state.mediaType || undefined,
+          ab_test_group:   'A',
+        } as Parameters<typeof create.mutateAsync>[0]);
+
+        // Create Version B linked to A
+        await create.mutateAsync({
+          name:               `${state.name} — Version B`,
+          template_id:        state.templateIdB || state.templateId,
+          audience_type:      state.audienceType,
+          audience_filter:    audienceFilter,
+          scheduled_at:       state.scheduledAt || undefined,
+          media_id:           state.mediaId || undefined,
+          media_type:         state.mediaType || undefined,
+          ab_test_group:      'B',
+          parent_campaign_id: (campA as any).id,
+        } as Parameters<typeof create.mutateAsync>[0]);
+
+        toast.success('A/B campaign created! Two versions ready to launch.');
+      } else {
+        await create.mutateAsync({
+          name:            state.name,
+          template_id:     state.templateId,
+          audience_type:   state.audienceType,
+          audience_filter: audienceFilter,
+          scheduled_at:    state.scheduledAt || undefined,
+          media_id:        state.mediaId   || undefined,
+          media_type:      state.mediaType || undefined,
+        } as Parameters<typeof create.mutateAsync>[0]);
+        toast.success('Campaign created!');
+      }
+
       setStep(0);
-      setState({ name: '', templateId: '', audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '', mediaId: '', mediaType: '', mediaFileName: '' });
+      setState({ name: '', templateId: '', templateIdB: '', abTest: false, audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '', mediaId: '', mediaType: '', mediaFileName: '' });
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create campaign');
@@ -106,7 +142,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
 
   const handleClose = () => {
     setStep(0);
-    setState({ name: '', templateId: '', audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '', mediaId: '', mediaType: '', mediaFileName: '' });
+    setState({ name: '', templateId: '', templateIdB: '', abTest: false, audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '', mediaId: '', mediaType: '', mediaFileName: '' });
     onClose();
   };
 
@@ -140,7 +176,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
 
         <div className="min-h-40 py-2">
           {step === 0 && (
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div className="space-y-1.5">
                 <Label htmlFor="camp-name">Campaign Name</Label>
                 <Input
@@ -150,6 +186,25 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   placeholder="Black Friday Promo 2026"
                 />
               </div>
+              {/* A/B Test Toggle */}
+              <div className="flex items-center justify-between rounded-xl border border-border p-3 bg-muted/30">
+                <div className="flex items-center gap-2">
+                  <FlaskConical className="h-4 w-4 text-purple-500" />
+                  <div>
+                    <p className="text-sm font-medium">A/B Test</p>
+                    <p className="text-xs text-muted-foreground">Send 2 versions, compare performance</p>
+                  </div>
+                </div>
+                <Switch
+                  checked={state.abTest}
+                  onCheckedChange={(v) => setState((s) => ({ ...s, abTest: v }))}
+                />
+              </div>
+              {state.abTest && (
+                <p className="text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
+                  🧪 You&apos;ll select <strong>Template A</strong> in the next step, then <strong>Template B</strong> after. Both versions will be created for the same audience.
+                </p>
+              )}
             </div>
           )}
 
@@ -202,6 +257,34 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
               {templates.filter((t) => t.status === 'approved').length === 0 && (
                 <p className="text-xs text-muted-foreground px-1">No approved templates yet. You can still proceed with media only.</p>
               )}
+              {state.abTest && (
+                <p className="text-[11px] text-purple-600 font-medium">⬆️ This is Version A template</p>
+              )}
+            </div>
+          )}
+
+          {/* A/B Version B template selection — only when abTest is on and we're on a "virtual" step 1.5 */}
+          {step === 1 && state.abTest && false /* Handled inline via templateIdB below */ && null}
+
+          {/* A/B Version B — shown as an overlay section within step 1 when abTest active */}
+          {step === 1 && state.abTest && (
+            <div className="mt-4 space-y-2 border-t border-dashed border-purple-200 pt-4">
+              <p className="text-xs font-semibold text-purple-700">Version B Template</p>
+              {templates.filter((t) => t.status === 'approved').map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setState((s) => ({ ...s, templateIdB: t.id }))}
+                  className={cn(
+                    'w-full rounded-lg border p-3 text-left transition-colors',
+                    state.templateIdB === t.id
+                      ? 'border-purple-500 bg-purple-500/5'
+                      : 'border-border hover:border-purple-300',
+                  )}
+                >
+                  <p className="text-sm font-medium font-mono">{t.name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{t.body}</p>
+                </button>
+              ))}
             </div>
           )}
 

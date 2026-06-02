@@ -1,16 +1,19 @@
 'use client';
 
+import { useState } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Progress } from '@/components/ui/progress';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { UserPlus } from 'lucide-react';
+import { UserPlus, BarChart2, Users2, Shuffle } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useTeam, useUpdateMemberRole } from '../../hooks/useTeam';
@@ -18,16 +21,48 @@ import { ROLE_LABELS, ROLE_COLORS } from '../../services/team.service';
 import type { Database } from '@/types/database.types';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/store/auth.store';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { useWorkspaceStore } from '@/store/workspace.store';
 
 type UserRole = Database['public']['Tables']['workspace_members']['Row']['role'];
 const ROLES: UserRole[] = ['super_admin', 'admin', 'manager', 'agent'];
 
+interface WorkloadAgent {
+  userId: string; name: string; email: string; avatarUrl: string | null;
+  isOnline: boolean; role: string; expertiseTags: string[]; openCount: number;
+}
+
 export function TeamPage() {
   const { data: members = [], isLoading } = useTeam();
-  const updateRole = useUpdateMemberRole();
+  const updateRole    = useUpdateMemberRole();
   const currentUserId = useAuthStore((s) => s.user?.id);
+  const workspaceId   = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
 
   const onlineCount = members.filter((m) => m.is_online).length;
+
+  const { data: workloadData, refetch: refetchWorkload } = useQuery({
+    queryKey: ['team-workload', workspaceId],
+    queryFn:  () =>
+      fetch(`/api/team/workload?workspaceId=${workspaceId}`)
+        .then((r) => r.json() as Promise<{ agents: WorkloadAgent[]; unassigned: number }>),
+    enabled: !!workspaceId,
+  });
+
+  const balance = useMutation({
+    mutationFn: () =>
+      fetch('/api/team/balance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId }),
+      }).then((r) => r.json() as Promise<{ assigned: number; agents?: number; error?: string }>),
+    onSuccess: (data) => {
+      if (data.error) { toast.error(data.error); return; }
+      toast.success(`Distributed ${data.assigned} conversations across ${data.agents} agents`);
+      void refetchWorkload();
+    },
+  });
+
+  const maxLoad = Math.max(1, ...(workloadData?.agents ?? []).map((a) => a.openCount));
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -46,7 +81,72 @@ export function TeamPage() {
         </Button>
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <Tabs defaultValue="members" className="flex flex-col flex-1 overflow-hidden">
+        <TabsList className="shrink-0 mx-6 mt-3 w-fit">
+          <TabsTrigger value="members" className="gap-1.5 text-xs"><Users2 className="h-3.5 w-3.5" />Members</TabsTrigger>
+          <TabsTrigger value="workload" className="gap-1.5 text-xs"><BarChart2 className="h-3.5 w-3.5" />Workload</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="workload" className="flex-1 overflow-auto p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold">Conversation Workload</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {workloadData?.unassigned ?? 0} unassigned conversations
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs"
+              onClick={() => void balance.mutate()}
+              disabled={balance.isPending}
+            >
+              <Shuffle className="h-3.5 w-3.5" />
+              {balance.isPending ? 'Balancing…' : 'Auto Balance'}
+            </Button>
+          </div>
+          <div className="space-y-3">
+            {(workloadData?.agents ?? []).map((agent) => (
+              <div key={agent.userId} className="rounded-xl border border-border p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <Avatar className="h-7 w-7">
+                        <AvatarImage src={agent.avatarUrl ?? undefined} />
+                        <AvatarFallback className="bg-brand-100 text-brand-700 text-[10px] font-semibold">
+                          {agent.name.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className={cn(
+                        'absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-card',
+                        agent.isOnline ? 'bg-emerald-500' : 'bg-gray-300',
+                      )} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium leading-none">{agent.name}</p>
+                      <p className="text-[10px] text-muted-foreground capitalize">{agent.role}</p>
+                    </div>
+                  </div>
+                  <span className="text-sm font-bold text-foreground">{agent.openCount} open</span>
+                </div>
+                <Progress value={(agent.openCount / maxLoad) * 100} className="h-1.5" />
+                {agent.expertiseTags.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {agent.expertiseTags.map((t) => (
+                      <span key={t} className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground">{t}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {!workloadData?.agents?.length && (
+              <p className="text-sm text-muted-foreground text-center py-8">No agents found</p>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="members" className="flex-1 overflow-auto">
         <Table>
           <TableHeader className="sticky top-0 bg-card z-10">
             <TableRow>
@@ -133,7 +233,8 @@ export function TeamPage() {
                 })}
           </TableBody>
         </Table>
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

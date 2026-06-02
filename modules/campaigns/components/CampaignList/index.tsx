@@ -97,7 +97,16 @@ export function CampaignList() {
                       className="hover:bg-accent cursor-pointer"
                       onClick={() => router.push(`/campaigns/${c.id}`)}
                     >
-                      <TableCell className="font-medium text-sm">{c.name}</TableCell>
+                      <TableCell className="font-medium text-sm">
+                        <div className="flex items-center gap-1.5">
+                          {c.name}
+                          {(c as any).ab_test_group && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-200">
+                              A/B {(c as any).ab_test_group}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="text-sm font-mono text-muted-foreground">
                         {c.templates?.name ?? <span className="text-muted-foreground/50">—</span>}
                       </TableCell>

@@ -217,9 +217,15 @@ async function handleIncomingMessage(
     contactId = existing.id as string;
   }
 
-  const contact = { id: contactId };
+  // Fetch contact flags needed for VIP routing
+  const { data: contactFlags } = await (supabase as any)
+    .from('contacts')
+    .select('is_vip')
+    .eq('id', contactId)
+    .single();
+  const contact = { id: contactId, is_vip: !!(contactFlags?.is_vip) };
 
-  const { data: conversation, error: conversationError } = await supabase
+  const { data: conversation, error: conversationError } = await (supabase as any)
     .from('conversations')
     .upsert(
       {
@@ -231,7 +237,7 @@ async function handleIncomingMessage(
       },
       { onConflict: 'workspace_id,contact_id', ignoreDuplicates: false },
     )
-    .select('id')
+    .select('id, bot_paused, sentiment')
     .single();
 
   if (conversationError || !conversation) {
@@ -406,6 +412,22 @@ async function handleIncomingMessage(
     }
   }
 
+  // ── VIP contact — skip bot, route straight to human agent ──────────────────
+  if (contact.is_vip) {
+    await (supabase as any)
+      .from('conversations')
+      .update({ status: 'pending' })
+      .eq('id', conversation.id);
+    console.log(`[Webhook] VIP contact ${waId} — skipping bot, routing to agent`);
+    return;
+  }
+
+  // ── Bot-pause guard — if agent has paused the bot, skip all AI processing ───
+  if ((conversation as any).bot_paused === true) {
+    console.log(`[Webhook] Bot paused for conversation ${conversation.id} — skipping AI`);
+    return;
+  }
+
   // ── Non-blocking auto-categorization (after message saved) ─────────────────
   const supabaseForCat = supabase;
   const convIdForCat = conversation.id;
@@ -484,13 +506,31 @@ async function handleIncomingMessage(
   // Rate limit: max 1 auto-reply per 30s per contact
   const canReply = await checkAutoReplyLimit(contact.id);
   if (canReply) {
+    // Vision AI: if image, download the media URL for multimodal processing
+    let visionImageUrl: string | undefined;
+    if (msg.type === 'image' && msg.image?.id) {
+      const { data: wsForVision } = await (supabase as any)
+        .from('workspaces')
+        .select('access_token')
+        .eq('id', workspaceId)
+        .single();
+      if (wsForVision?.access_token) {
+        visionImageUrl = (await getWhatsAppMediaUrl(msg.image.id, wsForVision.access_token)) ?? undefined;
+      }
+    }
+
     // Build rich AI prompt for media messages so AI can reply contextually
     const aiPrompt = buildAiPrompt(msg, content);
-    await sendAutoReply(supabase, waId, customerName, workspaceId, aiPrompt, conversation.id, contact.id, isEscalation);
+    await sendAutoReply(supabase, waId, customerName, workspaceId, aiPrompt, conversation.id, contact.id, isEscalation, visionImageUrl);
   } else {
     console.log(`[AutoReply] Rate limited for contact ${contact.id} — skipping`);
   }
   console.log(`[Webhook] Message from ${waId}: ${content}`);
+
+  // ── Non-blocking sentiment update ───────────────────────────────────────────
+  if (content && content.length > 5) {
+    updateConversationSentiment(supabase as any, conversation.id, content).catch(() => {});
+  }
 }
 
 const ESCALATION_KEYWORDS = [
@@ -662,9 +702,29 @@ async function fetchKnowledgeBaseContext(
   }
 }
 
-async function getAIReply(customerMessage: string, customerName: string, kbContext = ''): Promise<string | null> {
+// Downloads a WhatsApp media URL from the Graph API (needed for Vision AI)
+async function getWhatsAppMediaUrl(mediaId: string, accessToken: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://graph.facebook.com/v19.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${accessToken.replace(/\uFEFF/g, '').trim()}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { url?: string };
+    return data.url ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function getAIReply(
+  customerMessage: string,
+  customerName: string,
+  kbContext = '',
+  imageUrl?: string,
+): Promise<string | null> {
   const apiKey = process.env.OPENROUTER_API_KEY?.replace(/\uFEFF/g, '').trim();
-  const model  = process.env.AI_MODEL?.trim() ?? 'openai/gpt-oss-120b:free';
+  // Use gpt-4o-mini for vision requests (supports image_url content blocks)
+  const model  = imageUrl ? 'openai/gpt-4o-mini' : (process.env.AI_MODEL?.trim() ?? 'openai/gpt-oss-120b:free');
 
   if (!apiKey) {
     console.warn('[AI] OPENROUTER_API_KEY not set \u2014 using fallback reply');
@@ -680,6 +740,14 @@ Reply in the same language the customer uses (Hindi, English, etc.).
 Be friendly, professional, and concise \u2014 max 3 sentences.
 Customer name: ${customerName}${kbSection}`;
 
+  // Build user message \u2014 multimodal if we have an image URL
+  const userContent = imageUrl
+    ? [
+        { type: 'image_url', image_url: { url: imageUrl } },
+        { type: 'text', text: customerMessage || 'What is in this image? Respond helpfully.' },
+      ]
+    : customerMessage;
+
   try {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -693,7 +761,7 @@ Customer name: ${customerName}${kbSection}`;
         model,
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user',   content: customerMessage },
+          { role: 'user',   content: userContent },
         ],
         max_tokens: 300,
         temperature: 0.7,
@@ -716,6 +784,45 @@ Customer name: ${customerName}${kbSection}`;
   } catch (error) {
     console.error('[AI] Network/parse error:', error);
     return null;
+  }
+}
+
+// Lightweight sentiment classifier — updates conversation.sentiment non-blocking
+async function updateConversationSentiment(db: any, conversationId: string, text: string) {
+  const apiKey = process.env.OPENROUTER_API_KEY?.replace(/﻿/g, '').trim();
+  if (!apiKey) return;
+
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
+        'X-Title': 'Agentix',
+      },
+      body: JSON.stringify({
+        model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free',
+        messages: [
+          {
+            role: 'system',
+            content: 'Classify the sentiment of this customer message. Reply with ONLY one word: positive, neutral, or negative.',
+          },
+          { role: 'user', content: text },
+        ],
+        max_tokens: 5,
+        temperature: 0,
+      }),
+    });
+    if (!res.ok) return;
+    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const raw = data?.choices?.[0]?.message?.content?.toLowerCase().trim() ?? '';
+    const sentiment = ['positive', 'neutral', 'negative'].includes(raw) ? raw : null;
+    if (sentiment) {
+      await db.from('conversations').update({ sentiment }).eq('id', conversationId);
+    }
+  } catch {
+    // silent fail — sentiment is non-critical
   }
 }
 
@@ -761,6 +868,7 @@ async function sendAutoReply(
   conversationId?: string,
   contactId?: string,
   isEscalation = false,
+  imageUrl?: string,
 ) {
   const { data: ws } = await supabase
     .from('workspaces')
@@ -777,7 +885,7 @@ async function sendAutoReply(
 
   const message = isEscalation
     ? ESCALATION_REPLY
-    : (await getAIReply(customerMessage, name, kbContext)
+    : (await getAIReply(customerMessage, name, kbContext, imageUrl)
       ?? `Hello ${name}, thanks for reaching out to V4TOU Tech. Our team received your message and will get back to you shortly.`);
 
   try {

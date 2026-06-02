@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Phone, Mail, Building2, Globe, Tag, Pencil, Trash2, Ban, X, ListChecks } from 'lucide-react';
+import { Phone, Mail, Building2, Globe, Tag, Pencil, Trash2, Ban, X, ListChecks, Star, TrendingUp } from 'lucide-react';
 import { format } from 'date-fns';
 import { useContact, useUpdateContact, useDeleteContact } from '../../hooks/useContacts';
 import { ContactForm } from '../ContactForm';
@@ -60,6 +60,27 @@ export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
 
   const name = contact.name ?? contact.phone;
   const initials = name.slice(0, 2).toUpperCase();
+
+  const isVip = !!(contact as any).is_vip;
+  const lifecycleStage = (contact as any).lifecycle_stage as string ?? 'lead';
+
+  const LIFECYCLE_OPTIONS = [
+    { value: 'lead',     label: 'Lead',     color: 'bg-blue-100 text-blue-700 border-blue-200' },
+    { value: 'prospect', label: 'Prospect', color: 'bg-purple-100 text-purple-700 border-purple-200' },
+    { value: 'customer', label: 'Customer', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+    { value: 'churned',  label: 'Churned',  color: 'bg-red-100 text-red-700 border-red-200' },
+  ];
+
+  const currentLifecycle = LIFECYCLE_OPTIONS.find((o) => o.value === lifecycleStage) ?? LIFECYCLE_OPTIONS[0]!;
+
+  const toggleVip = async () => {
+    await update.mutateAsync({ id: contact.id, payload: { is_vip: !isVip } as any });
+    toast.success(isVip ? 'VIP status removed' : 'Marked as VIP ⭐');
+  };
+
+  const setLifecycle = async (stage: string) => {
+    await update.mutateAsync({ id: contact.id, payload: { lifecycle_stage: stage } as any });
+  };
 
   const toggleBlock = async () => {
     await update.mutateAsync({ id: contact.id, payload: { is_blocked: !contact.is_blocked } });
@@ -111,18 +132,60 @@ export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
               </AvatarFallback>
             </Avatar>
             <div>
-              <p className="font-semibold text-foreground">{name}</p>
+              <p className="font-semibold text-foreground flex items-center gap-1.5">
+                {name}
+                {isVip && <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />}
+              </p>
               {contact.name && <p className="text-xs text-muted-foreground">{contact.phone}</p>}
             </div>
-            {contact.is_blocked && (
-              <Badge variant="destructive" className="text-xs">Blocked</Badge>
-            )}
+            <div className="flex items-center gap-1.5 flex-wrap justify-center">
+              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${currentLifecycle.color}`}>
+                {currentLifecycle.label}
+              </span>
+              {contact.is_blocked && (
+                <Badge variant="destructive" className="text-xs">Blocked</Badge>
+              )}
+            </div>
           </div>
 
           <div className="flex gap-2">
             <Button variant="outline" size="sm" className="flex-1 gap-1.5 text-xs" onClick={() => setEditOpen(true)}>
               <Pencil className="h-3.5 w-3.5" /> Edit
             </Button>
+            <Button
+              variant="outline" size="sm"
+              className={`flex-1 gap-1.5 text-xs ${isVip ? 'text-amber-600 border-amber-300' : 'text-muted-foreground'}`}
+              onClick={() => void toggleVip()}
+              title={isVip ? 'Remove VIP' : 'Mark as VIP'}
+            >
+              <Star className={`h-3.5 w-3.5 ${isVip ? 'fill-amber-400 text-amber-400' : ''}`} />
+              VIP
+            </Button>
+          </div>
+
+          {/* Lifecycle Stage Selector */}
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+              <TrendingUp className="h-3 w-3" /> Lifecycle Stage
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {LIFECYCLE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => void setLifecycle(opt.value)}
+                  className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-all ${
+                    lifecycleStage === opt.value
+                      ? opt.color + ' ring-2 ring-offset-1 ring-brand-400'
+                      : 'bg-muted text-muted-foreground border-border hover:border-brand-300'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-2">
             <Button
               variant="outline" size="sm"
               className={`flex-1 gap-1.5 text-xs ${contact.is_blocked ? 'text-emerald-600' : 'text-amber-600'}`}

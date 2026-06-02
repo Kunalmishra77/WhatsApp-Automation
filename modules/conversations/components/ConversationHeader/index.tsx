@@ -11,14 +11,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
-import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown } from 'lucide-react';
+import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown, Bot, BotOff, Sparkles, Wand2, GitMerge } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { createClient } from '@/services/supabase/client';
 import { useWorkspaceStore } from '@/store/workspace.store';
-import { useAssignAgent, useChangeStatus, useResolveConversation } from '../../hooks/useConversationActions';
+import { useAssignAgent, useChangeStatus, useResolveConversation, useBotPause, useSummarize } from '../../hooks/useConversationActions';
 import type { ConversationWithContact } from '../../services/conversation.service';
 import { LabelPicker } from '../LabelPicker';
+import {
+  Popover, PopoverContent, PopoverTrigger,
+} from '@/components/ui/popover';
+import { toast } from 'sonner';
 
 interface ConversationHeaderProps {
   conversation: ConversationWithContact;
@@ -47,10 +51,16 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
   const queryClient = useQueryClient();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
 
-  const assignAgent = useAssignAgent();
-  const changeStatus = useChangeStatus();
+  const assignAgent       = useAssignAgent();
+  const changeStatus      = useChangeStatus();
   const resolveConversation = useResolveConversation();
+  const botPause          = useBotPause();
+  const summarize         = useSummarize();
+
+  const isBotPaused = !!(conversation as any).bot_paused;
 
   const contact = conversation.contacts;
   const name = contact?.name ?? contact?.phone ?? 'Unknown';
@@ -102,6 +112,44 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
     );
   };
 
+  const handleSmartAssign = () => {
+    if (!workspaceId) return;
+    fetch(`/api/conversations/${conversation.id}/smart-assign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId }),
+    })
+      .then((r) => r.json() as Promise<{ assignedName?: string; error?: string }>)
+      .then((data) => {
+        if (data.error) { toast.error(data.error); return; }
+        toast.success(`Auto-assigned to ${data.assignedName ?? 'agent'}`);
+        void queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        void queryClient.invalidateQueries({ queryKey: ['conversation', conversation.id] });
+      })
+      .catch(() => toast.error('Smart assign failed'));
+  };
+
+  const handleBotPauseToggle = () => {
+    botPause.mutate(
+      { conversationId: conversation.id, paused: !isBotPaused },
+      {
+        onSuccess: (data) => {
+          toast.success(data.bot_paused ? 'Bot paused — you have control' : 'Bot resumed');
+        },
+      },
+    );
+  };
+
+  const handleSummarize = () => {
+    summarize.mutate(conversation.id, {
+      onSuccess: (data) => {
+        setSummary(data.summary);
+        setSummaryOpen(true);
+      },
+      onError: () => toast.error('Failed to generate summary'),
+    });
+  };
+
   return (
     <div className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4">
       {/* Left: contact info + status badge */}
@@ -134,6 +182,54 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
 
       {/* Right: action controls */}
       <div className="flex items-center gap-1.5">
+        {/* Bot Pause Toggle */}
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(
+            'h-7 gap-1.5 text-xs',
+            isBotPaused
+              ? 'border-red-200 text-red-600 hover:bg-red-50'
+              : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50',
+          )}
+          onClick={handleBotPauseToggle}
+          disabled={botPause.isPending}
+          title={isBotPaused ? 'Bot paused — click to resume' : 'Bot active — click to pause'}
+        >
+          {isBotPaused ? <BotOff className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
+          {isBotPaused ? 'Paused' : 'Bot'}
+        </Button>
+
+        {/* Summarize Button */}
+        <Popover open={summaryOpen} onOpenChange={setSummaryOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
+              onClick={!summary ? handleSummarize : undefined}
+              disabled={summarize.isPending}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {summarize.isPending ? 'Summarizing…' : 'Summary'}
+            </Button>
+          </PopoverTrigger>
+          {summary && (
+            <PopoverContent className="w-80 text-sm" align="end">
+              <p className="font-semibold text-xs text-muted-foreground mb-2 uppercase tracking-wide">AI Summary</p>
+              <p className="text-xs text-foreground leading-relaxed">{summary}</p>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-3 h-7 w-full text-xs text-muted-foreground"
+                onClick={handleSummarize}
+              >
+                Regenerate
+              </Button>
+            </PopoverContent>
+          )}
+        </Popover>
+
         {/* Assign Agent Dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -247,6 +343,30 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem className="gap-2" onClick={handleSmartAssign}>
+              <Wand2 className="h-4 w-4" /> Smart Auto-Assign
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="gap-2"
+              onClick={() => {
+                const other = prompt('Enter conversation ID to merge into this one:');
+                if (other) {
+                  fetch('/api/conversations/merge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ workspaceId, primaryId: conversation.id, secondaryId: other }),
+                  })
+                    .then((r) => r.json() as Promise<{ error?: string }>)
+                    .then((d) => {
+                      if (d.error) toast.error(d.error);
+                      else { toast.success('Conversations merged'); void queryClient.invalidateQueries({ queryKey: ['conversations'] }); }
+                    })
+                    .catch(() => toast.error('Merge failed'));
+                }
+              }}
+            >
+              <GitMerge className="h-4 w-4" /> Merge Conversation
+            </DropdownMenuItem>
             <DropdownMenuItem className="gap-2">
               <User className="h-4 w-4" /> View Contact
             </DropdownMenuItem>
