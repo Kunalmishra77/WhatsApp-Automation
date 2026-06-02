@@ -38,7 +38,7 @@ export function useMessageFunnel() {
   });
 }
 
-// ── New overview hook ──────────────────────────────────────────────────────────
+// ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface AnalyticsSummary {
   totalMessages: number;
@@ -59,23 +59,14 @@ export interface DailyMessage {
   inbound: number;
   outbound: number;
   delivered: number;
+  newContacts: number;
 }
 
-export interface SenderBreakdown {
-  type: string;
-  count: number;
-}
-
-export interface TopContact {
-  name: string | null;
-  phone: string;
-  messageCount: number;
-}
-
-export interface ConversationStatus {
-  status: string;
-  count: number;
-}
+export interface SenderBreakdown  { type: string;  count: number; }
+export interface TopContact       { id: string; name: string | null; phone: string; messageCount: number; }
+export interface ConversationStatus { status: string; count: number; }
+export interface ResolutionBucket { label: string; count: number; }
+export interface TagItem          { tag: string; count: number; }
 
 export interface AnalyticsOverview {
   summary: AnalyticsSummary;
@@ -83,6 +74,9 @@ export interface AnalyticsOverview {
   senderBreakdown: SenderBreakdown[];
   topContacts: TopContact[];
   conversationsByStatus: ConversationStatus[];
+  resolutionTimeDistribution: ResolutionBucket[];
+  tagDistribution: TagItem[];
+  hourlyHeatmap: number[][];
 }
 
 export function useAnalyticsOverview(from: string, to: string) {
@@ -90,18 +84,17 @@ export function useAnalyticsOverview(from: string, to: string) {
   return useQuery<AnalyticsOverview>({
     queryKey: ['analytics', 'overview', workspaceId, from, to],
     queryFn: () =>
-      fetch(
-        `/api/analytics/overview?workspaceId=${workspaceId}&from=${from}&to=${to}`,
-      ).then((r) => {
-        if (!r.ok) throw new Error('Failed to fetch analytics');
-        return r.json() as Promise<AnalyticsOverview>;
-      }),
+      fetch(`/api/analytics/overview?workspaceId=${workspaceId}&from=${from}&to=${to}`)
+        .then((r) => {
+          if (!r.ok) throw new Error('Failed to fetch analytics');
+          return r.json() as Promise<AnalyticsOverview>;
+        }),
     enabled: !!workspaceId,
     staleTime: 60_000,
   });
 }
 
-// ── Agent performance hook ─────────────────────────────────────────────────────
+// ── Agent performance ──────────────────────────────────────────────────────────
 
 export interface AgentStat {
   agentId: string;
@@ -115,22 +108,38 @@ export interface AgentStat {
   messagesSent: number;
 }
 
-export interface AgentPerformanceResponse {
-  agents: AgentStat[];
-}
+export interface AgentPerformanceResponse { agents: AgentStat[]; }
 
 export function useAgentPerformance(from: string, to: string) {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   return useQuery<AgentPerformanceResponse>({
     queryKey: ['analytics', 'agents', workspaceId, from, to],
     queryFn: () =>
-      fetch(
-        `/api/analytics/agents?workspaceId=${workspaceId}&from=${from}&to=${to}`,
-      ).then((r) => {
-        if (!r.ok) throw new Error('Failed to fetch agent performance');
-        return r.json() as Promise<AgentPerformanceResponse>;
-      }),
+      fetch(`/api/analytics/agents?workspaceId=${workspaceId}&from=${from}&to=${to}`)
+        .then((r) => {
+          if (!r.ok) throw new Error('Failed to fetch agent performance');
+          return r.json() as Promise<AgentPerformanceResponse>;
+        }),
     enabled: !!workspaceId,
     staleTime: 60_000,
+  });
+}
+
+// ── Detail drawer ──────────────────────────────────────────────────────────────
+
+export type DrawerType =
+  | 'open' | 'resolved' | 'pending' | 'assigned'
+  | 'new-contacts' | 'csat'
+  | 'inbound' | 'outbound' | 'delivery';
+
+export function useAnalyticsDetail(type: DrawerType | null, from: string, to: string) {
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
+  return useQuery<{ rows: unknown[]; buckets?: Record<string, number> }>({
+    queryKey: ['analytics', 'detail', workspaceId, type, from, to],
+    queryFn: () =>
+      fetch(`/api/analytics/detail?workspaceId=${workspaceId}&type=${type}&from=${from}&to=${to}`)
+        .then((r) => r.json() as Promise<{ rows: unknown[]; buckets?: Record<string, number> }>),
+    enabled: !!workspaceId && !!type,
+    staleTime: 30_000,
   });
 }

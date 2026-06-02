@@ -2,112 +2,72 @@
 
 import { useState } from 'react';
 import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
+  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import {
-  MessageSquare,
-  ArrowDownLeft,
-  ArrowUpRight,
-  CheckCircle2,
-  MessageCircle,
-  UserPlus,
-  Star,
-  Download,
+  MessageSquare, ArrowDownLeft, ArrowUpRight, CheckCircle2,
+  MessageCircle, UserPlus, Star, Download, Clock, Users, X, ExternalLink, Phone,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { Badge } from '@/components/ui/badge';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetClose } from '@/components/ui/sheet';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
-import { useAnalyticsOverview, useAgentPerformance, type AgentStat } from '../../hooks/useAnalytics';
+import { format } from 'date-fns';
+import { useRouter } from 'next/navigation';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+  useAnalyticsOverview, useAgentPerformance, useAnalyticsDetail,
+  type AgentStat, type DrawerType,
+} from '../../hooks/useAnalytics';
 import { useWorkspaceStore } from '@/store/workspace.store';
 
-// ── Brand colours ─────────────────────────────────────────────────────────────
-const BRAND   = '#6366f1';
-const GREEN   = '#10b981';
-const AMBER   = '#f59e0b';
-const ROSE    = '#f43f5e';
-const SKY     = '#0ea5e9';
-const VIOLET  = '#8b5cf6';
-
+const BRAND = '#6366f1', GREEN = '#10b981', AMBER = '#f59e0b', ROSE = '#f43f5e', SKY = '#0ea5e9', VIOLET = '#8b5cf6';
 const PIE_COLORS = [BRAND, GREEN, AMBER, ROSE, SKY, VIOLET];
+const TT = { background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 };
 
-// ── Date range helpers ─────────────────────────────────────────────────────────
 type Range = '7d' | '30d' | '90d';
-
-function buildDates(range: Range): { from: string; to: string } {
-  const to   = new Date().toISOString().split('T')[0]!;
-  const days = range === '7d' ? 7 : range === '30d' ? 30 : 90;
-  const from = new Date(Date.now() - days * 86_400_000).toISOString().split('T')[0]!;
-  return { from, to };
+function buildDates(r: Range) {
+  const to = new Date().toISOString().split('T')[0]!;
+  const days = r === '7d' ? 7 : r === '30d' ? 30 : 90;
+  return { from: new Date(Date.now() - days * 86_400_000).toISOString().split('T')[0]!, to };
 }
 
-// ── Tooltip style ─────────────────────────────────────────────────────────────
-const tooltipStyle = {
-  background: 'hsl(var(--card))',
-  border: '1px solid hsl(var(--border))',
-  borderRadius: '8px',
-  fontSize: 12,
-};
-
-// ── Summary card ──────────────────────────────────────────────────────────────
-interface SummaryCardProps {
-  title: string;
-  value: string | number;
-  sub?: string;
-  icon: React.ElementType;
-  iconBg: string;
-  loading: boolean;
+function fmtMins(m: number) {
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60); const mm = m % 60;
+  return mm > 0 ? `${h}h ${mm}m` : `${h}h`;
+}
+function ChartSkeleton() { return <div className="h-56"><Skeleton className="w-full h-full rounded-lg" /></div>; }
+function Empty({ msg = 'No data for this period' }: { msg?: string }) {
+  return <div className="flex items-center justify-center h-56 text-sm text-muted-foreground">{msg}</div>;
+}
+function renderPieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent }: { cx: number; cy: number; midAngle: number; innerRadius: number; outerRadius: number; percent: number }) {
+  if (percent < 0.05) return null;
+  const R = Math.PI / 180, r = innerRadius + (outerRadius - innerRadius) * 0.5;
+  return <text x={cx + r * Math.cos(-midAngle * R)} y={cy + r * Math.sin(-midAngle * R)} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={12} fontWeight={600}>{`${(percent * 100).toFixed(0)}%`}</text>;
 }
 
-function SummaryCard({ title, value, sub, icon: Icon, iconBg, loading }: SummaryCardProps) {
+// ── Summary card ───────────────────────────────────────────────────────────────
+function SummaryCard({ title, value, sub, icon: Icon, iconBg, loading, onClick }: {
+  title: string; value: string | number; sub?: string;
+  icon: React.ElementType; iconBg: string; loading: boolean; onClick?: () => void;
+}) {
   return (
-    <Card>
-      <CardContent className="pt-6">
-        <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-sm text-muted-foreground">{title}</p>
-            {loading ? (
-              <Skeleton className="h-8 w-24" />
-            ) : (
-              <p className="text-2xl font-bold">{value}</p>
-            )}
-            {sub && (
-              <p className="text-xs text-muted-foreground mt-1">{sub}</p>
-            )}
+    <Card className={cn('transition-all', onClick && 'cursor-pointer hover:ring-2 hover:ring-brand-400 hover:shadow-md')} onClick={onClick}>
+      <CardContent className="pt-5 pb-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-muted-foreground mb-1">{title}</p>
+            {loading ? <Skeleton className="h-7 w-20 mb-1" /> : <p className="text-2xl font-bold leading-tight">{value}</p>}
+            {sub && <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{sub}</p>}
+            {onClick && !loading && <p className="text-[10px] text-brand-500 mt-1 font-medium">View details →</p>}
           </div>
-          <div
-            className={cn(
-              'h-12 w-12 rounded-full flex items-center justify-center shrink-0',
-              iconBg,
-            )}
-          >
-            <Icon className="h-6 w-6 text-white" />
+          <div className={cn('h-10 w-10 rounded-full flex items-center justify-center shrink-0', iconBg)}>
+            <Icon className="h-5 w-5 text-white" />
           </div>
         </div>
       </CardContent>
@@ -115,457 +75,335 @@ function SummaryCard({ title, value, sub, icon: Icon, iconBg, loading }: Summary
   );
 }
 
-// ── Chart skeleton ────────────────────────────────────────────────────────────
-function ChartSkeleton() {
-  return (
-    <div className="flex items-center justify-center h-56">
-      <Skeleton className="w-full h-full rounded-lg" />
-    </div>
-  );
-}
+// ── Heatmap ────────────────────────────────────────────────────────────────────
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-// ── Empty state ───────────────────────────────────────────────────────────────
-function EmptyChart({ message = 'No data for this period' }: { message?: string }) {
+function HourlyHeatmap({ data, loading }: { data: number[][]; loading: boolean }) {
+  if (loading) return <ChartSkeleton />;
+  const max = Math.max(1, ...data.flatMap((r) => r));
   return (
-    <div className="flex items-center justify-center h-56 text-sm text-muted-foreground">
-      {message}
-    </div>
-  );
-}
-
-// ── Agent avatar ──────────────────────────────────────────────────────────────
-function AgentAvatar({ name, avatarUrl }: { name: string; avatarUrl: string | null }) {
-  const initials = name
-    .split(' ')
-    .map((s) => s[0] ?? '')
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
-
-  if (avatarUrl) {
-    return (
-      <img
-        src={avatarUrl}
-        alt={name}
-        className="h-8 w-8 rounded-full object-cover shrink-0"
-      />
-    );
-  }
-  return (
-    <div className="h-8 w-8 rounded-full bg-brand-100 flex items-center justify-center shrink-0">
-      <span className="text-xs font-semibold text-brand-700">{initials}</span>
-    </div>
-  );
-}
-
-// ── Team performance table ─────────────────────────────────────────────────────
-function TeamPerformanceTable({
-  agents,
-  loading,
-}: {
-  agents: AgentStat[];
-  loading: boolean;
-}) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold">Team Performance</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-10 w-full" />
-            ))}
+    <div className="overflow-x-auto">
+      <div className="min-w-[560px]">
+        <div className="flex ml-10 mb-1">
+          {Array.from({ length: 24 }, (_, i) => (
+            <div key={i} className="flex-1 text-[9px] text-muted-foreground text-center">{i % 4 === 0 ? `${i}h` : ''}</div>
+          ))}
+        </div>
+        {DAYS.map((day, di) => (
+          <div key={day} className="flex items-center gap-0.5 mb-0.5">
+            <span className="w-9 text-[10px] text-muted-foreground text-right pr-1 shrink-0">{day}</span>
+            {(data[di] ?? []).map((val, hi) => {
+              const pct = val / max;
+              return (
+                <div key={hi} title={`${day} ${hi}:00 — ${val} msgs`} className="flex-1 h-4 rounded-sm"
+                  style={{ background: val === 0 ? 'hsl(var(--muted))' : `rgba(99,102,241,${0.15 + pct * 0.85})` }} />
+              );
+            })}
           </div>
-        ) : agents.length === 0 ? (
-          <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">
-            No agents found
+        ))}
+        <div className="flex ml-10 mt-2 items-center gap-1.5">
+          <span className="text-[10px] text-muted-foreground">Less</span>
+          {[0.1,0.3,0.5,0.75,1].map((v) => <div key={v} className="h-3 w-4 rounded-sm" style={{ background: `rgba(99,102,241,${0.15 + v * 0.85})` }} />)}
+          <span className="text-[10px] text-muted-foreground">More</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Detail Drawer ──────────────────────────────────────────────────────────────
+const DRAWER_TITLES: Record<DrawerType, string> = {
+  open: 'Open Conversations', resolved: 'Resolved Conversations', pending: 'Pending Conversations',
+  assigned: 'Assigned Conversations', 'new-contacts': 'New Contacts', csat: 'CSAT Responses',
+  inbound: 'Inbound Messages', outbound: 'Outbound Messages', delivery: 'Delivery Breakdown',
+};
+
+function DetailDrawer({ type, from, to, open, onClose }: { type: DrawerType | null; from: string; to: string; open: boolean; onClose: () => void }) {
+  const router = useRouter();
+  const { data, isLoading } = useAnalyticsDetail(type, from, to);
+  const rows = (data?.rows ?? []) as Record<string, unknown>[];
+
+  return (
+    <Sheet open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
+        <SheetHeader className="px-6 pt-6 pb-4 border-b border-border shrink-0">
+          <div className="flex items-center justify-between">
+            <SheetTitle className="text-base">{type ? DRAWER_TITLES[type] : ''}</SheetTitle>
+            <SheetClose asChild><Button variant="ghost" size="icon" className="h-7 w-7"><X className="h-4 w-4" /></Button></SheetClose>
+          </div>
+          <p className="text-xs text-muted-foreground">{from} → {to} · {rows.length} records</p>
+        </SheetHeader>
+
+        {type === 'delivery' && data?.buckets ? (
+          <div className="p-6 space-y-4">
+            {Object.entries(data.buckets).map(([status, count]) => {
+              const total = Object.values(data.buckets!).reduce((a, b) => a + b, 0);
+              const pct   = total > 0 ? Math.round((count / total) * 100) : 0;
+              return (
+                <div key={status}>
+                  <div className="flex justify-between text-sm mb-1"><span className="capitalize font-medium">{status}</span><span className="text-muted-foreground">{count.toLocaleString()} ({pct}%)</span></div>
+                  <div className="h-3 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full bg-brand-500 transition-all" style={{ width: `${pct}%` }} /></div>
+                </div>
+              );
+            })}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Agent</TableHead>
-                  <TableHead className="text-right">Messages Sent</TableHead>
-                  <TableHead className="text-right">Assigned</TableHead>
-                  <TableHead className="text-right">Resolved</TableHead>
-                  <TableHead className="text-right">Avg Response</TableHead>
-                  <TableHead className="text-right">CSAT Score</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {agents.map((agent) => (
-                  <TableRow key={agent.agentId}>
-                    {/* Agent */}
-                    <TableCell>
-                      <div className="flex items-center gap-2 min-w-[160px]">
-                        <AgentAvatar name={agent.name} avatarUrl={agent.avatarUrl} />
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">
-                            {agent.name}
-                          </p>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {agent.email}
-                          </p>
-                        </div>
-                      </div>
-                    </TableCell>
-
-                    {/* Messages Sent */}
-                    <TableCell className="text-right">
-                      <span className="inline-flex items-center justify-center rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-semibold text-brand-700 min-w-[2rem]">
-                        {agent.messagesSent.toLocaleString()}
-                      </span>
-                    </TableCell>
-
-                    {/* Assigned */}
-                    <TableCell className="text-right text-sm">
-                      {agent.totalAssigned.toLocaleString()}
-                    </TableCell>
-
-                    {/* Resolved */}
-                    <TableCell className="text-right">
-                      <span className="inline-flex items-center gap-1 text-sm">
-                        {agent.resolved > 0 && (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                        )}
-                        {agent.resolved.toLocaleString()}
-                      </span>
-                    </TableCell>
-
-                    {/* Avg Response */}
-                    <TableCell className="text-right text-sm">
-                      {agent.avgFirstResponseMin > 0
-                        ? `${agent.avgFirstResponseMin} min`
-                        : '—'}
-                    </TableCell>
-
-                    {/* CSAT Score */}
-                    <TableCell className="text-right text-sm">
-                      {agent.csatAvgScore != null ? (
-                        <span className="inline-flex items-center gap-1">
-                          <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400 shrink-0" />
-                          {agent.csatAvgScore}
-                        </span>
-                      ) : (
-                        '—'
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          <div className="flex-1 overflow-y-auto">
+            {isLoading ? (
+              <div className="p-6 space-y-3">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+            ) : rows.length === 0 ? (
+              <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">No data found</div>
+            ) : (type === 'open' || type === 'resolved' || type === 'pending' || type === 'assigned') ? (
+              <Table>
+                <TableHeader className="sticky top-0 bg-card z-10">
+                  <TableRow><TableHead>Contact</TableHead><TableHead>Phone</TableHead><TableHead>Assigned</TableHead><TableHead>Updated</TableHead><TableHead /></TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((r, i) => {
+                    const c = r.contacts as { name?: string; phone?: string } | null;
+                    const a = r.assigned_agent as { full_name?: string } | null;
+                    return (
+                      <TableRow key={i} className="hover:bg-accent cursor-pointer" onClick={() => { router.push(`/conversations/${r.id as string}`); onClose(); }}>
+                        <TableCell className="font-medium text-sm">{c?.name ?? <span className="italic text-muted-foreground">Unknown</span>}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">{c?.phone ?? '—'}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{a?.full_name ?? 'Unassigned'}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{r.updated_at ? format(new Date(r.updated_at as string), 'MMM d, HH:mm') : '—'}</TableCell>
+                        <TableCell><ExternalLink className="h-3.5 w-3.5 text-brand-500" /></TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            ) : type === 'new-contacts' ? (
+              <Table>
+                <TableHeader className="sticky top-0 bg-card z-10">
+                  <TableRow><TableHead>Name</TableHead><TableHead>Phone</TableHead><TableHead>Tags</TableHead><TableHead>Joined</TableHead></TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((r, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="font-medium text-sm">{(r.name as string) || <span className="italic text-muted-foreground">—</span>}</TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{r.phone as string}</TableCell>
+                      <TableCell className="text-xs">{((r.tags as string[]) ?? []).map((t) => <Badge key={t} variant="secondary" className="text-[10px] mr-1">{t}</Badge>)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{r.created_at ? format(new Date(r.created_at as string), 'MMM d, HH:mm') : '—'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : type === 'csat' ? (
+              <Table>
+                <TableHeader className="sticky top-0 bg-card z-10">
+                  <TableRow><TableHead>Contact</TableHead><TableHead>Phone</TableHead><TableHead>Score</TableHead><TableHead>Date</TableHead></TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((r, i) => {
+                    const c = r.contacts as { name?: string; phone?: string } | null;
+                    const score = r.score as number;
+                    return (
+                      <TableRow key={i}>
+                        <TableCell className="font-medium text-sm">{c?.name ?? '—'}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">{c?.phone ?? '—'}</TableCell>
+                        <TableCell>
+                          <span className="inline-flex items-center gap-1">
+                            <span className="text-amber-400">{'★'.repeat(score)}{'☆'.repeat(5 - score)}</span>
+                            <span className="text-sm font-bold text-amber-600 ml-1">{score}/5</span>
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{r.responded_at ? format(new Date(r.responded_at as string), 'MMM d, HH:mm') : '—'}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            ) : (
+              <Table>
+                <TableHeader className="sticky top-0 bg-card z-10">
+                  <TableRow><TableHead>Message</TableHead><TableHead>Contact</TableHead><TableHead>Type</TableHead><TableHead>Time</TableHead></TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((r, i) => {
+                    const c = r.contacts as { name?: string; phone?: string } | null;
+                    return (
+                      <TableRow key={i}>
+                        <TableCell className="text-sm max-w-xs truncate">{(r.content as string) || <span className="italic text-muted-foreground">[{r.type as string}]</span>}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{c?.name ?? c?.phone ?? '—'}</TableCell>
+                        <TableCell><Badge variant="outline" className="text-[10px]">{r.type as string}</Badge></TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{r.created_at ? format(new Date(r.created_at as string), 'MMM d, HH:mm') : '—'}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
           </div>
         )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+// ── Agent table ────────────────────────────────────────────────────────────────
+function AgentTable({ agents, loading }: { agents: AgentStat[]; loading: boolean }) {
+  return (
+    <Card>
+      <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Team Performance</CardTitle></CardHeader>
+      <CardContent>
+        {loading ? <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+          : agents.length === 0 ? <Empty msg="No agents found" />
+          : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Agent</TableHead>
+                    <TableHead className="text-right">Messages Sent</TableHead>
+                    <TableHead className="text-right">Assigned</TableHead>
+                    <TableHead className="text-right">Resolved</TableHead>
+                    <TableHead className="text-right">Avg Response</TableHead>
+                    <TableHead className="text-right">CSAT</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {agents.map((a) => (
+                    <TableRow key={a.agentId}>
+                      <TableCell>
+                        <div className="flex items-center gap-2 min-w-[160px]">
+                          <div className="h-8 w-8 rounded-full bg-brand-100 flex items-center justify-center shrink-0">
+                            <span className="text-xs font-semibold text-brand-700">{a.name.split(' ').map((n) => n[0] ?? '').join('').slice(0,2).toUpperCase()}</span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{a.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">{a.email}</p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right"><span className="rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-semibold text-brand-700">{a.messagesSent.toLocaleString()}</span></TableCell>
+                      <TableCell className="text-right text-sm">{a.totalAssigned.toLocaleString()}</TableCell>
+                      <TableCell className="text-right text-sm"><span className="inline-flex items-center gap-1">{a.resolved > 0 && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />}{a.resolved.toLocaleString()}</span></TableCell>
+                      <TableCell className="text-right text-sm">{a.avgFirstResponseMin > 0 ? fmtMins(a.avgFirstResponseMin) : '—'}</TableCell>
+                      <TableCell className="text-right text-sm">{a.csatAvgScore != null ? <span className="inline-flex items-center gap-1"><Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400" />{a.csatAvgScore}</span> : '—'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
       </CardContent>
     </Card>
   );
 }
 
-// ── Custom donut label ─────────────────────────────────────────────────────────
-interface PieLabelProps {
-  cx: number;
-  cy: number;
-  midAngle: number;
-  innerRadius: number;
-  outerRadius: number;
-  percent: number;
-}
-
-function renderCustomLabel({
-  cx,
-  cy,
-  midAngle,
-  innerRadius,
-  outerRadius,
-  percent,
-}: PieLabelProps) {
-  if (percent < 0.05) return null;
-  const RADIAN = Math.PI / 180;
-  const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-  const x = cx + radius * Math.cos(-midAngle * RADIAN);
-  const y = cy + radius * Math.sin(-midAngle * RADIAN);
-  return (
-    <text
-      x={x}
-      y={y}
-      fill="white"
-      textAnchor="middle"
-      dominantBaseline="central"
-      fontSize={12}
-      fontWeight={600}
-    >
-      {`${(percent * 100).toFixed(0)}%`}
-    </text>
-  );
-}
-
-// ── Main dashboard ────────────────────────────────────────────────────────────
+// ── Main ───────────────────────────────────────────────────────────────────────
 export function AnalyticsDashboard() {
-  const [range, setRange] = useState<Range>('30d');
-  const { from, to } = buildDates(range);
-  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
-
-  const handleExport = (type: string) => {
-    if (!workspaceId) return;
-    const url = `/api/reports/export?workspaceId=${workspaceId}&type=${type}&from=${from}&to=${to}`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${type}-${from}-${to}.csv`;
-    a.click();
-  };
+  const [range, setRange]   = useState<Range>('30d');
+  const [drawer, setDrawer] = useState<DrawerType | null>(null);
+  const { from, to }        = buildDates(range);
+  const workspaceId         = useWorkspaceStore((s) => s.activeWorkspace?.id);
 
   const { data, isLoading, isError } = useAnalyticsOverview(from, to);
   const { data: agentData, isLoading: agentsLoading } = useAgentPerformance(from, to);
 
-  const summary            = data?.summary;
-  const dailyMessages      = data?.dailyMessages      ?? [];
-  const senderBreakdown    = data?.senderBreakdown    ?? [];
-  const topContacts        = data?.topContacts        ?? [];
-  const conversationsByStatus = data?.conversationsByStatus ?? [];
+  const summary    = data?.summary;
+  const daily      = data?.dailyMessages         ?? [];
+  const senders    = data?.senderBreakdown       ?? [];
+  const contacts   = data?.topContacts           ?? [];
+  const statuses   = data?.conversationsByStatus ?? [];
+  const resDist    = data?.resolutionTimeDistribution ?? [];
+  const tags       = data?.tagDistribution       ?? [];
+  const heatmap    = data?.hourlyHeatmap         ?? Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
 
-  const rangeLabels: Record<Range, string> = {
-    '7d':  'Last 7 days',
-    '30d': 'Last 30 days',
-    '90d': 'Last 90 days',
+  const handleExport = (type: string) => {
+    if (!workspaceId) return;
+    const a = document.createElement('a');
+    a.href = `/api/reports/export?workspaceId=${workspaceId}&type=${type}&from=${from}&to=${to}`;
+    a.download = `${type}-${from}-${to}.csv`;
+    a.click();
   };
 
   return (
     <div className="h-full overflow-y-auto p-6 space-y-6">
-      {/* ── Header ──────────────────────────────────────────────────────────── */}
+      {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Analytics</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {rangeLabels[range]} · {from} → {to}
-          </p>
+          <h1 className="text-2xl font-semibold">Analytics</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">{{ '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days' }[range]} · {from} → {to}</p>
         </div>
-
-        {/* Controls: date range selector + export */}
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-1">
-            {(['7d', '30d', '90d'] as Range[]).map((r) => (
-              <button
-                key={r}
-                onClick={() => setRange(r)}
-                className={cn(
-                  'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-                  range === r
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {r === '7d' ? '7 days' : r === '30d' ? '30 days' : '90 days'}
+            {(['7d','30d','90d'] as Range[]).map((r) => (
+              <button key={r} onClick={() => setRange(r)} className={cn('rounded-md px-3 py-1.5 text-sm font-medium transition-colors', range === r ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+                {r}
               </button>
             ))}
           </div>
-
-          {/* Export dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5">
-                <Download className="h-3.5 w-3.5" />
-                Export
-              </Button>
+              <Button variant="outline" size="sm" className="gap-1.5"><Download className="h-3.5 w-3.5" /> Export</Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => handleExport('conversations')}>
-                Export Conversations (CSV)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExport('messages')}>
-                Export Messages (CSV)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExport('contacts')}>
-                Export Contacts (CSV)
-              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExport('conversations')}>Conversations (CSV)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExport('messages')}>Messages (CSV)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExport('contacts')}>Contacts (CSV)</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
 
-      {isError && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          Failed to load analytics data. Please try again.
-        </div>
-      )}
+      {isError && <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">Failed to load analytics. Please try again.</div>}
 
-      {/* ── Row 1 — Summary cards ───────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        <SummaryCard
-          title="Total Messages"
-          value={summary?.totalMessages.toLocaleString() ?? 0}
-          sub="in selected period"
-          icon={MessageSquare}
-          iconBg="bg-[#6366f1]"
-          loading={isLoading}
-        />
-        <SummaryCard
-          title="Inbound"
-          value={summary?.totalInbound.toLocaleString() ?? 0}
-          sub="received from contacts"
-          icon={ArrowDownLeft}
-          iconBg="bg-[#10b981]"
-          loading={isLoading}
-        />
-        <SummaryCard
-          title="Outbound"
-          value={summary?.totalOutbound.toLocaleString() ?? 0}
-          sub="sent by agents / bots"
-          icon={ArrowUpRight}
-          iconBg="bg-[#0ea5e9]"
-          loading={isLoading}
-        />
-        <SummaryCard
-          title="Delivery Rate"
-          value={`${summary?.deliveryRate ?? 0}%`}
-          sub="delivered or read"
-          icon={CheckCircle2}
-          iconBg="bg-[#f59e0b]"
-          loading={isLoading}
-        />
-        <SummaryCard
-          title="Open Conversations"
-          value={summary?.openConversations.toLocaleString() ?? 0}
-          sub="currently active"
-          icon={MessageCircle}
-          iconBg="bg-[#f43f5e]"
-          loading={isLoading}
-        />
-        <SummaryCard
-          title="New Contacts"
-          value={summary?.newContacts.toLocaleString() ?? 0}
-          sub={`of ${summary?.totalContacts.toLocaleString() ?? 0} total`}
-          icon={UserPlus}
-          iconBg="bg-[#8b5cf6]"
-          loading={isLoading}
-        />
-        <SummaryCard
-          title="Avg CSAT Score"
-          value={
-            summary?.csatAvgScore != null
-              ? `${summary.csatAvgScore} / 5`
-              : '—'
-          }
-          sub={
-            summary?.csatResponseCount != null && summary.csatResponseCount > 0
-              ? `${summary.csatResponseCount} response${summary.csatResponseCount === 1 ? '' : 's'}`
-              : 'No responses yet'
-          }
-          icon={Star}
-          iconBg="bg-[#f59e0b]"
-          loading={isLoading}
+      {/* ── Summary cards (clickable) ────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <SummaryCard title="Total Messages"  value={(summary?.totalMessages ?? 0).toLocaleString()}         sub="all messages"           icon={MessageSquare} iconBg="bg-[#6366f1]" loading={isLoading} />
+        <SummaryCard title="Inbound"         value={(summary?.totalInbound  ?? 0).toLocaleString()}         sub="from contacts"          icon={ArrowDownLeft} iconBg="bg-[#10b981]" loading={isLoading} onClick={() => setDrawer('inbound')} />
+        <SummaryCard title="Outbound"        value={(summary?.totalOutbound ?? 0).toLocaleString()}         sub="by agents / bots"       icon={ArrowUpRight}  iconBg="bg-[#0ea5e9]" loading={isLoading} onClick={() => setDrawer('outbound')} />
+        <SummaryCard title="Delivery Rate"   value={`${summary?.deliveryRate ?? 0}%`}                       sub="delivered or read"      icon={CheckCircle2}  iconBg="bg-[#f59e0b]" loading={isLoading} onClick={() => setDrawer('delivery')} />
+        <SummaryCard title="Avg Response"    value={summary?.avgResponseTimeMin ? fmtMins(summary.avgResponseTimeMin) : '—'} sub="first reply time" icon={Clock} iconBg="bg-[#8b5cf6]" loading={isLoading} />
+        <SummaryCard title="Open Convos"     value={(summary?.openConversations ?? 0).toLocaleString()}     sub="currently active"       icon={MessageCircle} iconBg="bg-[#f43f5e]" loading={isLoading} onClick={() => setDrawer('open')} />
+        <SummaryCard title="Resolved"        value={(summary?.resolvedConversations ?? 0).toLocaleString()} sub="all time"               icon={CheckCircle2}  iconBg="bg-[#10b981]" loading={isLoading} onClick={() => setDrawer('resolved')} />
+        <SummaryCard title="New Contacts"    value={(summary?.newContacts ?? 0).toLocaleString()}           sub={`of ${(summary?.totalContacts ?? 0).toLocaleString()} total`} icon={UserPlus} iconBg="bg-[#f59e0b]" loading={isLoading} onClick={() => setDrawer('new-contacts')} />
+        <SummaryCard title="Total Contacts"  value={(summary?.totalContacts ?? 0).toLocaleString()}         sub="in workspace"           icon={Users}         iconBg="bg-[#6366f1]" loading={isLoading} />
+        <SummaryCard title="Avg CSAT"
+          value={summary?.csatAvgScore != null ? `${summary.csatAvgScore} / 5` : '—'}
+          sub={summary?.csatResponseCount ? `${summary.csatResponseCount} response${summary.csatResponseCount !== 1 ? 's' : ''}` : 'No responses yet'}
+          icon={Star} iconBg="bg-[#f59e0b]" loading={isLoading}
+          onClick={summary?.csatResponseCount ? () => setDrawer('csat') : undefined}
         />
       </div>
 
-      {/* ── Row 2 — Charts ──────────────────────────────────────────────────── */}
+      {/* ── Daily activity + Message sources ─────────────────────────────────── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Line chart — Daily Messages */}
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Daily Messages</CardTitle>
-          </CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Daily Activity</CardTitle></CardHeader>
           <CardContent>
-            {isLoading ? (
-              <ChartSkeleton />
-            ) : dailyMessages.length === 0 ? (
-              <EmptyChart />
-            ) : (
+            {isLoading ? <ChartSkeleton /> : daily.length === 0 ? <Empty /> : (
               <ResponsiveContainer width="100%" height={224}>
-                <LineChart data={dailyMessages} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
+                <LineChart data={daily} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v: string) => {
-                      const d = new Date(v);
-                      return `${d.getMonth() + 1}/${d.getDate()}`;
-                    }}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={34}
-                  />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v: string) => { const d = new Date(v); return `${d.getMonth()+1}/${d.getDate()}`; }} />
+                  <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={34} />
+                  <Tooltip contentStyle={TT} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Line
-                    type="monotone"
-                    dataKey="inbound"
-                    stroke={GREEN}
-                    strokeWidth={2}
-                    dot={false}
-                    name="Inbound"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="outbound"
-                    stroke={BRAND}
-                    strokeWidth={2}
-                    dot={false}
-                    name="Outbound"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="delivered"
-                    stroke={AMBER}
-                    strokeWidth={2}
-                    dot={false}
-                    strokeDasharray="4 2"
-                    name="Delivered"
-                  />
+                  <Line type="monotone" dataKey="inbound"     stroke={GREEN}  strokeWidth={2} dot={false} name="Inbound" />
+                  <Line type="monotone" dataKey="outbound"    stroke={BRAND}  strokeWidth={2} dot={false} name="Outbound" />
+                  <Line type="monotone" dataKey="delivered"   stroke={AMBER}  strokeWidth={2} dot={false} strokeDasharray="4 2" name="Delivered" />
+                  <Line type="monotone" dataKey="newContacts" stroke={VIOLET} strokeWidth={2} dot={false} strokeDasharray="2 2" name="New Contacts" />
                 </LineChart>
               </ResponsiveContainer>
             )}
           </CardContent>
         </Card>
 
-        {/* Pie/Donut chart — Message Sources */}
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Message Sources</CardTitle>
-          </CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Message Sources</CardTitle></CardHeader>
           <CardContent>
-            {isLoading ? (
-              <ChartSkeleton />
-            ) : senderBreakdown.length === 0 ? (
-              <EmptyChart />
-            ) : (
+            {isLoading ? <ChartSkeleton /> : senders.length === 0 ? <Empty /> : (
               <ResponsiveContainer width="100%" height={224}>
                 <PieChart>
-                  <Pie
-                    data={senderBreakdown}
-                    dataKey="count"
-                    nameKey="type"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={52}
-                    outerRadius={84}
-                    paddingAngle={3}
-                    labelLine={false}
-                    label={renderCustomLabel as unknown as boolean}
-                  >
-                    {senderBreakdown.map((_entry, index) => (
-                      <Cell
-                        key={index}
-                        fill={PIE_COLORS[index % PIE_COLORS.length]}
-                      />
-                    ))}
+                  <Pie data={senders} dataKey="count" nameKey="type" cx="50%" cy="50%" innerRadius={52} outerRadius={84} paddingAngle={3} labelLine={false} label={renderPieLabel as unknown as boolean}>
+                    {senders.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]!} />)}
                   </Pie>
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    formatter={(value: number, name: string) => [value.toLocaleString(), name]}
-                  />
-                  <Legend
-                    wrapperStyle={{ fontSize: 12 }}
-                    formatter={(value: string) =>
-                      value.charAt(0).toUpperCase() + value.slice(1)
-                    }
-                  />
+                  <Tooltip contentStyle={TT} formatter={(v: number, n: string) => [v.toLocaleString(), n]} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} formatter={(v: string) => v.charAt(0).toUpperCase() + v.slice(1)} />
                 </PieChart>
               </ResponsiveContainer>
             )}
@@ -573,50 +411,25 @@ export function AnalyticsDashboard() {
         </Card>
       </div>
 
-      {/* ── Row 3 — Tables ──────────────────────────────────────────────────── */}
+      {/* ── Conversations by status (clickable bars) + Resolution time ─────── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Bar chart — Conversations by Status */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold">Conversations by Status</CardTitle>
+            <p className="text-[11px] text-muted-foreground">Click a bar to see conversations</p>
           </CardHeader>
           <CardContent>
-            {isLoading ? (
-              <ChartSkeleton />
-            ) : conversationsByStatus.length === 0 ? (
-              <EmptyChart />
-            ) : (
+            {isLoading ? <ChartSkeleton /> : statuses.length === 0 ? <Empty /> : (
               <ResponsiveContainer width="100%" height={224}>
-                <BarChart
-                  data={conversationsByStatus}
-                  margin={{ top: 4, right: 8, bottom: 4, left: 0 }}
-                  barCategoryGap="40%"
-                >
+                <BarChart data={statuses} margin={{ top: 4, right: 8, bottom: 4, left: 0 }} barCategoryGap="40%">
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="status"
-                    tick={{ fontSize: 12 }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v: string) => v.charAt(0).toUpperCase() + v.slice(1)}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={34}
-                  />
-                  <Tooltip
-                    contentStyle={tooltipStyle}
-                    formatter={(value: number) => [value.toLocaleString(), 'Conversations']}
-                  />
-                  <Bar dataKey="count" radius={[6, 6, 0, 0]} name="Conversations">
-                    {conversationsByStatus.map((_entry, index) => (
-                      <Cell
-                        key={index}
-                        fill={PIE_COLORS[index % PIE_COLORS.length]}
-                      />
-                    ))}
+                  <XAxis dataKey="status" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={(v: string) => v.charAt(0).toUpperCase() + v.slice(1)} />
+                  <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={34} />
+                  <Tooltip contentStyle={TT} formatter={(v: number) => [v.toLocaleString(), 'Conversations']} />
+                  <Bar dataKey="count" radius={[6,6,0,0]} name="Conversations" onClick={(d: { status: string }) => {
+                    if (['open','resolved','pending','assigned'].includes(d.status)) setDrawer(d.status as DrawerType);
+                  }}>
+                    {statuses.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]!} className="cursor-pointer" />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -624,63 +437,88 @@ export function AnalyticsDashboard() {
           </CardContent>
         </Card>
 
-        {/* Table — Top 5 Most Active Contacts */}
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Top 5 Most Active Contacts</CardTitle>
-          </CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Resolution Time Distribution</CardTitle></CardHeader>
           <CardContent>
-            {isLoading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Skeleton key={i} className="h-9 w-full" />
-                ))}
-              </div>
-            ) : topContacts.length === 0 ? (
-              <EmptyChart message="No contact activity in this period" />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="pb-2 text-left font-medium text-muted-foreground">Name</th>
-                      <th className="pb-2 text-left font-medium text-muted-foreground">Phone</th>
-                      <th className="pb-2 text-right font-medium text-muted-foreground">
-                        Messages
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {topContacts.map((contact, index) => (
-                      <tr key={index} className="hover:bg-muted/30 transition-colors">
-                        <td className="py-2.5 pr-4 font-medium text-foreground max-w-[120px] truncate">
-                          {contact.name ?? (
-                            <span className="text-muted-foreground italic">Unknown</span>
-                          )}
-                        </td>
-                        <td className="py-2.5 pr-4 text-muted-foreground font-mono text-xs">
-                          {contact.phone}
-                        </td>
-                        <td className="py-2.5 text-right">
-                          <span className="inline-flex items-center justify-center rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-semibold text-brand-700 min-w-[2rem]">
-                            {contact.messageCount.toLocaleString()}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            {isLoading ? <ChartSkeleton /> : resDist.every((r) => r.count === 0) ? <Empty msg="No resolved conversations yet" /> : (
+              <ResponsiveContainer width="100%" height={224}>
+                <BarChart data={resDist} margin={{ top: 4, right: 8, bottom: 4, left: 0 }} barCategoryGap="40%">
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="label" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={34} />
+                  <Tooltip contentStyle={TT} formatter={(v: number) => [v.toLocaleString(), 'Conversations']} />
+                  <Bar dataKey="count" radius={[6,6,0,0]}>
+                    {resDist.map((_, i) => <Cell key={i} fill={[GREEN, BRAND, AMBER, ROSE][i % 4]!} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* ── Row 4 — Team Performance ────────────────────────────────────────── */}
-      <TeamPerformanceTable
-        agents={agentData?.agents ?? []}
-        loading={agentsLoading}
-      />
+      {/* ── Heatmap ──────────────────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold">Inbound Activity Heatmap</CardTitle>
+          <p className="text-xs text-muted-foreground">Peak hours by day of week — darker = more messages</p>
+        </CardHeader>
+        <CardContent><HourlyHeatmap data={heatmap} loading={isLoading} /></CardContent>
+      </Card>
+
+      {/* ── Tag distribution + Top contacts ──────────────────────────────────── */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Contact Tag Distribution</CardTitle></CardHeader>
+          <CardContent>
+            {isLoading ? <ChartSkeleton /> : tags.length === 0 ? <Empty msg="No tags assigned to contacts" /> : (
+              <ResponsiveContainer width="100%" height={Math.max(180, tags.length * 28)}>
+                <BarChart data={tags} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 60 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                  <YAxis type="category" dataKey="tag" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={55} />
+                  <Tooltip contentStyle={TT} formatter={(v: number) => [v.toLocaleString(), 'Contacts']} />
+                  <Bar dataKey="count" radius={[0,6,6,0]} fill={BRAND} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm font-semibold">Top 10 Active Contacts</CardTitle></CardHeader>
+          <CardContent>
+            {isLoading ? <div className="space-y-3">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}</div>
+              : contacts.length === 0 ? <Empty msg="No activity in this period" />
+              : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="pb-2 text-left font-medium text-muted-foreground">Name</th>
+                      <th className="pb-2 text-left font-medium text-muted-foreground">Phone</th>
+                      <th className="pb-2 text-right font-medium text-muted-foreground">Messages</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {contacts.map((c, i) => (
+                      <tr key={i} className="hover:bg-muted/30 transition-colors">
+                        <td className="py-2 pr-4 font-medium max-w-[120px] truncate">{c.name ?? <span className="italic text-muted-foreground">Unknown</span>}</td>
+                        <td className="py-2 pr-4 text-muted-foreground font-mono text-xs"><span className="flex items-center gap-1"><Phone className="h-3 w-3" />{c.phone}</span></td>
+                        <td className="py-2 text-right"><span className="rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-semibold text-brand-700">{c.messageCount.toLocaleString()}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Team performance ─────────────────────────────────────────────────── */}
+      <AgentTable agents={agentData?.agents ?? []} loading={agentsLoading} />
+
+      {/* ── Detail drawer ─────────────────────────────────────────────────────── */}
+      <DetailDrawer type={drawer} from={from} to={to} open={!!drawer} onClose={() => setDrawer(null)} />
     </div>
   );
 }
