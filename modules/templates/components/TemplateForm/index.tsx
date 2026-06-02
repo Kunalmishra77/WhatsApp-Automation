@@ -150,12 +150,12 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
         header_content: headerContent || null,
         variables:      vars,
       };
-      const validButtons = buttons.filter((b) => b.text.trim());
+      const validButtons = buttons.filter((b) => b.text.trim()) as unknown[];
       if (isEdit && template) {
-        await update.mutateAsync({ id: template.id, payload: { ...payload, buttons: validButtons } });
+        await update.mutateAsync({ id: template.id, payload: { ...payload, buttons: validButtons as never } });
         toast.success('Template saved');
       } else {
-        await create.mutateAsync({ ...payload, status: 'pending', buttons: validButtons });
+        await create.mutateAsync({ ...payload, status: 'pending', buttons: validButtons as never });
         toast.success('Template created — submit to Meta for approval');
       }
       onClose();
