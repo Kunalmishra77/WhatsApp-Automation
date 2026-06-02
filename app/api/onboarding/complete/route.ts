@@ -28,6 +28,8 @@ export async function POST(request: NextRequest) {
       .from('workspaces')
       .update({
         onboarding_complete: true,
+        subscription_status: 'pending_approval',
+        is_active: false,
         phone_number_id,
         access_token,
         ...(waba_id   ? { waba_id }   : {}),

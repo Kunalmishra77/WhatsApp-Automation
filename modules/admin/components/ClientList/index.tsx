@@ -23,6 +23,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { WorkspaceRow } from '@/app/api/admin/workspaces/route';
+import { ClientDetail } from '@/modules/admin/components/ClientDetail';
 
 const PLAN_BADGE: Record<string, { label: string; className: string }> = {
   free:       { label: 'Free',       className: 'bg-gray-100 text-gray-700 border-gray-200' },
@@ -41,6 +42,13 @@ function PlanBadge({ plan }: { plan: string }) {
 }
 
 function StatusBadge({ isActive, status }: { isActive: boolean; status: string }) {
+  if (status === 'pending_approval') {
+    return (
+      <Badge variant="outline" className="text-xs bg-orange-50 text-orange-600 border-orange-200">
+        Pending
+      </Badge>
+    );
+  }
   if (!isActive) {
     return (
       <Badge variant="outline" className="text-xs bg-red-50 text-red-600 border-red-200">
@@ -81,6 +89,8 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
   const [editingDomain, setEditingDomain] = useState<string | null>(null);
   const [domainValue, setDomainValue] = useState<string>('');
   const [savingDomain, setSavingDomain] = useState<string | null>(null);
+  const [pendingApproval, setPendingApproval] = useState<string | null>(null);
+  const [detailWorkspace, setDetailWorkspace] = useState<WorkspaceRow | null>(null);
 
   const handleToggleBlock = async (workspace: WorkspaceRow) => {
     setPendingBlock(workspace.id);
@@ -144,6 +154,42 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
       toast.error('Failed to save custom domain');
     } finally {
       setSavingDomain(null);
+    }
+  };
+
+  const handleApprove = async (workspace: WorkspaceRow) => {
+    setPendingApproval(workspace.id);
+    try {
+      const res = await fetch(`/api/admin/workspaces/${workspace.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription_status: 'active' }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      toast.success(`${workspace.name} approved and activated`);
+      onRefetch();
+    } catch {
+      toast.error('Failed to approve workspace');
+    } finally {
+      setPendingApproval(null);
+    }
+  };
+
+  const handleReject = async (workspace: WorkspaceRow) => {
+    setPendingApproval(`reject-${workspace.id}`);
+    try {
+      const res = await fetch(`/api/admin/workspaces/${workspace.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription_status: 'cancelled', is_active: false }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      toast.success(`${workspace.name} rejected`);
+      onRefetch();
+    } catch {
+      toast.error('Failed to reject workspace');
+    } finally {
+      setPendingApproval(null);
     }
   };
 
@@ -212,7 +258,12 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
               <TableRow key={w.id} className={!w.is_active ? 'opacity-60' : undefined}>
                 <TableCell>
                   <div>
-                    <div className="font-medium text-foreground text-sm">{w.name}</div>
+                    <button
+                      onClick={() => setDetailWorkspace(w)}
+                      className="font-medium text-foreground text-sm hover:underline hover:text-brand-600 text-left"
+                    >
+                      {w.name}
+                    </button>
                     <div className="text-xs text-muted-foreground">{w.slug}</div>
                   </div>
                 </TableCell>
@@ -292,7 +343,38 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
                   )}
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-2">
+                  <div className="flex items-center justify-end gap-2 flex-wrap">
+                    {/* Approve / Reject for pending workspaces */}
+                    {w.subscription_status === 'pending_approval' && (
+                      <>
+                        <Button
+                          size="sm"
+                          className="h-8 text-xs gap-1 bg-green-600 hover:bg-green-700 text-white"
+                          onClick={() => void handleApprove(w)}
+                          disabled={!!pendingApproval}
+                        >
+                          {pendingApproval === w.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            'Approve'
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs gap-1 text-red-600 border-red-200 hover:bg-red-50"
+                          onClick={() => void handleReject(w)}
+                          disabled={!!pendingApproval}
+                        >
+                          {pendingApproval === `reject-${w.id}` ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            'Reject'
+                          )}
+                        </Button>
+                      </>
+                    )}
+
                     {/* Change plan */}
                     <div className="w-32">
                       {isPlanPending ? (
@@ -347,6 +429,15 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
           })}
         </TableBody>
       </Table>
+
+      {/* Client Detail Dialog */}
+      {detailWorkspace && (
+        <ClientDetail
+          workspace={detailWorkspace}
+          onClose={() => setDetailWorkspace(null)}
+          onRefetch={onRefetch}
+        />
+      )}
     </div>
   );
 }

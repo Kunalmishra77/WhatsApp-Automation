@@ -16,6 +16,8 @@ export interface WorkspaceRow {
   member_count: number;
   plan_limit_messages: number;
   custom_domain: string | null;
+  conversations_count: number;
+  contacts_count: number;
 }
 
 export async function GET(_request: NextRequest) {
@@ -36,10 +38,11 @@ export async function GET(_request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // 3. Fetch all workspaces
+    // 3. Fetch all workspaces (exclude internal/admin workspaces)
     const { data: workspaces, error: wsError } = await db
       .from('workspaces')
       .select('id, name, slug, plan, plan_limits, is_active, subscription_status, owner_email, created_at, custom_domain')
+      .neq('subscription_status', 'internal')
       .order('created_at', { ascending: false });
 
     if (wsError) {
@@ -68,16 +71,31 @@ export async function GET(_request: NextRequest) {
       }
     }
 
-    // 5. Fetch member counts
-    const { data: memberCounts } = await db
-      .from('workspace_members')
-      .select('workspace_id')
-      .in('workspace_id', workspaceIds);
+    // 5. Fetch member counts, conversations counts, and contacts counts in parallel
+    const [memberCountsResult, conversationsResult, contactsResult] = await Promise.all([
+      db.from('workspace_members').select('workspace_id').in('workspace_id', workspaceIds),
+      db.from('conversations').select('workspace_id').in('workspace_id', workspaceIds),
+      db.from('contacts').select('workspace_id').in('workspace_id', workspaceIds),
+    ]);
 
     const memberMap = new Map<string, number>();
-    if (memberCounts) {
-      for (const m of memberCounts) {
+    if (memberCountsResult.data) {
+      for (const m of memberCountsResult.data) {
         memberMap.set(m.workspace_id, (memberMap.get(m.workspace_id) ?? 0) + 1);
+      }
+    }
+
+    const conversationsMap = new Map<string, number>();
+    if (conversationsResult.data) {
+      for (const c of conversationsResult.data) {
+        conversationsMap.set(c.workspace_id, (conversationsMap.get(c.workspace_id) ?? 0) + 1);
+      }
+    }
+
+    const contactsMap = new Map<string, number>();
+    if (contactsResult.data) {
+      for (const c of contactsResult.data) {
+        contactsMap.set(c.workspace_id, (contactsMap.get(c.workspace_id) ?? 0) + 1);
       }
     }
 
@@ -97,6 +115,8 @@ export async function GET(_request: NextRequest) {
         member_count: memberMap.get(w.id) ?? 0,
         plan_limit_messages: limits.maxMessages,
         custom_domain: w.custom_domain ?? null,
+        conversations_count: conversationsMap.get(w.id) ?? 0,
+        contacts_count: contactsMap.get(w.id) ?? 0,
       };
     });
 

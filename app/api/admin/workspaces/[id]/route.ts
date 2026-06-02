@@ -34,7 +34,16 @@ export async function PATCH(
     const updateData: Record<string, unknown> = {};
     if (body.plan !== undefined) updateData.plan = body.plan;
     if (body.is_active !== undefined) updateData.is_active = body.is_active;
-    if (body.subscription_status !== undefined) updateData.subscription_status = body.subscription_status;
+    if (body.subscription_status !== undefined) {
+      updateData.subscription_status = body.subscription_status;
+      // Sync is_active based on subscription_status changes
+      if (body.subscription_status === 'active') {
+        updateData.is_active = true;
+      }
+      if (body.subscription_status === 'pending_approval' || body.subscription_status === 'halted') {
+        updateData.is_active = false;
+      }
+    }
     if ('custom_domain' in body) updateData.custom_domain = body.custom_domain ?? null;
 
     if (Object.keys(updateData).length === 0) {

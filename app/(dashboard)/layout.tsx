@@ -54,10 +54,15 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
   // Check workspace is_active (subscription payment status)
   const { data: wsStatus } = await db
     .from('workspaces')
-    .select('is_active')
+    .select('is_active, subscription_status')
     .eq('id', activeWorkspace.id)
     .single();
-  if (wsStatus?.is_active === false) redirect('/payment-required');
+  if (wsStatus?.is_active === false) {
+    if (wsStatus?.subscription_status === 'pending_approval') {
+      redirect('/pending-approval');
+    }
+    redirect('/payment-required');
+  }
 
   return (
     <AppShell>
