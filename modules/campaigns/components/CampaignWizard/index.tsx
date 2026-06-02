@@ -55,7 +55,8 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
 
   const canProceed = () => {
     if (step === 0) return state.name.trim().length > 0;
-    if (step === 1) return !!state.templateId;
+    // Step 5 (Review): need at least template OR media selected
+    if (step === 5) return !!(state.templateId || state.mediaId);
     return true;
   };
 
@@ -154,29 +155,52 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
 
           {step === 1 && (
             <div className="space-y-3">
-              <Label>Select Template</Label>
-              {templates.filter((t) => t.status === 'approved').length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No approved templates yet. Create and wait for Meta approval first.
-                </p>
-              ) : (
-                <div className="space-y-2 max-h-52 overflow-y-auto">
-                  {templates.filter((t) => t.status === 'approved').map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => setState((s) => ({ ...s, templateId: t.id }))}
-                      className={cn(
-                        'w-full rounded-lg border p-3 text-left transition-colors',
-                        state.templateId === t.id
-                          ? 'border-brand-500 bg-brand-500/5'
-                          : 'border-border hover:border-brand-300',
-                      )}
-                    >
-                      <p className="text-sm font-medium font-mono">{t.name}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{t.body}</p>
-                    </button>
-                  ))}
-                </div>
+              <div className="flex items-center justify-between">
+                <Label>Select Template <span className="text-muted-foreground text-xs font-normal">(optional)</span></Label>
+                {state.templateId && (
+                  <button
+                    onClick={() => setState((s) => ({ ...s, templateId: '' }))}
+                    className="text-xs text-muted-foreground hover:text-destructive flex items-center gap-1"
+                  >
+                    <X className="h-3 w-3" /> Clear
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground -mt-1">
+                Skip if you only want to send media. Templates are required for cold contacts (no 24-hr session).
+              </p>
+
+              {/* No template option */}
+              <button
+                onClick={() => setState((s) => ({ ...s, templateId: '' }))}
+                className={cn(
+                  'w-full rounded-lg border p-3 text-left transition-colors',
+                  !state.templateId
+                    ? 'border-brand-500 bg-brand-500/5'
+                    : 'border-border hover:border-brand-300',
+                )}
+              >
+                <p className="text-sm font-medium text-muted-foreground">🚫 No template — media only</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Only reaches contacts with active 24-hr session</p>
+              </button>
+
+              {templates.filter((t) => t.status === 'approved').map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setState((s) => ({ ...s, templateId: t.id }))}
+                  className={cn(
+                    'w-full rounded-lg border p-3 text-left transition-colors',
+                    state.templateId === t.id
+                      ? 'border-brand-500 bg-brand-500/5'
+                      : 'border-border hover:border-brand-300',
+                  )}
+                >
+                  <p className="text-sm font-medium font-mono">{t.name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{t.body}</p>
+                </button>
+              ))}
+              {templates.filter((t) => t.status === 'approved').length === 0 && (
+                <p className="text-xs text-muted-foreground px-1">No approved templates yet. You can still proceed with media only.</p>
               )}
             </div>
           )}

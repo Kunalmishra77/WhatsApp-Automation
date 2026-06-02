@@ -484,7 +484,9 @@ async function handleIncomingMessage(
   // Rate limit: max 1 auto-reply per 30s per contact
   const canReply = await checkAutoReplyLimit(contact.id);
   if (canReply) {
-    await sendAutoReply(supabase, waId, customerName, workspaceId, content, conversation.id, contact.id, isEscalation);
+    // Build rich AI prompt for media messages so AI can reply contextually
+    const aiPrompt = buildAiPrompt(msg, content);
+    await sendAutoReply(supabase, waId, customerName, workspaceId, aiPrompt, conversation.id, contact.id, isEscalation);
   } else {
     console.log(`[AutoReply] Rate limited for contact ${contact.id} — skipping`);
   }
@@ -637,7 +639,6 @@ async function fetchKnowledgeBaseContext(
       const titleLower = e.title.toLowerCase();
       const contentLower = e.content.toLowerCase();
       const tagsText = (e.tags ?? []).join(' ').toLowerCase();
-      const combined = `${titleLower} ${tagsText} ${contentLower}`;
 
       let score = (e.priority ?? 0) * 0.1; // base priority weight
       for (const w of queryWords) {
@@ -715,6 +716,36 @@ Customer name: ${customerName}${kbSection}`;
   } catch (error) {
     console.error('[AI] Network/parse error:', error);
     return null;
+  }
+}
+
+// Builds a rich prompt for AI so it can reply contextually to any media type
+function buildAiPrompt(msg: WAMessage, textContent: string): string {
+  switch (msg.type) {
+    case 'image': {
+      const caption = msg.image?.caption;
+      return caption
+        ? `User sent an image with caption: "${caption}". Acknowledge the image and respond helpfully to the caption.`
+        : 'User sent an image. Acknowledge it warmly and ask how you can help.';
+    }
+    case 'video': {
+      const caption = msg.video?.caption;
+      return caption
+        ? `User sent a video with caption: "${caption}". Acknowledge the video and respond to the caption.`
+        : 'User sent a video. Acknowledge it and ask what they need help with.';
+    }
+    case 'audio':
+      return 'User sent a voice message. Let them know you received it and politely ask them to type their query so you can assist them better.';
+    case 'document': {
+      const filename = msg.document?.filename ?? 'a document';
+      return `User sent a document: "${filename}". Acknowledge receipt and ask how you can help them with it.`;
+    }
+    case 'location':
+      return 'User shared their location. Acknowledge it and ask how you can assist them.';
+    case 'sticker':
+      return 'User sent a sticker. Reply in a friendly, warm way and ask how you can help.';
+    default:
+      return textContent;
   }
 }
 
@@ -1020,11 +1051,31 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
 
   if (error) throw new Error(error.message);
 
-  // Mirror status to campaign_recipients if this was a campaign message
-  await db
+  // Mirror status to campaign_recipients and sync aggregate counts on campaigns table
+  const { data: updatedCr } = await db
     .from('campaign_recipients')
     .update(patch)
-    .eq('whatsapp_msg_id', status.id);
+    .eq('whatsapp_msg_id', status.id)
+    .select('campaign_id')
+    .maybeSingle();
+
+  if (updatedCr?.campaign_id && (status.status === 'delivered' || status.status === 'read')) {
+    // Re-aggregate from campaign_recipients (accurate regardless of order of events)
+    const { data: rows } = await db
+      .from('campaign_recipients')
+      .select('status')
+      .eq('campaign_id', updatedCr.campaign_id);
+
+    const allRows = (rows ?? []) as Array<{ status: string }>;
+    // delivered_count = everyone who got at least delivered (delivered + read + replied)
+    const deliveredCount = allRows.filter((r) => ['delivered', 'read', 'replied'].includes(r.status)).length;
+    const readCount      = allRows.filter((r) => ['read', 'replied'].includes(r.status)).length;
+
+    await db
+      .from('campaigns')
+      .update({ delivered_count: deliveredCount, read_count: readCount })
+      .eq('id', updatedCr.campaign_id);
+  }
 }
 
 function toMessageType(type: string) {

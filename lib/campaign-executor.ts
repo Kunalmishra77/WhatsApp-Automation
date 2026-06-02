@@ -87,9 +87,9 @@ async function sendMediaMessage(
   toPhone: string,
   mediaId: string,
   mediaType: string,
-): Promise<void> {
+): Promise<{ success: boolean; waMessageId?: string; error?: string }> {
   try {
-    await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+    const res = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${ws.access_token.replace(/﻿/g, '').trim()}`,
@@ -103,8 +103,12 @@ async function sendMediaMessage(
         [mediaType]: { id: mediaId },
       }),
     });
+    const data = await res.json() as { messages?: Array<{ id: string }>; error?: { message: string } };
+    if (!res.ok) return { success: false, error: data?.error?.message ?? 'WhatsApp API error' };
+    return { success: true, waMessageId: data?.messages?.[0]?.id };
   } catch (err) {
     console.error(`[Campaign] Media send failed → ${toPhone}:`, err);
+    return { success: false, error: String(err) };
   }
 }
 
@@ -133,7 +137,9 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   if (campaign.status === 'completed') return { campaignId, total: 0, sent: 0, failed: 0, skipped: 'already completed' };
 
   const template = campaign.templates as (Template & { header_type?: string; header_content?: string }) | null;
-  if (!template) throw new Error(`No template for campaign ${campaignId}`);
+
+  // Require at least template OR media — can't run an empty campaign
+  if (!template && !campaign.media_id) throw new Error(`Campaign ${campaignId} has no template or media`);
 
   const { data: workspace } = await db
     .from('workspaces')
@@ -184,15 +190,27 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   let failedCount = 0;
 
   for (const contact of recipients) {
-    const variables = buildVariables(template, contact);
+    let result: { success: boolean; waMessageId?: string; error?: string };
+    let msgContent = '';
+    let msgType    = 'template';
 
-    // Determine header media: prefer campaign's own media_id, fall back to template's example handle
-    const tmplHeaderType = template.header_type?.toUpperCase();
-    const isMediaHeader  = tmplHeaderType && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(tmplHeaderType);
-    const headerMediaId  = isMediaHeader ? (campaign.media_id as string | undefined ?? undefined) : undefined;
-    const headerMediaType = headerMediaId ? (tmplHeaderType?.toLowerCase() ?? undefined) : undefined;
+    if (template) {
+      // ── Template send (with optional media header) ──────────────────────────
+      const variables = buildVariables(template, contact);
+      const tmplHeaderType = template.header_type?.toUpperCase();
+      const isMediaHeader  = tmplHeaderType && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(tmplHeaderType);
+      const headerMediaId  = isMediaHeader ? (campaign.media_id as string | undefined ?? undefined) : undefined;
+      const headerMediaType = headerMediaId ? (tmplHeaderType?.toLowerCase() ?? undefined) : undefined;
 
-    const result = await sendTemplateMessage(ws, contact.phone, template.name, template.language ?? 'en', variables, headerMediaId, headerMediaType);
+      result      = await sendTemplateMessage(ws, contact.phone, template.name, template.language ?? 'en', variables, headerMediaId, headerMediaType);
+      msgContent  = template.body;
+      msgType     = 'template';
+    } else {
+      // ── Media-only send (works only for contacts in active 24-hr session) ───
+      result     = await sendMediaMessage(ws, contact.phone, campaign.media_id as string, campaign.media_type as string).then(() => ({ success: true })).catch((e: unknown) => ({ success: false, error: String(e) }));
+      msgContent = `[${campaign.media_type}]`;
+      msgType    = campaign.media_type as string ?? 'image';
+    }
 
     if (result.success) {
       sentCount++;
@@ -213,11 +231,11 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
           workspace_id:    campaign.workspace_id,
           sender_type:     'agent',
           direction:       'outbound',
-          type:            'template',
-          content:         template.body,
+          type:            msgType,
+          content:         msgContent,
           status:          'sent',
           whatsapp_msg_id: result.waMessageId ?? null,
-          metadata:        { campaign_id: campaignId, template_name: template.name },
+          metadata:        { campaign_id: campaignId },
         });
       }
 
@@ -233,8 +251,8 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
         conversation_id: conversationId,
       });
 
-      // Send optional media attachment (non-blocking; works only in active 24hr window)
-      if (campaign.media_id && campaign.media_type) {
+      // Send extra media attachment after template (only when template was sent AND campaign has extra media)
+      if (template && campaign.media_id && campaign.media_type) {
         await sendMediaMessage(ws, contact.phone, campaign.media_id as string, campaign.media_type as string);
         await new Promise((r) => setTimeout(r, 100));
       }
