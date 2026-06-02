@@ -18,6 +18,7 @@ import { createClient } from '@/services/supabase/client';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { useAssignAgent, useChangeStatus, useResolveConversation } from '../../hooks/useConversationActions';
 import type { ConversationWithContact } from '../../services/conversation.service';
+import { LabelPicker } from '../LabelPicker';
 
 interface ConversationHeaderProps {
   conversation: ConversationWithContact;
@@ -113,7 +114,13 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
         </Avatar>
         <div>
           <p className="text-sm font-semibold text-foreground leading-none">{name}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">{contact?.phone}</p>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <p className="text-xs text-muted-foreground">{contact?.phone}</p>
+            <LabelPicker
+              conversationId={conversation.id}
+              currentLabels={Array.isArray((conversation as any).labels) ? (conversation as any).labels as string[] : []}
+            />
+          </div>
         </div>
         <span
           className={cn(

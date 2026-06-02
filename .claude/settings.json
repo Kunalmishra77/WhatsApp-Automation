@@ -12,7 +12,8 @@
       "Bash(xargs grep -l \"Inbox Rules\\\\|InboxRules\\\\|SettingsTab\")",
       "Bash(mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\campaigns\\\\[id]\\\\recipients\")",
       "Bash(mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\\\(dashboard\\)\\\\campaigns\\\\[id]\")",
-      "Bash(mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\conversations\\\\[id]\\\\mark-read\")"
+      "Bash(mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\conversations\\\\[id]\\\\mark-read\")",
+      "Bash(mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\labels\" && mkdir -p \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\conversations\\\\[id]\\\\labels\")"
     ],
     "additionalDirectories": [
       "d:\\WhatsApp-Automation\\app\\api\\contacts\\[id]",

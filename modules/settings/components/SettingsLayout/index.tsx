@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
   User, Building2, MessageSquare, Shield, Clock,
-  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal,
+  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProfileSettings } from '../ProfileSettings';
@@ -18,11 +18,12 @@ import { BusinessHours } from '../BusinessHours';
 import { ApiKeys } from '../ApiKeys';
 import { AuditLogs } from '../AuditLogs';
 import { SlaSettings } from '../SlaSettings';
+import { LabelSettings } from '../LabelSettings';
 
 type SettingKey =
   | 'profile' | 'workspace'
   | 'whatsapp' | 'business-hours' | 'quick-replies'
-  | 'inbox-rules' | 'sequences' | 'sla'
+  | 'inbox-rules' | 'sequences' | 'sla' | 'labels'
   | 'integrations' | 'webhooks' | 'api-keys'
   | 'audit-logs';
 
@@ -53,6 +54,7 @@ const NAV_SECTIONS: NavSection[] = [
       { key: 'inbox-rules', label: 'Inbox Rules',   icon: SlidersHorizontal },
       { key: 'sequences',   label: 'Follow-Up',     icon: Zap },
       { key: 'sla',         label: 'SLA',           icon: Timer },
+      { key: 'labels',      label: 'Labels',        icon: Tag },
     ],
   },
   {
@@ -80,6 +82,7 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'inbox-rules':    <InboxRules />,
   'sequences':      <FollowUpSequences />,
   'sla':            <SlaSettings />,
+  'labels':         <LabelSettings />,
   'integrations':   <IntegrationSettings />,
   'webhooks':       <WebhookSettings />,
   'api-keys':       <ApiKeys />,

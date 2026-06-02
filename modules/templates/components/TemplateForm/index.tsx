@@ -14,7 +14,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Paperclip, X, Loader2, Image, Video, FileText } from 'lucide-react';
+import { Paperclip, X, Loader2, Image, Video, FileText, Plus, Trash2, Link, Phone, MessageSquare } from 'lucide-react';
 import { WhatsAppPreview } from '../WhatsAppPreview';
 import { useCreateTemplate, useUpdateTemplate } from '../../hooks/useTemplates';
 import { extractVariables } from '../../services/template.service';
@@ -24,6 +24,11 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 type HeaderType = 'NONE' | 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+type ButtonType = 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER';
+interface TemplateButton { type: ButtonType; text: string; value: string; }
+const BTN_MAX = 3;
+const BTN_ICONS: Record<ButtonType, React.ElementType> = { QUICK_REPLY: MessageSquare, URL: Link, PHONE_NUMBER: Phone };
+const BTN_LABELS: Record<ButtonType, string> = { QUICK_REPLY: 'Quick Reply', URL: 'URL Button', PHONE_NUMBER: 'Phone Button' };
 
 const HEADER_ACCEPT: Record<HeaderType, string> = {
   NONE:     '',
@@ -60,10 +65,19 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
 
   const [headerType,    setHeaderType]    = useState<HeaderType>('NONE');
-  const [mediaHandle,   setMediaHandle]   = useState('');   // WhatsApp media handle (for Meta example)
+  const [mediaHandle,   setMediaHandle]   = useState('');
   const [mediaFileName, setMediaFileName] = useState('');
   const [isUploading,   setIsUploading]   = useState(false);
+  const [buttons,       setButtons]       = useState<TemplateButton[]>([]);
   const mediaInputRef = useRef<HTMLInputElement>(null);
+
+  const addButton = () => {
+    if (buttons.length >= BTN_MAX) return;
+    setButtons((b) => [...b, { type: 'QUICK_REPLY', text: '', value: '' }]);
+  };
+  const removeButton = (i: number) => setButtons((b) => b.filter((_, idx) => idx !== i));
+  const updateButton = (i: number, patch: Partial<TemplateButton>) =>
+    setButtons((b) => b.map((btn, idx) => idx === i ? { ...btn, ...patch } : btn));
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors, isSubmitting } } =
     useForm<FormValues>({
@@ -87,6 +101,8 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
       setHeaderType(ht || 'NONE');
       setMediaHandle(ht !== 'TEXT' && ht !== 'NONE' ? (template?.header_content ?? '') : '');
       setMediaFileName('');
+      const existingBtns = Array.isArray(template?.buttons) ? template.buttons as TemplateButton[] : [];
+      setButtons(existingBtns);
       reset({
         name:           template?.name ?? '',
         category:       template?.category ?? 'marketing',
@@ -134,11 +150,12 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
         header_content: headerContent || null,
         variables:      vars,
       };
+      const validButtons = buttons.filter((b) => b.text.trim());
       if (isEdit && template) {
-        await update.mutateAsync({ id: template.id, payload });
+        await update.mutateAsync({ id: template.id, payload: { ...payload, buttons: validButtons } });
         toast.success('Template saved');
       } else {
-        await create.mutateAsync({ ...payload, status: 'pending', buttons: [] });
+        await create.mutateAsync({ ...payload, status: 'pending', buttons: validButtons });
         toast.success('Template created — submit to Meta for approval');
       }
       onClose();
@@ -269,6 +286,51 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
               <Label htmlFor="footer">Footer <span className="text-muted-foreground text-xs">(optional)</span></Label>
               <Input id="footer" {...register('footer')} placeholder="Reply STOP to unsubscribe" maxLength={60} />
             </div>
+
+            {/* Buttons */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Buttons <span className="text-muted-foreground text-xs font-normal">(optional, max 3)</span></Label>
+                {buttons.length < BTN_MAX && (
+                  <button type="button" onClick={addButton} className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium">
+                    <Plus className="h-3.5 w-3.5" /> Add button
+                  </button>
+                )}
+              </div>
+              {buttons.map((btn, i) => {
+                const BtnIcon = BTN_ICONS[btn.type];
+                return (
+                  <div key={i} className="rounded-lg border border-border p-2.5 space-y-2 bg-muted/20">
+                    <div className="flex items-center gap-2">
+                      <BtnIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <select
+                        value={btn.type}
+                        onChange={(e) => updateButton(i, { type: e.target.value as ButtonType, value: '' })}
+                        className="flex-1 text-xs rounded-md border border-border bg-background px-2 py-1.5 outline-none"
+                      >
+                        <option value="QUICK_REPLY">Quick Reply</option>
+                        <option value="URL">URL / Link</option>
+                        <option value="PHONE_NUMBER">Phone Number</option>
+                      </select>
+                      <button type="button" onClick={() => removeButton(i)} className="text-muted-foreground hover:text-destructive shrink-0">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <Input value={btn.text} onChange={(e) => updateButton(i, { text: e.target.value })}
+                      placeholder={btn.type === 'QUICK_REPLY' ? 'Yes / No / Learn More' : btn.type === 'URL' ? 'Visit Website' : 'Call Us'}
+                      maxLength={25} className="h-7 text-xs" />
+                    {btn.type !== 'QUICK_REPLY' && (
+                      <Input value={btn.value} onChange={(e) => updateButton(i, { value: e.target.value })}
+                        placeholder={btn.type === 'URL' ? 'https://example.com' : '+919876543210'}
+                        className="h-7 text-xs" />
+                    )}
+                  </div>
+                );
+              })}
+              {buttons.length === 0 && (
+                <p className="text-[11px] text-muted-foreground">No buttons. Add Quick Reply, URL or Phone buttons to boost engagement.</p>
+              )}
+            </div>
           </form>
 
           {/* Live Preview */}
@@ -278,6 +340,8 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
               headerType={headerType}
               headerText={headerType === 'TEXT' ? (headerTextValue || undefined) : undefined}
               mediaFileName={isMeta && mediaHandle ? (mediaFileName || headerType) : undefined}
+              buttons={buttons.filter((b) => b.text.trim()).map((b) => ({ type: b.type, text: b.text }))}
+
               body={bodyValue || ''}
               footer={footerValue || undefined}
             />

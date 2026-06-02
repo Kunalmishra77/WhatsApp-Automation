@@ -75,7 +75,13 @@ export async function POST(
     }
 
     if (template.buttons && Array.isArray(template.buttons) && template.buttons.length > 0) {
-      components.push({ type: 'BUTTONS', buttons: template.buttons });
+      interface TBtn { type: string; text: string; value?: string; }
+      const metaButtons = (template.buttons as TBtn[]).map((b) => {
+        if (b.type === 'URL')          return { type: 'URL',          text: b.text, url:          b.value ?? '' };
+        if (b.type === 'PHONE_NUMBER') return { type: 'PHONE_NUMBER', text: b.text, phone_number: b.value ?? '' };
+        return { type: 'QUICK_REPLY', text: b.text };
+      });
+      components.push({ type: 'BUTTONS', buttons: metaButtons });
     }
 
     const metaRes = await fetch(
