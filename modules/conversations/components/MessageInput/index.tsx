@@ -130,8 +130,8 @@ export function MessageInput({ conversationId }: MessageInputProps) {
     clearTimeout(stopTimerRef.current);
     stopTyping();
     setSuggestions([]);
-    await sendMessage(conversationId, trimmed, isNote);
-    setText('');
+    const ok = await sendMessage(conversationId, trimmed, isNote);
+    if (ok) setText('');   // keep text in box if send failed so user can retry
     setIsSending(false);
   };
 

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { createClient } from '@/services/supabase/client';
 import { fetchMessages, sendInternalNote } from '../services/message.service';
+import { toast } from 'sonner';
 import type { MessageRow } from '../services/message.service';
 import { useConversationStore } from '@/store/conversation.store';
 import { useAuthStore } from '@/store/auth.store';
@@ -58,8 +59,8 @@ export function useSendMessage() {
   const user = useAuthStore((s) => s.user);
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
 
-  return async (conversationId: string, content: string, isNote = false) => {
-    if (!user || !workspaceId) return;
+  return async (conversationId: string, content: string, isNote = false): Promise<boolean> => {
+    if (!user || !workspaceId) return false;
 
     // Optimistic update — show message immediately in UI
     const optimisticId = `opt-${Date.now()}`;
@@ -95,28 +96,33 @@ export function useSendMessage() {
 
     try {
       if (isNote) {
-        // Internal notes — DB only, no WhatsApp
         await sendInternalNote({ conversationId, workspaceId, senderId: user.id, content });
       } else {
-        // Real WhatsApp message — call send API
         const res = await fetch('/api/messages/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ conversationId, content }),
         });
         if (!res.ok) {
-          const err = await res.json();
-          console.error('[useSendMessage] API error:', err);
-          throw new Error(err?.error ?? 'Send failed');
+          const err = await res.json() as { error?: string };
+          throw new Error(err?.error ?? 'Failed to send message');
         }
       }
+      return true;
     } catch (e) {
       console.error('[useSendMessage] Failed:', e);
-      // Remove optimistic message on failure
       queryClient.setQueryData<MessageRow[]>(
         ['messages', conversationId],
         (old = []) => old.filter((m) => m.id !== optimisticId),
       );
+      const msg = e instanceof Error ? e.message : 'Failed to send message';
+      // Friendly hint for WhatsApp 24-hour session restriction
+      if (msg.includes('131047') || msg.toLowerCase().includes('re-engagement') || msg.toLowerCase().includes('outside')) {
+        toast.error('Cannot send — customer must reply first to open a 24-hour chat window.');
+      } else {
+        toast.error(msg);
+      }
+      return false;
     } finally {
       void queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
     }

@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
-import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown, Bot, BotOff, Sparkles, Wand2, GitMerge } from 'lucide-react';
+import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown, Bot, BotOff, Sparkles, Wand2, GitMerge, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { createClient } from '@/services/supabase/client';
@@ -180,8 +180,8 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
         </span>
       </div>
 
-      {/* Right: action controls */}
-      <div className="flex items-center gap-1.5">
+      {/* Right: action controls — keep compact, extras in (...) */}
+      <div className="flex items-center gap-1.5 shrink-0">
         {/* Bot Pause Toggle */}
         <Button
           variant="outline"
@@ -197,38 +197,8 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
           title={isBotPaused ? 'Bot paused — click to resume' : 'Bot active — click to pause'}
         >
           {isBotPaused ? <BotOff className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
-          {isBotPaused ? 'Paused' : 'Bot'}
+          <span className="hidden sm:inline">{isBotPaused ? 'Paused' : 'Bot'}</span>
         </Button>
-
-        {/* Summarize Button */}
-        <Popover open={summaryOpen} onOpenChange={setSummaryOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1.5 text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
-              onClick={!summary ? handleSummarize : undefined}
-              disabled={summarize.isPending}
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              {summarize.isPending ? 'Summarizing…' : 'Summary'}
-            </Button>
-          </PopoverTrigger>
-          {summary && (
-            <PopoverContent className="w-80 text-sm" align="end">
-              <p className="font-semibold text-xs text-muted-foreground mb-2 uppercase tracking-wide">AI Summary</p>
-              <p className="text-xs text-foreground leading-relaxed">{summary}</p>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="mt-3 h-7 w-full text-xs text-muted-foreground"
-                onClick={handleSummarize}
-              >
-                Regenerate
-              </Button>
-            </PopoverContent>
-          )}
-        </Popover>
 
         {/* Assign Agent Dropdown */}
         <DropdownMenu>
@@ -236,12 +206,12 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
             <Button
               variant="outline"
               size="sm"
-              className="h-7 gap-1.5 text-xs max-w-[140px]"
+              className="h-7 gap-1.5 text-xs max-w-[130px]"
               disabled={assignAgent.isPending}
             >
               <UserCheck className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">
-                {assignedName ?? 'Assign Agent'}
+              <span className="truncate hidden sm:inline">
+                {assignedName ?? 'Assign'}
               </span>
               <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
             </Button>
@@ -284,29 +254,19 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
                 </DropdownMenuItem>
               </>
             )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="gap-2 text-xs" onClick={handleSmartAssign}>
+              <Wand2 className="h-3.5 w-3.5" /> Smart Auto-Assign
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Pending button — only show if not already pending/resolved */}
-        {conversation.status !== 'pending' && conversation.status !== 'resolved' && (
+        {/* Resolve / Reopen */}
+        {conversation.status !== 'resolved' ? (
           <Button
             variant="outline"
             size="sm"
-            className="h-7 gap-1.5 text-xs border-amber-200 text-amber-700 hover:bg-amber-50"
-            onClick={() => handleStatus('pending')}
-            disabled={changeStatus.isPending}
-          >
-            <Clock className="h-3.5 w-3.5" />
-            Pending
-          </Button>
-        )}
-
-        {/* Resolve button — only show if not resolved */}
-        {conversation.status !== 'resolved' && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 gap-1.5 text-xs"
+            className="h-7 gap-1.5 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50"
             onClick={() => {
               resolveConversation.mutate(conversation.id, {
                 onSuccess: () => {
@@ -317,13 +277,10 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
             }}
             disabled={resolveConversation.isPending}
           >
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-            Resolve
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Resolve</span>
           </Button>
-        )}
-
-        {/* Reopen button — only when resolved */}
-        {conversation.status === 'resolved' && (
+        ) : (
           <Button
             variant="outline"
             size="sm"
@@ -331,23 +288,44 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
             onClick={() => handleStatus('open')}
             disabled={changeStatus.isPending}
           >
-            Reopen
+            <RefreshCw className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Reopen</span>
           </Button>
         )}
 
-        {/* More options menu */}
+        {/* More options — Summary, Pending, Merge, etc. */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8">
               <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem className="gap-2" onClick={handleSmartAssign}>
-              <Wand2 className="h-4 w-4" /> Smart Auto-Assign
-            </DropdownMenuItem>
+          <DropdownMenuContent align="end" className="w-52">
+            {/* AI Summary */}
             <DropdownMenuItem
-              className="gap-2"
+              className="gap-2 text-xs"
+              disabled={summarize.isPending}
+              onSelect={(e) => { e.preventDefault(); handleSummarize(); }}
+            >
+              <Sparkles className="h-3.5 w-3.5 text-purple-500" />
+              {summarize.isPending ? 'Summarizing…' : 'AI Summary'}
+            </DropdownMenuItem>
+
+            {/* Pending */}
+            {conversation.status !== 'pending' && conversation.status !== 'resolved' && (
+              <DropdownMenuItem
+                className="gap-2 text-xs"
+                onClick={() => handleStatus('pending')}
+                disabled={changeStatus.isPending}
+              >
+                <Clock className="h-3.5 w-3.5 text-amber-500" /> Mark as Pending
+              </DropdownMenuItem>
+            )}
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem
+              className="gap-2 text-xs"
               onClick={() => {
                 const other = prompt('Enter conversation ID to merge into this one:');
                 if (other) {
@@ -365,16 +343,35 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
                 }
               }}
             >
-              <GitMerge className="h-4 w-4" /> Merge Conversation
+              <GitMerge className="h-3.5 w-3.5" /> Merge Conversation
             </DropdownMenuItem>
-            <DropdownMenuItem className="gap-2">
-              <User className="h-4 w-4" /> View Contact
+            <DropdownMenuItem className="gap-2 text-xs">
+              <User className="h-3.5 w-3.5" /> View Contact
             </DropdownMenuItem>
-            <DropdownMenuItem className="gap-2">
-              <PhoneCall className="h-4 w-4" /> Call
+            <DropdownMenuItem className="gap-2 text-xs">
+              <PhoneCall className="h-3.5 w-3.5" /> Call
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {/* AI Summary Popover — triggered from dropdown but rendered here */}
+        {summary && (
+          <Popover open={summaryOpen} onOpenChange={setSummaryOpen}>
+            <PopoverTrigger className="hidden" />
+            <PopoverContent className="w-80 text-sm" align="end">
+              <p className="font-semibold text-xs text-muted-foreground mb-2 uppercase tracking-wide">AI Summary</p>
+              <p className="text-xs text-foreground leading-relaxed">{summary}</p>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-3 h-7 w-full text-xs text-muted-foreground"
+                onClick={handleSummarize}
+              >
+                Regenerate
+              </Button>
+            </PopoverContent>
+          </Popover>
+        )}
 
         {panelToggle}
       </div>
