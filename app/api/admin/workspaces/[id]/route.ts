@@ -2,6 +2,53 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/services/supabase/server';
 import { createAdminClient } from '@/services/supabase/admin';
 
+// DELETE /api/admin/workspaces/:id — delete workspace + auth user
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const db = createAdminClient() as any;
+    const { data: profile } = await db.from('profiles').select('is_platform_admin').eq('id', user.id).single();
+    if (!profile?.is_platform_admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+    const { id: workspaceId } = await params;
+
+    // Get workspace members to find auth users to delete
+    const { data: members } = await db
+      .from('workspace_members')
+      .select('user_id')
+      .eq('workspace_id', workspaceId);
+
+    // Delete workspace (cascades to members, messages, etc.)
+    const { error: wsError } = await db.from('workspaces').delete().eq('id', workspaceId);
+    if (wsError) return NextResponse.json({ error: 'Failed to delete workspace' }, { status: 500 });
+
+    // Delete auth users who only belonged to this workspace
+    if (members?.length) {
+      for (const member of members as Array<{ user_id: string }>) {
+        // Check if user has other workspaces
+        const { count } = await db
+          .from('workspace_members')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', member.user_id);
+        if ((count ?? 0) === 0) {
+          await db.auth.admin.deleteUser(member.user_id);
+        }
+      }
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error('[admin/workspaces/delete]', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

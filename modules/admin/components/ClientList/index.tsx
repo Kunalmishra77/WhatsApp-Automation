@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { ShieldOff, ShieldCheck, Loader2, Globe } from 'lucide-react';
+import { ShieldOff, ShieldCheck, Loader2, Globe, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -90,6 +90,7 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
   const [domainValue, setDomainValue] = useState<string>('');
   const [savingDomain, setSavingDomain] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [detailWorkspace, setDetailWorkspace] = useState<WorkspaceRow | null>(null);
 
   const handleToggleBlock = async (workspace: WorkspaceRow) => {
@@ -172,6 +173,21 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
       toast.error('Failed to approve workspace');
     } finally {
       setPendingApproval(null);
+    }
+  };
+
+  const handleDelete = async (workspace: WorkspaceRow) => {
+    if (!confirm(`Delete "${workspace.name}"? This will permanently delete the workspace and its auth user. This cannot be undone.`)) return;
+    setPendingDelete(workspace.id);
+    try {
+      const res = await fetch(`/api/admin/workspaces/${workspace.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed');
+      toast.success(`${workspace.name} deleted`);
+      onRefetch();
+    } catch {
+      toast.error('Failed to delete workspace');
+    } finally {
+      setPendingDelete(null);
     }
   };
 
@@ -421,6 +437,17 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
                           Unblock
                         </>
                       )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs gap-1 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                      onClick={() => handleDelete(w)}
+                      disabled={pendingDelete === w.id}
+                    >
+                      {pendingDelete === w.id
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <><Trash2 className="h-3 w-3" />Delete</>}
                     </Button>
                   </div>
                 </TableCell>
