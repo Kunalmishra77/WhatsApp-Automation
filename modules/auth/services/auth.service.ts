@@ -9,17 +9,18 @@ export async function signInWithPassword(email: string, password: string) {
 }
 
 export async function signUp(email: string, password: string, fullName: string) {
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.signUp({
+  // Use admin client to create user pre-confirmed — no confirmation email sent
+  // This avoids Supabase email rate limits and removes the verify-email friction
+  const { createAdminClient } = await import('@/services/supabase/admin');
+  const adminDb = createAdminClient();
+  const { data: adminData, error: adminError } = await adminDb.auth.admin.createUser({
     email,
     password,
-    options: {
-      data: { full_name: fullName },
-      emailRedirectTo: `${APP_URL}/api/auth/callback`,
-    },
+    email_confirm: true,
+    user_metadata: { full_name: fullName },
   });
-  if (error) return { user: null, error: friendlySupabaseError(error.message) };
-  return { user: data.user, error: null };
+  if (adminError) return { user: null, error: friendlySupabaseError(adminError.message) };
+  return { user: adminData.user, error: null };
 }
 
 export async function signOut() {

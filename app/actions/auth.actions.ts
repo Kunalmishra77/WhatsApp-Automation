@@ -10,7 +10,6 @@ import {
   resetPasswordForEmail,
 } from '@/modules/auth/services/auth.service';
 import { getUserWorkspaces } from '@/modules/auth/services/workspace.service';
-import { createAdminClient } from '@/services/supabase/admin';
 import { ROUTES } from '@/lib/constants';
 import type { AuthActionResult } from '@/modules/auth/types';
 
@@ -74,20 +73,9 @@ export async function signupAction(
   );
   if (error || !user) return { success: false, error: error ?? 'Sign up failed.' };
 
-  // Auto-confirm email so user can login immediately (no email verify step)
-  try {
-    const adminDb = createAdminClient();
-    await adminDb.auth.admin.updateUserById(user.id, { email_confirm: true });
-  } catch {
-    // Non-fatal
-  }
-
-  // Sign in immediately to create a valid session (signUp without email confirm has no session)
-  const signInResult = await signInWithPassword(parsed.data.email, parsed.data.password);
-  if (!signInResult.user) {
-    // Fallback: still redirect to workspace/new, they can login again
-    return { success: true, redirectTo: ROUTES.WORKSPACE_NEW };
-  }
+  // Sign in immediately to create session cookie
+  // (admin createUser has no auto-session, need explicit signIn)
+  await signInWithPassword(parsed.data.email, parsed.data.password);
 
   revalidatePath('/', 'layout');
   return { success: true, redirectTo: ROUTES.WORKSPACE_NEW };
