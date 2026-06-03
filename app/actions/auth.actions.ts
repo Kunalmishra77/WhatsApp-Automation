@@ -74,15 +74,22 @@ export async function signupAction(
   );
   if (error || !user) return { success: false, error: error ?? 'Sign up failed.' };
 
-  // Auto-confirm email — no email verification step needed for this SaaS
-  // (Admin approval flow handles access control instead)
+  // Auto-confirm email so user can login immediately (no email verify step)
   try {
     const adminDb = createAdminClient();
     await adminDb.auth.admin.updateUserById(user.id, { email_confirm: true });
   } catch {
-    // Non-fatal — user can still verify via email if auto-confirm fails
+    // Non-fatal
   }
 
+  // Sign in immediately to create a valid session (signUp without email confirm has no session)
+  const signInResult = await signInWithPassword(parsed.data.email, parsed.data.password);
+  if (!signInResult.user) {
+    // Fallback: still redirect to workspace/new, they can login again
+    return { success: true, redirectTo: ROUTES.WORKSPACE_NEW };
+  }
+
+  revalidatePath('/', 'layout');
   return { success: true, redirectTo: ROUTES.WORKSPACE_NEW };
 }
 
