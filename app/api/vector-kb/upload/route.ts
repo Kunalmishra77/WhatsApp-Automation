@@ -1,11 +1,9 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
-import { generateEmbedding, formatEmbedding } from '@/lib/embeddings';
+import { generateEmbeddingsBatch, formatEmbedding } from '@/lib/embeddings';
 
-export const maxDuration = 120;
-// Increase body size limit for large PDFs
-export const config = { api: { bodyParser: false } };
+export const maxDuration = 60;
 
 const ALLOWED_TYPES = ['txt', 'md', 'csv', 'json', 'pdf', 'docx', 'xlsx', 'xls'];
 
@@ -104,8 +102,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      return NextResponse.json({ error: 'File too large. Max 10MB.' }, { status: 400 });
+    if (file.size > 5 * 1024 * 1024) {
+      return NextResponse.json({ error: 'File too large. Max 5MB per file (Vercel limit). Split large documents or upgrade your plan.' }, { status: 413 });
     }
 
     let text = '';
@@ -131,27 +129,25 @@ export async function POST(request: NextRequest) {
       .eq('workspace_id', workspaceId)
       .eq('filename', file.name);
 
-    // Embed in batches of 10
-    let inserted = 0;
-    const batchSize = 10;
+    // Generate ALL embeddings in one batched API call instead of chunk-by-chunk.
+    // Reduces 80+ sequential OpenAI calls → 1 call → stays well within 60s timeout.
+    const allEmbeddings = await generateEmbeddingsBatch(chunks);
 
-    for (let b = 0; b < chunks.length; b += batchSize) {
-      const batch = chunks.slice(b, b + batchSize);
-      const rows = await Promise.all(
-        batch.map(async (chunk, idx) => {
-          const embedding = await generateEmbedding(chunk);
-          return {
-            workspace_id: workspaceId,
-            filename:     file.name,
-            file_type:    fileType,
-            chunk_index:  b + idx,
-            content:      chunk,
-            embedding:    embedding ? formatEmbedding(embedding) : null,
-          };
-        }),
-      );
-      const { error } = await db.from('vector_documents').insert(rows);
-      if (!error) inserted += rows.length;
+    const rows = chunks.map((chunk, i) => ({
+      workspace_id: workspaceId,
+      filename:     file.name,
+      file_type:    fileType,
+      chunk_index:  i,
+      content:      chunk,
+      embedding:    allEmbeddings[i] ? formatEmbedding(allEmbeddings[i]!) : null,
+    }));
+
+    // Insert in Supabase batches of 200 to stay within payload limits
+    let inserted = 0;
+    const SUPABASE_BATCH = 200;
+    for (let b = 0; b < rows.length; b += SUPABASE_BATCH) {
+      const { error } = await db.from('vector_documents').insert(rows.slice(b, b + SUPABASE_BATCH));
+      if (!error) inserted += Math.min(SUPABASE_BATCH, rows.length - b);
     }
 
     return NextResponse.json({

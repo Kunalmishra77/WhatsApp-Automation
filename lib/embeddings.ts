@@ -1,47 +1,78 @@
 // Embedding generation using OpenAI text-embedding-3-small (1536 dims)
 // Tries OpenAI directly first; falls back to OpenRouter's embeddings endpoint
 
-export async function generateEmbedding(text: string): Promise<number[] | null> {
+type EmbeddingResponse = { data?: Array<{ embedding: number[]; index: number }> };
+
+async function callEmbeddingApi(
+  key: string,
+  baseUrl: string,
+  model: string,
+  input: string | string[],
+): Promise<number[][] | null> {
+  try {
+    const res = await fetch(`${baseUrl}/embeddings`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, input }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as EmbeddingResponse;
+    if (!data.data?.length) return null;
+    return [...data.data].sort((a, b) => a.index - b.index).map((d) => d.embedding);
+  } catch {
+    return null;
+  }
+}
+
+function getKeys() {
   const openaiKey = process.env.OPENAI_API_KEY?.trim();
   const orKey     = process.env.OPENROUTER_API_KEY?.replace(/﻿/g, '').trim();
+  return {
+    openai: openaiKey && openaiKey !== 'sk-placeholder' ? openaiKey : null,
+    or:     orKey || null,
+  };
+}
 
-  const realOpenaiKey = openaiKey && openaiKey !== 'sk-placeholder' ? openaiKey : null;
-
-  if (!realOpenaiKey && !orKey) return null;
-
+// Single-text embedding (used by search, suggest-replies, etc.)
+export async function generateEmbedding(text: string): Promise<number[] | null> {
+  const { openai, or } = getKeys();
+  if (!openai && !or) return null;
   const input = text.slice(0, 8000);
-
-  // OpenAI direct (fastest, if real key available)
-  if (realOpenaiKey) {
-    try {
-      const res = await fetch('https://api.openai.com/v1/embeddings', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${realOpenaiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'text-embedding-3-small', input }),
-      });
-      if (res.ok) {
-        const data = await res.json() as { data?: Array<{ embedding: number[] }> };
-        if (data.data?.[0]?.embedding) return data.data[0].embedding;
-      }
-    } catch { /* fall through */ }
+  if (openai) {
+    const r = await callEmbeddingApi(openai, 'https://api.openai.com/v1', 'text-embedding-3-small', input);
+    if (r?.[0]) return r[0];
   }
-
-  // OpenRouter embeddings endpoint (supports text-embedding-3-small, same 1536 dims)
-  if (orKey) {
-    try {
-      const res = await fetch('https://openrouter.ai/api/v1/embeddings', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${orKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'openai/text-embedding-3-small', input }),
-      });
-      if (res.ok) {
-        const data = await res.json() as { data?: Array<{ embedding: number[] }> };
-        if (data.data?.[0]?.embedding) return data.data[0].embedding;
-      }
-    } catch { /* fall through */ }
+  if (or) {
+    const r = await callEmbeddingApi(or, 'https://openrouter.ai/api/v1', 'openai/text-embedding-3-small', input);
+    if (r?.[0]) return r[0];
   }
-
   return null;
+}
+
+// Batch embedding: sends ALL texts in one API call (OpenAI supports up to 2048 inputs).
+// Reduces 800 sequential calls → 1 call, fixing Vercel 60s timeout for large KB uploads.
+export async function generateEmbeddingsBatch(texts: string[]): Promise<(number[] | null)[]> {
+  const { openai, or } = getKeys();
+  if (!openai && !or) return texts.map(() => null);
+
+  const MAX_BATCH = 2048;
+  const results: (number[] | null)[] = [];
+
+  for (let i = 0; i < texts.length; i += MAX_BATCH) {
+    const batch  = texts.slice(i, i + MAX_BATCH).map((t) => t.slice(0, 8000));
+    let embeddings: number[][] | null = null;
+
+    if (openai) {
+      embeddings = await callEmbeddingApi(openai, 'https://api.openai.com/v1', 'text-embedding-3-small', batch);
+    }
+    if (!embeddings && or) {
+      embeddings = await callEmbeddingApi(or, 'https://openrouter.ai/api/v1', 'openai/text-embedding-3-small', batch);
+    }
+
+    results.push(...(embeddings ?? batch.map(() => null)));
+  }
+
+  return results;
 }
 
 // Format embedding for Supabase pgvector storage: '[0.1, 0.2, ...]'

@@ -134,7 +134,7 @@ export default function KnowledgeBasePage() {
         try { data = await res.json() as typeof data; } catch { /* */ }
       } else {
         const text = await res.text();
-        if (res.status === 413) data.error = `File too large (max 10MB). Current: ${(item.file.size / 1024 / 1024).toFixed(1)}MB`;
+        if (res.status === 413) data.error = `File too large (max 5MB). Current: ${(item.file.size / 1024 / 1024).toFixed(1)}MB — split into smaller files.`;
         else if (!res.ok) data.error = text.slice(0, 100) || `Server error ${res.status}`;
       }
 
@@ -355,7 +355,7 @@ export default function KnowledgeBasePage() {
                   <Upload className="h-8 w-8 text-muted-foreground mx-auto" />
                   <p className="text-sm font-medium">Drop files here or click to upload</p>
                   <p className="text-xs text-muted-foreground">
-                    Select <strong>multiple files</strong> at once · TXT, PDF, DOCX, XLSX, CSV, JSON (max 10MB each)
+                    Select <strong>multiple files</strong> at once · TXT, PDF, DOCX, XLSX, CSV, JSON (max 5MB each)
                   </p>
                 </div>
               )}
