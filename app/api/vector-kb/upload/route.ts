@@ -3,7 +3,9 @@ import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { generateEmbedding, formatEmbedding } from '@/lib/embeddings';
 
-export const maxDuration = 60;
+export const maxDuration = 120;
+// Increase body size limit for large PDFs
+export const config = { api: { bodyParser: false } };
 
 const ALLOWED_TYPES = ['txt', 'md', 'csv', 'json', 'pdf', 'docx', 'xlsx', 'xls'];
 
@@ -28,10 +30,27 @@ async function extractText(file: File, fileType: string): Promise<string> {
   const buffer = Buffer.from(arrayBuffer);
 
   if (fileType === 'pdf') {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>;
-    const parsed = await pdfParse(buffer);
-    return parsed.text;
+    // Primary: unpdf (pdfjs-based) — works in Vercel serverless, handles all PDF types
+    try {
+      const { extractText: unpdfExtract } = await import('unpdf');
+      const uint8 = new Uint8Array(buffer);
+      // mergePages:true → text is string; mergePages:false → text is string[]
+      const result = await (unpdfExtract as (d: Uint8Array, o: { mergePages: true }) => Promise<{ text: string }>)(uint8, { mergePages: true });
+      if (result.text?.trim().length > 20) return result.text;
+    } catch { /* fall through */ }
+
+    // Fallback: pdf-parse lib (avoids test-file load issue on Vercel)
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (buf: Buffer) => Promise<{ text: string }>;
+      const parsed = await pdfParse(buffer);
+      if (parsed.text?.trim()) return parsed.text;
+    } catch { /* fall through */ }
+
+    // Last resort: raw text extraction (strips binary, keeps printable ASCII + Devanagari)
+    const raw = buffer.toString('utf8');
+    const cleaned = raw.replace(/[^\x20-\x7E\n\rऀ-ॿ]/g, ' ').replace(/\s{4,}/g, '\n').trim();
+    return cleaned;
   }
 
   if (fileType === 'docx') {

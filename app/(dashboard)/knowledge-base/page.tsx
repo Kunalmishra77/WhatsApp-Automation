@@ -125,9 +125,20 @@ export default function KnowledgeBasePage() {
     form.append('file', item.file);
     form.append('workspaceId', workspaceId);
     try {
-      const res  = await fetch('/api/vector-kb/upload', { method: 'POST', body: form });
-      const data = await res.json() as { chunks_created?: number; error?: string };
-      if (!res.ok) return { ...item, status: 'error', error: data.error ?? 'Upload failed' };
+      const res = await fetch('/api/vector-kb/upload', { method: 'POST', body: form });
+
+      // Handle non-JSON responses (e.g., 413 Request Entity Too Large)
+      let data: { chunks_created?: number; error?: string } = {};
+      const contentType = res.headers.get('content-type') ?? '';
+      if (contentType.includes('application/json')) {
+        try { data = await res.json() as typeof data; } catch { /* */ }
+      } else {
+        const text = await res.text();
+        if (res.status === 413) data.error = `File too large (max 10MB). Current: ${(item.file.size / 1024 / 1024).toFixed(1)}MB`;
+        else if (!res.ok) data.error = text.slice(0, 100) || `Server error ${res.status}`;
+      }
+
+      if (!res.ok) return { ...item, status: 'error', error: data.error ?? `Upload failed (${res.status})` };
       return { ...item, status: 'done', chunks: data.chunks_created ?? 0 };
     } catch (e) {
       return { ...item, status: 'error', error: e instanceof Error ? e.message : 'Upload failed' };

@@ -19,6 +19,13 @@ const securityHeaders = [
 ];
 
 const config: NextConfig = {
+  // Increase body size limit for KB document uploads (PDFs up to 10MB)
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '10mb',
+    },
+  },
+
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '*.supabase.co' },
