@@ -3,15 +3,9 @@ import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { dispatchWebhookEvent } from '@/lib/outbound-webhook';
 
-const CSAT_MESSAGE = `Thank you for contacting V4TOU Tech! 🙏
-
-How would you rate your experience today?
-Reply with a number:
-1 ⭐ - Poor
-2 ⭐⭐ - Fair
-3 ⭐⭐⭐ - Good
-4 ⭐⭐⭐⭐ - Very Good
-5 ⭐⭐⭐⭐⭐ - Excellent`;
+function buildCsatMessage(workspaceName: string) {
+  return `Thank you for contacting ${workspaceName}! 🙏\n\nHow would you rate your experience today?\nReply with a number:\n1 ⭐ - Poor\n2 ⭐⭐ - Fair\n3 ⭐⭐⭐ - Good\n4 ⭐⭐⭐⭐ - Very Good\n5 ⭐⭐⭐⭐⭐ - Excellent`;
+}
 
 export async function POST(
   _request: NextRequest,
@@ -49,12 +43,13 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to resolve conversation' }, { status: 500 });
     }
 
-    // 4. Load workspace credentials
+    // 4. Load workspace credentials + name for branded CSAT
     const { data: ws } = await db
       .from('workspaces')
-      .select('phone_number_id, access_token')
+      .select('phone_number_id, access_token, name')
       .eq('id', conversation.workspace_id)
       .single();
+    const csatMessage = buildCsatMessage((ws?.name as string | null) ?? 'Us');
 
     // 5. Extract contact phone + id
     const contactPhone: string | null = conversation.contacts?.phone ?? null;
@@ -76,7 +71,7 @@ export async function POST(
               recipient_type: 'individual',
               to: contactPhone,
               type: 'text',
-              text: { preview_url: false, body: CSAT_MESSAGE },
+              text: { preview_url: false, body: csatMessage },
             }),
           },
         );

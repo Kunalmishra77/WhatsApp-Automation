@@ -61,7 +61,7 @@ Return ONLY valid JSON in this exact shape:
         'X-Title': 'Agentix Flow Builder',
       },
       body: JSON.stringify({
-        model: 'openai/gpt-4o-mini',
+        model: await (await import('@/lib/ai-model')).resolveWorkspaceModel(workspaceId),
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user',   content: `Create a WhatsApp nurture flow for: ${description.trim()}` },

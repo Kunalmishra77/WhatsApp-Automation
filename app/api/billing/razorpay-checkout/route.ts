@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid plan' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'billing_management');
 
     const planConfig = RAZORPAY_PLANS[plan as RazorpayPlanKey];
     if (!planConfig.planId) {

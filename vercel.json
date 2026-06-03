@@ -21,6 +21,10 @@
       "schedule": "30 3 * * *"
     },
     {
+      "path": "/api/cron/cleanup-flow-sessions",
+      "schedule": "0 2 * * *"
+    },
+    {
       "path": "/api/cron/process-campaign-queue",
       "schedule": "0 6 * * *"
     }

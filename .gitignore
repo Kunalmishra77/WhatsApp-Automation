@@ -37,8 +37,9 @@ dev.log
 *.png
 !public/**/*.png
 
-# scripts (db credentials)
-scripts/
+# scripts with sensitive credentials only
+scripts/*.local.js
+scripts/*.secret.js
 .pnpm-debug.log*
 
 # env files
