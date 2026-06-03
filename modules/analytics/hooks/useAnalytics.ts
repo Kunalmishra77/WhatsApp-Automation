@@ -125,6 +125,37 @@ export function useAgentPerformance(from: string, to: string) {
   });
 }
 
+// ── Extended analytics (campaigns, leads, sentiment, flows) ──────────────────
+
+export interface ExtendedAnalytics {
+  campaignSummary:              { total: number; completed: number; running: number; failed: number; draft: number; totalSent: number };
+  campaignStats:                Array<{ id: string; name: string; template: string; status: string; total: number; delivered: number; read: number; failed: number; deliveryRate: number; readRate: number; abGroup: string | null; createdAt: string }>;
+  leadFunnel:                   Array<{ stage: string; count: number }>;
+  leadTemperature:              Array<{ label: string; value: number; color: string }>;
+  avgAiScore:                   number | null;
+  totalLeads:                   number;
+  sentimentBreakdown:           Array<{ label: string; value: number; color: string }>;
+  sentimentTrend:               Array<{ date: string; positive: number; neutral: number; negative: number }>;
+  contactTemperatureBreakdown:  Array<{ label: string; value: number; color: string }>;
+  flowStats:                    Array<{ id: string; name: string; isActive: boolean; nodeCount: number; sessions: number; completed: number; completionRate: number }>;
+  deliveryFunnel:               Array<{ stage: string; count: number; color: string }>;
+}
+
+export function useExtendedAnalytics(from: string, to: string) {
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
+  return useQuery<ExtendedAnalytics>({
+    queryKey: ['analytics', 'extended', workspaceId, from, to],
+    queryFn: () =>
+      fetch(`/api/analytics/extended?workspaceId=${workspaceId}&from=${from}&to=${to}`)
+        .then((r) => {
+          if (!r.ok) throw new Error('Failed to fetch extended analytics');
+          return r.json() as Promise<ExtendedAnalytics>;
+        }),
+    enabled: !!workspaceId,
+    staleTime: 60_000,
+  });
+}
+
 // ── Detail drawer ──────────────────────────────────────────────────────────────
 
 export type DrawerType =

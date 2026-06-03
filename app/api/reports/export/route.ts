@@ -40,9 +40,11 @@ export async function GET(request: NextRequest) {
       const { data, error } = await (supabase as any)
         .from('conversations')
         .select(
-          'id, status, channel, last_message_at, created_at, resolved_at, contacts(name, phone), assigned_agent:workspace_members!conversations_assigned_agent_id_fkey(user_id)',
+          'id, status, channel, sentiment, last_message, last_message_at, created_at, resolved_at, labels, contacts(name, phone, temperature), assigned_agent:workspace_members!conversations_assigned_agent_id_fkey(user_id)',
         )
         .eq('workspace_id', workspaceId)
+        .gte('created_at', `${from}T00:00:00.000Z`)
+        .lte('created_at', `${to}T23:59:59.999Z`)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -54,10 +56,13 @@ export async function GET(request: NextRequest) {
         id: string;
         status: string | null;
         channel: string | null;
+        sentiment: string | null;
+        last_message: string | null;
         last_message_at: string | null;
         created_at: string | null;
         resolved_at: string | null;
-        contacts: { name: string | null; phone: string } | null;
+        labels: string[] | null;
+        contacts: { name: string | null; phone: string; temperature?: string | null } | null;
         assigned_agent: { user_id: string } | null;
       }>).map((row) => [
         row.id ?? '',
@@ -65,6 +70,10 @@ export async function GET(request: NextRequest) {
         row.contacts?.phone ?? '',
         row.status ?? '',
         row.channel ?? '',
+        row.contacts?.temperature ?? 'warm',       // hot / warm / cold
+        row.sentiment ?? '',                        // positive / neutral / negative
+        Array.isArray(row.labels) ? row.labels.join(', ') : '',
+        row.last_message?.slice(0, 120) ?? '',
         row.last_message_at ?? '',
         row.assigned_agent?.user_id ?? '',
         row.created_at ?? '',
@@ -78,7 +87,11 @@ export async function GET(request: NextRequest) {
           'Contact Phone',
           'Status',
           'Channel',
+          'Lead Temperature',
+          'Sentiment',
+          'Labels',
           'Last Message',
+          'Last Message At',
           'Assigned Agent',
           'Created At',
           'Resolved At',
@@ -132,7 +145,7 @@ export async function GET(request: NextRequest) {
     else {
       const { data, error } = await (supabase as any)
         .from('contacts')
-        .select('id, name, phone, email, company, country, tags, created_at')
+        .select('id, name, phone, email, company, country, tags, temperature, language, opted_out, created_at')
         .eq('workspace_id', workspaceId)
         .order('created_at', { ascending: false });
 
@@ -149,6 +162,9 @@ export async function GET(request: NextRequest) {
         company: string | null;
         country: string | null;
         tags: string[] | null;
+        temperature: string | null;
+        language: string | null;
+        opted_out: boolean | null;
         created_at: string | null;
       }>).map((row) => [
         row.id ?? '',
@@ -158,11 +174,14 @@ export async function GET(request: NextRequest) {
         row.company ?? '',
         row.country ?? '',
         Array.isArray(row.tags) ? row.tags.join(', ') : (row.tags ?? ''),
+        row.temperature ?? 'warm',
+        row.language ?? '',
+        row.opted_out ? 'Yes' : 'No',
         row.created_at ?? '',
       ]);
 
       csvContent = toCSV(
-        ['ID', 'Name', 'Phone', 'Email', 'Company', 'Country', 'Tags', 'Created At'],
+        ['ID', 'Name', 'Phone', 'Email', 'Company', 'Country', 'Tags', 'Lead Temperature', 'Language', 'Opted Out', 'Created At'],
         rows,
       );
     }

@@ -10,11 +10,11 @@ export interface LlmConfig {
 }
 
 export const DEFAULT_LLM_CONFIG: LlmConfig = {
-  auto_reply_model:  'openai/gpt-oss-120b:free',
+  auto_reply_model:  'openai/gpt-4o-mini',
   vision_model:      'openai/gpt-4o-mini',
   escalation_model:  'openai/gpt-4o-mini',
   embedding_model:   'openai/text-embedding-3-small',
-  fast_model:        'groq/llama-3.1-8b-instant',
+  fast_model:        'openai/gpt-4o-mini',
 };
 
 export type LlmTask = keyof LlmConfig;

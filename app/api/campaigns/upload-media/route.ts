@@ -12,9 +12,34 @@ const ALLOWED_TYPES: Record<string, string> = {
   'application/pdf': 'document',
 };
 
+// GET /api/campaigns/upload-media?workspaceId=xxx
+// Returns the 10 most recent media uploads for the workspace
+export async function GET(request: NextRequest) {
+  try {
+    const workspaceId = request.nextUrl.searchParams.get('workspaceId');
+    if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
+
+    await requireWorkspacePermission(workspaceId, 'create_campaigns');
+
+    const db = createAdminClient() as any;
+    const { data, error } = await db
+      .from('media_library')
+      .select('id, filename, media_id, media_type, mime_type, file_size, created_at')
+      .eq('workspace_id', workspaceId)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ items: data ?? [] });
+  } catch (error) {
+    if (error instanceof AuthzError) return authzResponse(error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
 // POST /api/campaigns/upload-media
 // Fields: file (File), workspaceId (string)
-// Returns: { mediaId, mediaType }
+// Returns: { mediaId, mediaType, fileName, libraryId }
 export async function POST(request: NextRequest) {
   try {
     const formData    = await request.formData();
@@ -75,7 +100,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No media ID returned from WhatsApp' }, { status: 500 });
     }
 
-    return NextResponse.json({ mediaId, mediaType, fileName: file.name });
+    // Save to media_library for reuse
+    const { data: libraryRow } = await db.from('media_library').insert({
+      workspace_id: workspaceId,
+      filename:     file.name,
+      media_id:     mediaId,
+      media_type:   mediaType,
+      mime_type:    file.type,
+      file_size:    file.size,
+    }).select('id').single();
+
+    return NextResponse.json({
+      mediaId,
+      mediaType,
+      fileName:  file.name,
+      libraryId: (libraryRow as { id?: string } | null)?.id ?? null,
+    });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);
     console.error('[Campaign Upload Media]', error);

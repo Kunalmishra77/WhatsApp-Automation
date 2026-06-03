@@ -174,7 +174,7 @@ async function handleIncomingMessage(
 
   const { data: workspace, error: workspaceError } = await supabase
     .from('workspaces')
-    .select('id')
+    .select('id, access_token')
     .eq('phone_number_id', phoneNumberId)
     .single();
 
@@ -274,6 +274,23 @@ async function handleIncomingMessage(
 
   if (messageError) {
     throw new Error(messageError.message);
+  }
+
+  // Mark incoming message as read — shows blue ticks on customer's WhatsApp (non-blocking)
+  const _accessToken = (workspace as { id: string; access_token?: string }).access_token;
+  if (_accessToken) {
+    fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${_accessToken.replace(/﻿/g, '').trim()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: msg.id,
+      }),
+    }).catch(() => {});
   }
 
   // Track inbound message usage (non-blocking)
@@ -688,8 +705,10 @@ async function fetchKnowledgeBaseContext(
       const { generateEmbedding, formatEmbedding } = await import('@/lib/embeddings');
       const queryEmbedding = await generateEmbedding(query);
       if (queryEmbedding) {
+        const formattedEmbedding = formatEmbedding(queryEmbedding);
+
         const { data: vecResults } = await db.rpc('match_knowledge_base', {
-          query_embedding: formatEmbedding(queryEmbedding),
+          query_embedding: formattedEmbedding,
           workspace_id_param: workspaceId,
           match_count: 5,
         });
@@ -697,6 +716,21 @@ async function fetchKnowledgeBaseContext(
           return (vecResults as Array<{ title: string; content: string }>)
             .map((e) => `## ${e.title}\n${e.content}`)
             .join('\n\n');
+        }
+
+        // Also search vector_documents table (uploaded file chunks)
+        const { data: vecDocResults } = await (db.rpc('match_vector_documents', {
+          query_embedding: formattedEmbedding,
+          workspace_id_param: workspaceId,
+          match_count: 3,
+          min_similarity: 0.3,
+        }) as Promise<{ data: Array<{ filename: string; content: string }> | null }>).catch(() => ({ data: null }));
+
+        if (vecDocResults?.length) {
+          const vecDocContext = (vecDocResults as Array<{ filename: string; content: string }>)
+            .map((r) => `[${r.filename}] ${r.content}`)
+            .join('\n\n');
+          return vecDocContext;
         }
       }
     } catch {
@@ -760,6 +794,7 @@ async function getAIReply(
   kbContext = '',
   imageUrl?: string,
   wsSettings?: Record<string, unknown>,
+  businessName = 'our team',
 ): Promise<string | null> {
   const apiKey = process.env.OPENROUTER_API_KEY?.replace(/\uFEFF/g, '').trim();
   const { getModel } = await import('@/lib/ai-router');
@@ -776,10 +811,11 @@ async function getAIReply(
     ? `\n\nKNOWLEDGE BASE \u2014 use this to answer accurately:\n${kbContext}\n\nIf the answer is in the knowledge base, use it. If not, give a helpful general response.`
     : '';
 
-  const systemPrompt = `You are a helpful customer support assistant for V4TOU Tech.
-Reply in the same language the customer uses (Hindi, English, etc.).
-Be friendly, professional, and concise \u2014 max 3 sentences.
-Customer name: ${customerName}${kbSection}`;
+  const systemPrompt = `You are a helpful WhatsApp customer support assistant for ${businessName}.
+Reply in the same language the customer uses (Hindi, English, Hinglish, etc.).
+Be friendly, professional, and concise \u2014 max 2-3 sentences.
+Customer name: ${customerName}
+${kbSection ? kbSection : 'If you do not know the answer, politely say you will have a team member follow up.'}`;
 
   // Build user message \u2014 multimodal if we have an image URL
   const userContent = imageUrl
@@ -913,7 +949,7 @@ async function updateConversationSentiment(db: any, conversationId: string, text
         'X-Title': 'Agentix',
       },
       body: JSON.stringify({
-        model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free',
+        model: 'openai/gpt-4o-mini',
         messages: [
           {
             role: 'system',
@@ -983,13 +1019,14 @@ async function sendAutoReply(
 ) {
   const { data: ws } = await (supabase as any)
     .from('workspaces')
-    .select('phone_number_id, access_token, settings')
+    .select('phone_number_id, access_token, settings, name')
     .eq('id', workspaceId)
     .single();
 
   if (!ws?.phone_number_id || !ws?.access_token) return;
 
   const name = customerName !== toPhone ? (customerName.split(' ')[0] ?? customerName) : 'there';
+  const businessName = (ws.name as string | undefined) ?? 'our team';
 
   // Fetch active KB entries for this workspace to inject as context
   const kbContext = await fetchKnowledgeBaseContext(supabase, workspaceId, customerMessage);
@@ -997,8 +1034,8 @@ async function sendAutoReply(
   const wsSettings = (ws?.settings ?? {}) as Record<string, unknown>;
   const message = isEscalation
     ? ESCALATION_REPLY
-    : (await getAIReply(customerMessage, name, kbContext, imageUrl, wsSettings)
-      ?? `Hello ${name}, thanks for reaching out to V4TOU Tech. Our team received your message and will get back to you shortly.`);
+    : (await getAIReply(customerMessage, name, kbContext, imageUrl, wsSettings, businessName)
+      ?? `Hello ${name}, thanks for reaching out to ${businessName}. Our team received your message and will get back to you shortly.`);
 
   try {
     const response = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
