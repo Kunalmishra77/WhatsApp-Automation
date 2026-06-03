@@ -13,7 +13,12 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { UserPlus, BarChart2, Users2, Shuffle } from 'lucide-react';
+import { UserPlus, BarChart2, Users2, Shuffle, Mail } from 'lucide-react';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useTeam, useUpdateMemberRole } from '../../hooks/useTeam';
@@ -37,6 +42,32 @@ export function TeamPage() {
   const updateRole    = useUpdateMemberRole();
   const currentUserId = useAuthStore((s) => s.user?.id);
   const workspaceId   = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
+
+  const [inviteOpen,  setInviteOpen]  = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole,  setInviteRole]  = useState<UserRole>('agent');
+  const [inviting,    setInviting]    = useState(false);
+
+  const handleInvite = async () => {
+    if (!inviteEmail.trim()) return;
+    setInviting(true);
+    try {
+      const res  = await fetch('/api/team/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId, email: inviteEmail.trim(), role: inviteRole }),
+      });
+      const data = await res.json() as { message?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Invite failed');
+      toast.success(data.message ?? 'Invitation sent!');
+      setInviteOpen(false);
+      setInviteEmail('');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to send invite');
+    } finally {
+      setInviting(false);
+    }
+  };
 
   const onlineCount = members.filter((m) => m.is_online).length;
 
@@ -76,7 +107,7 @@ export function TeamPage() {
             </Badge>
           )}
         </div>
-        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled>
+        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => setInviteOpen(true)}>
           <UserPlus className="h-3.5 w-3.5" /> Invite Member
         </Button>
       </div>
@@ -235,6 +266,51 @@ export function TeamPage() {
         </Table>
         </TabsContent>
       </Tabs>
+
+      {/* Invite Member Dialog */}
+      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-4 w-4 text-brand-500" /> Invite Team Member
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="inv-email">Email Address</Label>
+              <Input
+                id="inv-email"
+                type="email"
+                placeholder="agent@company.com"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleInvite(); }}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Role</Label>
+              <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as UserRole)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="agent">Agent</SelectItem>
+                  <SelectItem value="manager">Manager</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              They&apos;ll receive an email with a link to sign up and join this workspace.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInviteOpen(false)} disabled={inviting}>Cancel</Button>
+            <Button onClick={() => void handleInvite()} disabled={inviting || !inviteEmail.trim()}>
+              {inviting ? 'Sending…' : 'Send Invite'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

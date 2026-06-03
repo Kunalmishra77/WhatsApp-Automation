@@ -90,7 +90,9 @@ export function useAnalyticsOverview(from: string, to: string) {
           return r.json() as Promise<AnalyticsOverview>;
         }),
     enabled: !!workspaceId,
-    staleTime: 60_000,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -121,7 +123,9 @@ export function useAgentPerformance(from: string, to: string) {
           return r.json() as Promise<AgentPerformanceResponse>;
         }),
     enabled: !!workspaceId,
-    staleTime: 60_000,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -152,7 +156,9 @@ export function useExtendedAnalytics(from: string, to: string) {
           return r.json() as Promise<ExtendedAnalytics>;
         }),
     enabled: !!workspaceId,
-    staleTime: 60_000,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 }
 

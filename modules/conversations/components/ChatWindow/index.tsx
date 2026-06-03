@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useQueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -35,6 +35,13 @@ export function ChatWindow({ conversationId, panelToggle }: ChatWindowProps) {
 
   const { data: messages = [], isLoading } = useMessages(conversationId);
 
+  // WhatsApp 24-hour session: check if last inbound message was within 24 hrs
+  const sessionOpen = useMemo(() => {
+    const lastInbound = [...messages].reverse().find((m) => m.direction === 'inbound');
+    if (!lastInbound) return false;
+    return Date.now() - new Date(lastInbound.created_at).getTime() < 24 * 60 * 60 * 1000;
+  }, [messages]);
+
   // Mark as read when conversation opened AND whenever new messages arrive while open
   useEffect(() => {
     if (!conversationId) return;
@@ -51,6 +58,18 @@ export function ChatWindow({ conversationId, panelToggle }: ChatWindowProps) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <ConversationHeader conversation={conversation} panelToggle={panelToggle} />
+
+      {/* WhatsApp 24-hour session warning */}
+      {!isLoading && !sessionOpen && (
+        <div className="shrink-0 flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2.5">
+          <span className="text-amber-500 text-sm leading-none mt-0.5">⚠️</span>
+          <p className="text-xs text-amber-800 leading-relaxed">
+            {messages.length === 0
+              ? <><strong>New conversation.</strong> Use a WhatsApp template to send the first message — free-form messages require the customer to reply first.</>
+              : <><strong>Session window closed.</strong> The customer hasn&apos;t replied in 24+ hours. Send a template to re-open the chat window.</>}
+          </p>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {isLoading ? (

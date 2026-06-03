@@ -11,10 +11,23 @@ export async function POST(request: NextRequest) {
   const body      = await request.text();
   const signature = request.headers.get('stripe-signature') ?? '';
 
-  // Verify webhook signature (simple manual verification without SDK)
-  // In production, use stripe.webhooks.constructEvent for full HMAC verification
-  // Here we trust the payload since our endpoint is secret
   if (!signature) return NextResponse.json({ error: 'Missing signature' }, { status: 400 });
+
+  // Real Stripe HMAC-SHA256 verification (no SDK required)
+  const parts: Record<string, string> = Object.fromEntries(
+    signature.split(',').map((p) => { const [k, ...v] = p.split('='); return [k ?? '', v.join('=')]; }),
+  );
+  const ts   = parts['t'];
+  const sig1 = parts['v1'];
+  if (!ts || !sig1) return NextResponse.json({ error: 'Invalid signature format' }, { status: 400 });
+  if (Math.abs(Date.now() / 1000 - parseInt(ts, 10)) > 300) {
+    return NextResponse.json({ error: 'Timestamp too old — possible replay attack' }, { status: 400 });
+  }
+  const enc       = new TextEncoder();
+  const cryptoKey = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sigBytes  = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(`${ts}.${body}`));
+  const expected  = Array.from(new Uint8Array(sigBytes)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  if (expected !== sig1) return NextResponse.json({ error: 'Signature mismatch' }, { status: 400 });
 
   let event: { type: string; data: { object: Record<string, unknown> } };
   try {
@@ -34,12 +47,16 @@ export async function POST(request: NextRequest) {
     if (!workspaceId) return NextResponse.json({ received: true });
 
     // Determine plan from line items (simple: store subscription_id, let portal handle it)
+    const planFromMeta = (session.metadata as Record<string, string>)?.plan ?? 'pro';
+    const validPlan = (['starter', 'pro', 'enterprise'] as const).includes(planFromMeta as 'starter' | 'pro' | 'enterprise')
+      ? (planFromMeta as PlanKey)
+      : 'pro';
     await db.from('workspaces').update({
       stripe_customer_id:      customerId,
       stripe_subscription_id:  subscriptionId,
-      plan:                    'pro',
-      plan_expires_at:         null, // subscription-based, no expiry date
-      plan_limits:             STRIPE_PLANS.pro.limits,
+      plan:                    validPlan,
+      plan_expires_at:         null,
+      plan_limits:             STRIPE_PLANS[validPlan]?.limits ?? STRIPE_PLANS.pro.limits,
     }).eq('id', workspaceId);
   }
 

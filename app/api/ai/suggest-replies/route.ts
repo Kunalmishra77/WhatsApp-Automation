@@ -54,7 +54,8 @@ export async function POST(request: NextRequest) {
       .join('\n');
 
     const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-    const model = process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free';
+    const { resolveWorkspaceModel } = await import('@/lib/ai-model');
+    const model = await resolveWorkspaceModel(conversation.workspace_id);
 
     if (!apiKey) {
       return NextResponse.json({ error: 'AI not configured' }, { status: 503 });

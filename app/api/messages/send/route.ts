@@ -37,6 +37,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Conversation contact is missing a phone number' }, { status: 400 });
     }
 
+    // Enforce monthly message limit
+    try {
+      const { getWorkspacePlan, guardMessageLimit } = await import('@/lib/plan-guard');
+      const wsPlan = await getWorkspacePlan(conversation.workspace_id);
+      await guardMessageLimit(conversation.workspace_id, wsPlan);
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'name' in e && (e as { name: string }).name === 'PlanLimitError') {
+        return NextResponse.json({ error: (e as Error).message, code: 'PLAN_LIMIT_EXCEEDED' }, { status: 402 });
+      }
+    }
+
     const admin = createAdminClient();
     const adminDb = admin as any;
     const { data: workspace, error: workspaceError } = await adminDb

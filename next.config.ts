@@ -41,6 +41,24 @@ const config: NextConfig = {
         source: '/(.*)',
         headers: securityHeaders,
       },
+      // CORS for public REST API (/api/v1/*)
+      {
+        source: '/api/v1/(.*)',
+        headers: [
+          { key: 'Access-Control-Allow-Origin',  value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET, POST, PUT, DELETE, OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Authorization, x-api-key' },
+        ],
+      },
+      // Extra security headers on all API routes
+      {
+        source: '/api/(.*)',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'X-Frame-Options',        value: 'DENY' },
+          { key: 'Cache-Control',          value: 'no-store' },
+        ],
+      },
     ];
   },
 

@@ -25,6 +25,17 @@ export async function POST(request: NextRequest) {
 
     await requireWorkspacePermission(workspaceId, 'manage_contacts');
 
+    // Enforce contact limit
+    try {
+      const { getWorkspacePlan, guardContactLimit } = await import('@/lib/plan-guard');
+      const wsPlan = await getWorkspacePlan(workspaceId);
+      await guardContactLimit(workspaceId, wsPlan);
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'name' in e && (e as { name: string }).name === 'PlanLimitError') {
+        return NextResponse.json({ error: (e as Error).message, code: 'PLAN_LIMIT_EXCEEDED' }, { status: 402 });
+      }
+    }
+
     // Normalize phone numbers — strip non-digits, add country code if needed
     const rows = contacts
       .filter((c) => c.phone?.trim())

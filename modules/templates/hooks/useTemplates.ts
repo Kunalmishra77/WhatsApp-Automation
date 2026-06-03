@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import {
   fetchTemplates, createTemplate, updateTemplate, deleteTemplate,
 } from '../services/template.service';
@@ -8,12 +9,27 @@ import type { TemplateInsert, TemplateUpdate } from '../services/template.servic
 import { useWorkspaceStore } from '@/store/workspace.store';
 
 export function useTemplates() {
+  const queryClient = useQueryClient();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
+
+  // Auto-sync template statuses from Meta on first page load (silent background call)
+  useEffect(() => {
+    if (!workspaceId) return;
+    fetch('/api/templates/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId }),
+    })
+      .then(() => queryClient.invalidateQueries({ queryKey: ['templates', workspaceId] }))
+      .catch(() => {}); // fail silently — user can manually sync
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId]);
+
   return useQuery({
     queryKey: ['templates', workspaceId],
     queryFn: () => fetchTemplates(workspaceId!),
     enabled: !!workspaceId,
-    staleTime: 60_000,
+    staleTime: 30_000,
   });
 }
 
