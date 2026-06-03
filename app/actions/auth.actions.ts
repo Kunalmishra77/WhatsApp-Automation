@@ -10,6 +10,7 @@ import {
   resetPasswordForEmail,
 } from '@/modules/auth/services/auth.service';
 import { getUserWorkspaces } from '@/modules/auth/services/workspace.service';
+import { createAdminClient } from '@/services/supabase/admin';
 import { ROUTES } from '@/lib/constants';
 import type { AuthActionResult } from '@/modules/auth/types';
 
@@ -23,7 +24,23 @@ export async function loginAction(
     return { success: false, error: parsed.error.issues[0]?.message ?? 'Invalid input' };
   }
 
-  const { user, error } = await signInWithPassword(parsed.data.email, parsed.data.password);
+  let { user, error } = await signInWithPassword(parsed.data.email, parsed.data.password);
+
+  // If email not confirmed, auto-confirm via admin and retry once
+  if (!user && error === 'Please verify your email before signing in.') {
+    try {
+      const adminDb = createAdminClient();
+      const { data: list } = await adminDb.auth.admin.listUsers();
+      const found = list?.users?.find((u) => u.email === parsed.data.email);
+      if (found) {
+        await adminDb.auth.admin.updateUserById(found.id, { email_confirm: true });
+        const retry = await signInWithPassword(parsed.data.email, parsed.data.password);
+        user = retry.user;
+        error = retry.error;
+      }
+    } catch { /* non-fatal */ }
+  }
+
   if (error || !user) return { success: false, error: error ?? 'Sign in failed.' };
 
   const workspaces = await getUserWorkspaces(user.id);
@@ -57,10 +74,16 @@ export async function signupAction(
   );
   if (error || !user) return { success: false, error: error ?? 'Sign up failed.' };
 
-  return {
-    success: true,
-    redirectTo: `${ROUTES.VERIFY_EMAIL}?email=${encodeURIComponent(parsed.data.email)}`,
-  };
+  // Auto-confirm email — no email verification step needed for this SaaS
+  // (Admin approval flow handles access control instead)
+  try {
+    const adminDb = createAdminClient();
+    await adminDb.auth.admin.updateUserById(user.id, { email_confirm: true });
+  } catch {
+    // Non-fatal — user can still verify via email if auto-confirm fails
+  }
+
+  return { success: true, redirectTo: ROUTES.WORKSPACE_NEW };
 }
 
 export async function forgotPasswordAction(
