@@ -24,6 +24,7 @@ interface MetaTemplatesResponse {
 }
 
 function extractFromComponents(components: MetaComponent[] = []) {
+  let header_type:    string | null = null;
   let header_content: string | null = null;
   let body = '';
   let footer: string | null = null;
@@ -32,15 +33,24 @@ function extractFromComponents(components: MetaComponent[] = []) {
 
   for (const c of components) {
     switch (c.type.toUpperCase()) {
-      case 'HEADER':
-        if (c.format === 'TEXT') header_content = c.text ?? null;
+      case 'HEADER': {
+        const fmt = c.format?.toUpperCase() ?? 'NONE';
+        header_type = fmt;
+        if (fmt === 'TEXT') {
+          header_content = c.text ?? null;
+        } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(fmt)) {
+          // Store the example media handle if present (used during template submission)
+          const example = (c as unknown as Record<string, unknown>).example as Record<string, string[]> | undefined;
+          header_content = example?.header_handle?.[0] ?? null;
+        }
         break;
-      case 'BODY':
+      }
+      case 'BODY': {
         body = c.text ?? '';
-        // Extract {{N}} variables
         const matches = body.match(/\{\{(\d+)\}\}/g) ?? [];
         variables.push(...[...new Set(matches)]);
         break;
+      }
       case 'FOOTER':
         footer = c.text ?? null;
         break;
@@ -50,7 +60,7 @@ function extractFromComponents(components: MetaComponent[] = []) {
     }
   }
 
-  return { header_content, body, footer, buttons, variables };
+  return { header_type, header_content, body, footer, buttons, variables };
 }
 
 function normalizeCategory(cat: string): 'authentication' | 'marketing' | 'utility' {
@@ -121,7 +131,7 @@ export async function POST(request: NextRequest) {
     let updated = 0;
 
     for (const mt of allTemplates) {
-      const { header_content, body, footer, buttons, variables } = extractFromComponents(mt.components);
+      const { header_type, header_content, body, footer, buttons, variables } = extractFromComponents(mt.components);
       if (!body) continue; // skip templates with no body
 
       const record = {
@@ -130,6 +140,7 @@ export async function POST(request: NextRequest) {
         status:         normalizeStatus(mt.status),
         category:       normalizeCategory(mt.category),
         language:       mt.language ?? 'en',
+        header_type,
         header_content,
         body,
         footer,

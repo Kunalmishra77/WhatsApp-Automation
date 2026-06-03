@@ -257,9 +257,11 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const { data: templates = [] } = useTemplates();
   const create          = useCreateCampaign();
 
+  const [manualMediaType, setManualMediaType] = useState<string | null>(null); // fallback if header_type is null
   const selectedTemplate  = templates.find((t) => t.id === state.templateId);
-  const reqMediaType      = getMediaHeaderType(selectedTemplate);
+  const reqMediaType      = getMediaHeaderType(selectedTemplate) ?? (manualMediaType ?? null);
   const templateNeedsMedia = !!reqMediaType;
+  const headerTypeIsUnknown = !!state.templateId && !getMediaHeaderType(selectedTemplate); // template selected but header_type unknown
   const progress          = ((step + 1) / STEPS.length) * 100;
   const approvedTemplates = templates.filter((t) => t.status === 'approved');
 
@@ -420,7 +422,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   return (
                     <button
                       key={t.id}
-                      onClick={() => setState((s) => ({ ...s, templateId: t.id, mediaId: '', mediaType: '', mediaFileName: '' }))}
+                      onClick={() => { setState((s) => ({ ...s, templateId: t.id, mediaId: '', mediaType: '', mediaFileName: '' })); setManualMediaType(null); }}
                       className={cn('w-full rounded-lg border p-2.5 text-left transition-colors', state.templateId === t.id ? 'border-brand-500 bg-brand-500/5' : 'border-border hover:border-brand-300')}
                     >
                       <div className="flex items-center gap-1.5 mb-0.5">
@@ -455,8 +457,36 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   </div>
                 )}
 
+                {/* Fallback: template selected but header_type unknown — show manual toggle */}
+                {headerTypeIsUnknown && !manualMediaType && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                    <p className="text-xs text-amber-800 flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      <strong>Does this template have a media header?</strong>
+                    </p>
+                    <p className="text-[11px] text-amber-700">
+                      If your template has an image, video, or document header on Meta, select the type below.
+                    </p>
+                    <div className="flex gap-2">
+                      {(['IMAGE', 'VIDEO', 'DOCUMENT'] as const).map((type) => {
+                        const meta = MEDIA_TYPE_MAP[type];
+                        return (
+                          <button key={type} onClick={() => setManualMediaType(type)}
+                            className="flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 hover:border-amber-500 hover:bg-amber-50 transition-colors">
+                            {meta?.icon}{meta?.label}
+                          </button>
+                        );
+                      })}
+                      <button onClick={() => setManualMediaType('NONE')}
+                        className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-500 hover:border-gray-400 transition-colors">
+                        No media
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Media URL input (inline, only when needed) */}
-                {templateNeedsMedia && reqMediaType && (
+                {templateNeedsMedia && reqMediaType && reqMediaType !== 'NONE' && (
                   <MediaUrlInput
                     headerType={reqMediaType}
                     workspaceId={workspaceId}
