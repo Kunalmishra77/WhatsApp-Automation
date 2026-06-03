@@ -323,14 +323,14 @@ export function CampaignList() {
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1">
-                          {(c.status === 'draft' || c.status === 'scheduled') && (
+                          {c.status === 'draft' && (
                             <Button
                               size="sm" variant="outline" className="h-7 gap-1.5 text-xs"
                               disabled={run.isPending}
                               onClick={(e) => void handleRun(e, c.id, c.name)}
                             >
                               {run.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                              Send
+                              Send Now
                             </Button>
                           )}
                           {isAB && (

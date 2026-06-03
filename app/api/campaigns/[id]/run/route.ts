@@ -16,7 +16,7 @@ export async function POST(
 
     const { data: campaign, error: campError } = await db
       .from('campaigns')
-      .select('workspace_id, status, audience_type, audience_filter')
+      .select('workspace_id, status, audience_type, audience_filter, scheduled_at')
       .eq('id', campaignId)
       .single();
 
@@ -31,6 +31,15 @@ export async function POST(
     }
     if (campaign.status === 'completed') {
       return NextResponse.json({ error: 'Campaign already completed' }, { status: 409 });
+    }
+
+    // Prevent manually running a campaign that is scheduled for the future
+    if (campaign.scheduled_at && new Date(campaign.scheduled_at as string) > new Date()) {
+      const scheduledTime = new Date(campaign.scheduled_at as string).toLocaleString();
+      return NextResponse.json(
+        { error: `This campaign is scheduled to send on ${scheduledTime}. It will send automatically at that time.` },
+        { status: 400 },
+      );
     }
 
     // Count audience to decide sync vs async

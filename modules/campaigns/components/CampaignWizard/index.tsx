@@ -272,6 +272,11 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
     return true;
   };
 
+  const runCampaign = async (campaignId: string): Promise<{ sent?: number; failed?: number; queued?: boolean }> => {
+    const res = await fetch(`/api/campaigns/${campaignId}/run`, { method: 'POST' });
+    return res.json() as Promise<{ sent?: number; failed?: number; queued?: boolean; error?: string }>;
+  };
+
   const handleCreate = async () => {
     try {
       const audienceFilter = state.audienceType === 'tag'
@@ -279,6 +284,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
         : state.audienceType === 'tags'
           ? { tags: state.audienceTags.split(',').map((t) => t.trim()).filter(Boolean) }
           : {};
+      const isScheduled = !!state.scheduledAt;
 
       if (state.abTest) {
         const campA = await create.mutateAsync({
@@ -292,7 +298,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
           ab_test_group:   'A',
         } as Parameters<typeof create.mutateAsync>[0]);
 
-        await create.mutateAsync({
+        const campB = await create.mutateAsync({
           name:               `${state.name} — Version B`,
           template_id:        state.templateIdB || state.templateId,
           audience_type:      state.audienceType,
@@ -304,9 +310,14 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
           parent_campaign_id: (campA as any).id,
         } as Parameters<typeof create.mutateAsync>[0]);
 
-        toast.success('A/B campaign created!');
+        if (!isScheduled) {
+          await Promise.all([runCampaign((campA as any).id), runCampaign((campB as any).id)]);
+          toast.success('A/B campaign launched!');
+        } else {
+          toast.success(`A/B campaign scheduled for ${new Date(state.scheduledAt).toLocaleString()}`);
+        }
       } else {
-        await create.mutateAsync({
+        const camp = await create.mutateAsync({
           name:            state.name,
           template_id:     state.templateId,
           audience_type:   state.audienceType,
@@ -315,7 +326,17 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
           media_id:        state.mediaId   || undefined,
           media_type:      state.mediaType || undefined,
         } as Parameters<typeof create.mutateAsync>[0]);
-        toast.success('Campaign created!');
+
+        if (!isScheduled) {
+          const result = await runCampaign((camp as any).id);
+          if ((result as any).queued) {
+            toast.success('Campaign queued — will send shortly');
+          } else {
+            toast.success(`Campaign sent! ${result.sent ?? 0} messages sent`);
+          }
+        } else {
+          toast.success(`Campaign scheduled for ${new Date(state.scheduledAt).toLocaleString()}`);
+        }
       }
 
       resetAndClose();
@@ -560,7 +581,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
           {step === 3 && (
             <div className="space-y-3">
               <Label>Schedule (optional)</Label>
-              <p className="text-xs text-muted-foreground">Leave empty to save as draft.</p>
+              <p className="text-xs text-muted-foreground">Leave empty to send immediately. Set a date/time to schedule for later.</p>
               <Input type="datetime-local" value={state.scheduledAt} onChange={(e) => setState((s) => ({ ...s, scheduledAt: e.target.value }))} />
             </div>
           )}
@@ -588,7 +609,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   state.audienceType === 'tag' ? `Tag: ${state.audienceTag}` :
                   `Tags: ${state.audienceTags}`
                 } />
-                <Row label="Schedule" value={state.scheduledAt ? new Date(state.scheduledAt).toLocaleString() : 'Draft'} />
+                <Row label="Schedule" value={state.scheduledAt ? new Date(state.scheduledAt).toLocaleString() : 'Send immediately'} />
               </div>
               {/* Preview */}
               {selectedTemplate && (
@@ -624,7 +645,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
               disabled={create.isPending || (templateNeedsMedia && !state.mediaId)}
               onClick={() => void handleCreate()}
             >
-              {create.isPending ? 'Creating…' : 'Create Campaign'}
+              {create.isPending ? (state.scheduledAt ? 'Scheduling…' : 'Launching…') : (state.scheduledAt ? 'Schedule Campaign' : 'Send Now')}
             </Button>
           )}
         </div>
