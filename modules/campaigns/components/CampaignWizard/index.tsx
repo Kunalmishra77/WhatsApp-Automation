@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,147 +14,260 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import {
   Check, ChevronRight, Paperclip, X, Loader2 as Spin, FlaskConical,
-  ImageIcon, Video, FileText, AlertTriangle, Clock, RotateCcw,
+  ImageIcon, Video, FileText, AlertTriangle, Clock, RotateCcw, Link,
 } from 'lucide-react';
-import { useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useTemplates } from '@/modules/templates/hooks/useTemplates';
 import { useCreateCampaign } from '../../hooks/useCampaigns';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
+import { WhatsAppPreview } from '@/modules/templates/components/WhatsAppPreview';
 
-const STEPS = ['Name & Setup', 'Select Template', 'Audience', 'Schedule', 'Media', 'Review'];
+const STEPS = ['Name & Setup', 'Select Template', 'Audience', 'Schedule', 'Review'];
 
 interface WizardState {
-  name:          string;
-  templateId:    string;
-  templateIdB:   string;
-  abTest:        boolean;
-  audienceType:  'all' | 'tag' | 'tags';
-  audienceTag:   string;
-  audienceTags:  string;
-  scheduledAt:   string;
-  mediaId:       string;
-  mediaType:     string;
-  mediaFileName: string;
+  name:           string;
+  templateId:     string;
+  templateIdB:    string;
+  abTest:         boolean;
+  audienceType:   'all' | 'tag' | 'tags';
+  audienceTag:    string;
+  audienceTags:   string;
+  scheduledAt:    string;
+  // Header media (for template with IMAGE/VIDEO/DOCUMENT header)
+  mediaId:        string;   // URL or WhatsApp media ID — stored in campaigns.media_id
+  mediaType:      string;   // image | video | document
+  mediaFileName:  string;   // display name for recent history
 }
 
 interface MediaLibraryItem {
-  id: string;
-  filename: string;
-  media_id: string;
-  media_type: string;
-  mime_type: string;
-  file_size: number;
-  created_at: string;
+  id:          string;
+  filename:    string;
+  media_id:    string;   // stores URL for URL-based entries
+  media_type:  string;
+  created_at:  string;
 }
 
 interface CampaignWizardProps {
-  open: boolean;
+  open:    boolean;
   onClose: () => void;
 }
 
-const HEADER_TYPE_META: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
-  IMAGE:    { label: 'Image',    icon: <ImageIcon className="h-3 w-3" />,  color: 'bg-blue-100 text-blue-700 border-blue-200' },
-  VIDEO:    { label: 'Video',    icon: <Video className="h-3 w-3" />,      color: 'bg-purple-100 text-purple-700 border-purple-200' },
-  DOCUMENT: { label: 'Document', icon: <FileText className="h-3 w-3" />,   color: 'bg-orange-100 text-orange-700 border-orange-200' },
-  TEXT:     { label: 'Text',     icon: null,                                color: 'bg-gray-100 text-gray-600 border-gray-200' },
+const MEDIA_TYPE_MAP: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
+  IMAGE:    { label: 'Image',    icon: <ImageIcon className="h-3 w-3" />, color: 'bg-blue-100 text-blue-700 border-blue-200' },
+  VIDEO:    { label: 'Video',    icon: <Video className="h-3 w-3" />,     color: 'bg-purple-100 text-purple-700 border-purple-200' },
+  DOCUMENT: { label: 'Document', icon: <FileText className="h-3 w-3" />,  color: 'bg-orange-100 text-orange-700 border-orange-200' },
+  TEXT:     { label: 'Text',     icon: null,                               color: 'bg-gray-100 text-gray-600 border-gray-200' },
 };
 
-function mediaHeaderType(template: { header_type?: string | null } | undefined): string | null {
-  const t = template?.header_type?.toUpperCase();
-  if (t && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(t)) return t;
-  return null;
+function getMediaHeaderType(tpl: { header_type?: string | null } | undefined): string | null {
+  const t = tpl?.header_type?.toUpperCase();
+  return t && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(t) ? t : null;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+function isValidUrl(val: string): boolean {
+  return val.startsWith('http://') || val.startsWith('https://');
 }
 
 function timeAgo(iso: string): string {
-  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
 }
 
+function mediaTypeIcon(type: string) {
+  if (type === 'image')    return <ImageIcon className="h-4 w-4 text-blue-500" />;
+  if (type === 'video')    return <Video className="h-4 w-4 text-purple-500" />;
+  if (type === 'document') return <FileText className="h-4 w-4 text-orange-500" />;
+  return <FileText className="h-4 w-4 text-muted-foreground" />;
+}
+
+// ── Inline Media URL Input (shown in step 2 when template has media header) ──
+
+interface MediaUrlInputProps {
+  headerType: string;
+  workspaceId: string;
+  value: string;
+  onChange: (url: string, type: string, name: string) => void;
+}
+
+function MediaUrlInput({ headerType, workspaceId, value, onChange }: MediaUrlInputProps) {
+  const [inputVal, setInputVal] = useState(value);
+  const [recent, setRecent]     = useState<MediaLibraryItem[]>([]);
+  const [loadingR, setLoadingR] = useState(false);
+  const [savingUrl, setSavingUrl] = useState(false);
+  const mediaType = headerType.toLowerCase() as 'image' | 'video' | 'document';
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    setLoadingR(true);
+    fetch(`/api/campaigns/upload-media?workspaceId=${workspaceId}`)
+      .then((r) => r.json())
+      .then((d: { items?: MediaLibraryItem[] }) => {
+        // Only show items matching this media type
+        setRecent((d.items ?? []).filter((i) => i.media_type === mediaType));
+      })
+      .catch(() => {})
+      .finally(() => setLoadingR(false));
+  }, [workspaceId, mediaType]);
+
+  const handleApplyUrl = async () => {
+    const url = inputVal.trim();
+    if (!isValidUrl(url)) {
+      toast.error('Please enter a valid URL starting with https://');
+      return;
+    }
+    // Save to media library
+    setSavingUrl(true);
+    try {
+      await fetch('/api/media-library', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId, url, mediaType, filename: url.split('/').pop()?.split('?')[0] ?? 'media' }),
+      });
+    } catch { /* non-critical */ }
+    setSavingUrl(false);
+    const name = url.split('/').pop()?.split('?')[0] ?? url;
+    onChange(url, mediaType, name);
+    // Refresh recent
+    fetch(`/api/campaigns/upload-media?workspaceId=${workspaceId}`)
+      .then((r) => r.json())
+      .then((d: { items?: MediaLibraryItem[] }) => setRecent((d.items ?? []).filter((i) => i.media_type === mediaType)))
+      .catch(() => {});
+  };
+
+  const handleSelect = (item: MediaLibraryItem) => {
+    setInputVal(item.media_id);
+    onChange(item.media_id, item.media_type, item.filename);
+    toast.success(`Selected: ${item.filename}`);
+  };
+
+  const isApplied = isValidUrl(value) || value.length > 10;
+
+  return (
+    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-3">
+      {/* Required notice */}
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+        <p className="text-xs text-amber-800">
+          This template has a <strong>{headerType.toLowerCase()} header</strong> — paste a public URL below to set it.
+        </p>
+      </div>
+
+      {/* URL input */}
+      <div className="space-y-1.5">
+        <Label className="text-xs font-medium flex items-center gap-1.5">
+          <Link className="h-3.5 w-3.5 text-muted-foreground" />
+          {headerType} URL <span className="text-red-500">*</span>
+        </Label>
+        <div className="flex gap-2">
+          <Input
+            value={inputVal}
+            onChange={(e) => setInputVal(e.target.value)}
+            placeholder={`https://example.com/banner.${mediaType === 'image' ? 'jpg' : mediaType === 'video' ? 'mp4' : 'pdf'}`}
+            className={cn('flex-1 text-sm', isApplied && 'border-green-400 bg-green-50/50')}
+            onKeyDown={(e) => e.key === 'Enter' && void handleApplyUrl()}
+          />
+          <Button
+            size="sm"
+            onClick={() => void handleApplyUrl()}
+            disabled={!inputVal.trim() || savingUrl}
+            className="gap-1.5 shrink-0"
+          >
+            {savingUrl ? <Spin className="h-3.5 w-3.5 animate-spin" /> : isApplied ? <Check className="h-3.5 w-3.5" /> : null}
+            {isApplied ? 'Applied ✓' : 'Apply'}
+          </Button>
+        </div>
+        {isApplied && (
+          <p className="text-[11px] text-green-700 flex items-center gap-1">
+            <Check className="h-3 w-3" /> URL set — preview updated
+          </p>
+        )}
+      </div>
+
+      {/* Recent media */}
+      {(loadingR || recent.length > 0) && (
+        <div>
+          <p className="text-[11px] text-muted-foreground font-medium flex items-center gap-1 mb-1.5">
+            <Clock className="h-3 w-3" /> Recent {headerType.toLowerCase()} URLs
+            {loadingR && <Spin className="h-3 w-3 animate-spin ml-1" />}
+          </p>
+          <div className="space-y-1.5">
+            {recent.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => handleSelect(item)}
+                className={cn(
+                  'w-full flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors',
+                  value === item.media_id
+                    ? 'border-green-400 bg-green-50'
+                    : 'border-border bg-white hover:border-brand-300 hover:bg-muted/30',
+                )}
+              >
+                <div className="h-7 w-7 rounded bg-muted flex items-center justify-center shrink-0">
+                  {mediaTypeIcon(item.media_type)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate">{item.filename}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{item.media_id}</p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className="text-[10px] text-muted-foreground">{timeAgo(item.created_at)}</span>
+                  {value === item.media_id
+                    ? <Check className="h-3.5 w-3.5 text-green-500" />
+                    : <RotateCcw className="h-3 w-3 text-brand-500" />}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Image preview if URL set */}
+      {isApplied && mediaType === 'image' && (
+        <div className="rounded-lg overflow-hidden border border-border">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={value}
+            alt="Header preview"
+            className="w-full h-28 object-cover"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Wizard ───────────────────────────────────────────────────────────────
+
 export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
-  const [step, setStep] = useState(0);
+  const [step, setStep]  = useState(0);
   const [state, setState] = useState<WizardState>({
     name: '', templateId: '', templateIdB: '', abTest: false,
     audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '',
     mediaId: '', mediaType: '', mediaFileName: '',
   });
-  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
-  const [recentMedia, setRecentMedia]           = useState<MediaLibraryItem[]>([]);
-  const [loadingRecent, setLoadingRecent]       = useState(false);
   const mediaInputRef   = useRef<HTMLInputElement>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const workspaceId     = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
   const { data: templates = [] } = useTemplates();
-  const create = useCreateCampaign();
+  const create          = useCreateCampaign();
 
   const selectedTemplate  = templates.find((t) => t.id === state.templateId);
-  const reqMediaType      = mediaHeaderType(selectedTemplate);   // 'IMAGE' | 'VIDEO' | 'DOCUMENT' | null
+  const reqMediaType      = getMediaHeaderType(selectedTemplate);
   const templateNeedsMedia = !!reqMediaType;
-  const progress = ((step + 1) / STEPS.length) * 100;
-
-  // Load recent media when entering step 4
-  useEffect(() => {
-    if (step !== 4 || !workspaceId) return;
-    setLoadingRecent(true);
-    fetch(`/api/campaigns/upload-media?workspaceId=${workspaceId}`)
-      .then((r) => r.json())
-      .then((d: { items?: MediaLibraryItem[] }) => setRecentMedia(d.items ?? []))
-      .catch(() => {})
-      .finally(() => setLoadingRecent(false));
-  }, [step, workspaceId]);
+  const progress          = ((step + 1) / STEPS.length) * 100;
+  const approvedTemplates = templates.filter((t) => t.status === 'approved');
 
   const canProceed = () => {
     if (step === 0) return state.name.trim().length > 0;
-    // If template requires media header, must have media before creating
-    if (step === 4 && templateNeedsMedia && !state.mediaId) return false;
-    if (step === 5) return !!(state.templateId || state.mediaId);
+    if (step === 1 && templateNeedsMedia && !state.mediaId) return false;
+    if (step === STEPS.length - 1) return !!(state.templateId || state.mediaId);
     return true;
-  };
-
-  const handleMediaUpload = async (file: File) => {
-    if (!file) return;
-    setIsUploadingMedia(true);
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('workspaceId', workspaceId);
-      const res  = await fetch('/api/campaigns/upload-media', { method: 'POST', body: form });
-      let data: { mediaId?: string; mediaType?: string; fileName?: string; error?: string } = {};
-      try { data = await res.json() as typeof data; } catch { /* non-JSON */ }
-      if (!res.ok) throw new Error(data.error ?? 'Upload failed — check WhatsApp credentials in Settings');
-      setState((s) => ({ ...s, mediaId: data.mediaId ?? '', mediaType: data.mediaType ?? '', mediaFileName: data.fileName ?? file.name }));
-      toast.success('Media uploaded!');
-      // Refresh recent list
-      fetch(`/api/campaigns/upload-media?workspaceId=${workspaceId}`)
-        .then((r) => r.json())
-        .then((d: { items?: MediaLibraryItem[] }) => setRecentMedia(d.items ?? []))
-        .catch(() => {});
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
-      setIsUploadingMedia(false);
-      if (mediaInputRef.current) mediaInputRef.current.value = '';
-    }
-  };
-
-  const selectFromLibrary = (item: MediaLibraryItem) => {
-    setState((s) => ({
-      ...s,
-      mediaId:       item.media_id,
-      mediaType:     item.media_type,
-      mediaFileName: item.filename,
-    }));
-    toast.success(`Selected: ${item.filename}`);
   };
 
   const handleCreate = async () => {
@@ -203,25 +316,32 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
         toast.success('Campaign created!');
       }
 
-      setStep(0);
-      setState({ name: '', templateId: '', templateIdB: '', abTest: false, audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '', mediaId: '', mediaType: '', mediaFileName: '' });
-      onClose();
+      resetAndClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create campaign');
     }
   };
 
-  const handleClose = () => {
+  const resetAndClose = () => {
     setStep(0);
     setState({ name: '', templateId: '', templateIdB: '', abTest: false, audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '', mediaId: '', mediaType: '', mediaFileName: '' });
     onClose();
   };
 
-  const approvedTemplates = templates.filter((t) => t.status === 'approved');
+  // Buttons from selected template (parsed from JSON)
+  const templateButtons = (() => {
+    try {
+      const btns = (selectedTemplate as any)?.buttons;
+      if (Array.isArray(btns)) return btns as Array<{ type: string; text: string }>;
+      if (typeof btns === 'string') return JSON.parse(btns) as Array<{ type: string; text: string }>;
+    } catch { /* */ }
+    return [];
+  })();
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
-      <DialogContent className="sm:max-w-lg">
+    <Dialog open={open} onOpenChange={(o) => { if (!o) resetAndClose(); }}>
+      {/* Wider dialog to fit preview in step 2 */}
+      <DialogContent className={cn('transition-all duration-200', step === 1 ? 'sm:max-w-3xl' : 'sm:max-w-lg')}>
         <DialogHeader>
           <DialogTitle>Create Campaign</DialogTitle>
         </DialogHeader>
@@ -240,27 +360,21 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                 )}>
                   {i < step ? <Check className="h-3 w-3" /> : i + 1}
                 </div>
-                <span className={cn('text-[10px] hidden sm:block', i === step ? 'text-foreground font-medium' : 'text-muted-foreground')}>
-                  {s}
-                </span>
+                <span className={cn('text-[10px] hidden sm:block', i === step ? 'text-foreground font-medium' : 'text-muted-foreground')}>{s}</span>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="min-h-[100px] max-h-[56vh] overflow-y-auto py-2 pr-1 space-y-0">
+        {/* Step content */}
+        <div className="min-h-[120px] max-h-[65vh] overflow-y-auto py-2 pr-1">
 
-          {/* ── Step 0: Name & Setup ─────────────────────────────────── */}
+          {/* ── Step 0: Name ─────────────────────────────────────────── */}
           {step === 0 && (
             <div className="space-y-4">
               <div className="space-y-1.5">
                 <Label htmlFor="camp-name">Campaign Name</Label>
-                <Input
-                  id="camp-name"
-                  value={state.name}
-                  onChange={(e) => setState((s) => ({ ...s, name: e.target.value }))}
-                  placeholder="Black Friday Promo 2026"
-                />
+                <Input id="camp-name" value={state.name} onChange={(e) => setState((s) => ({ ...s, name: e.target.value }))} placeholder="Black Friday Promo 2026" autoFocus />
               </div>
               <div className="flex items-center justify-between rounded-xl border border-border p-3 bg-muted/30">
                 <div className="flex items-center gap-2">
@@ -272,96 +386,107 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                 </div>
                 <Switch checked={state.abTest} onCheckedChange={(v) => setState((s) => ({ ...s, abTest: v }))} />
               </div>
-              {state.abTest && (
-                <p className="text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
-                  🧪 You&apos;ll select <strong>Template A</strong> in the next step, then <strong>Template B</strong> after.
-                </p>
-              )}
             </div>
           )}
 
-          {/* ── Step 1: Select Template ──────────────────────────────── */}
+          {/* ── Step 1: Template + Media URL + Preview ───────────────── */}
           {step === 1 && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label>Select Template <span className="text-muted-foreground text-xs font-normal">(optional)</span></Label>
-                {state.templateId && (
-                  <button
-                    onClick={() => setState((s) => ({ ...s, templateId: '', mediaId: '', mediaType: '', mediaFileName: '' }))}
-                    className="text-xs text-muted-foreground hover:text-destructive flex items-center gap-1"
-                  >
-                    <X className="h-3 w-3" /> Clear
-                  </button>
-                )}
-              </div>
-              <p className="text-[11px] text-muted-foreground -mt-1">
-                Templates are required for cold contacts (no 24-hr session).
-              </p>
+            <div className="flex gap-4">
+              {/* Left: template list + media url */}
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Select Template <span className="text-muted-foreground text-xs font-normal">(optional)</span></Label>
+                  {state.templateId && (
+                    <button onClick={() => setState((s) => ({ ...s, templateId: '', mediaId: '', mediaType: '', mediaFileName: '' }))} className="text-xs text-muted-foreground hover:text-destructive flex items-center gap-1">
+                      <X className="h-3 w-3" /> Clear
+                    </button>
+                  )}
+                </div>
 
-              {/* No template option */}
-              <button
-                onClick={() => setState((s) => ({ ...s, templateId: '', mediaId: '', mediaType: '', mediaFileName: '' }))}
-                className={cn(
-                  'w-full rounded-lg border p-3 text-left transition-colors',
-                  !state.templateId ? 'border-brand-500 bg-brand-500/5' : 'border-border hover:border-brand-300',
-                )}
-              >
-                <p className="text-sm font-medium text-muted-foreground">🚫 No template — media only</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Only reaches contacts with active 24-hr session</p>
-              </button>
+                {/* No template option */}
+                <button
+                  onClick={() => setState((s) => ({ ...s, templateId: '', mediaId: '', mediaType: '', mediaFileName: '' }))}
+                  className={cn('w-full rounded-lg border p-2.5 text-left transition-colors', !state.templateId ? 'border-brand-500 bg-brand-500/5' : 'border-border hover:border-brand-300')}
+                >
+                  <p className="text-sm font-medium text-muted-foreground">🚫 No template — media only</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Only reaches contacts with active 24-hr session</p>
+                </button>
 
-              {approvedTemplates.map((t) => {
-                const ht   = t.header_type?.toUpperCase() as string | undefined;
-                const meta = ht && ht !== 'NONE' ? HEADER_TYPE_META[ht] : null;
-                const needsMedia = ht && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(ht);
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => setState((s) => ({ ...s, templateId: t.id }))}
-                    className={cn(
-                      'w-full rounded-lg border p-3 text-left transition-colors',
-                      state.templateId === t.id ? 'border-brand-500 bg-brand-500/5' : 'border-border hover:border-brand-300',
-                    )}
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="text-sm font-medium font-mono flex-1 truncate">{t.name}</p>
-                      {meta && (
-                        <span className={cn('inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border', meta.color)}>
-                          {meta.icon}{meta.label}
-                        </span>
-                      )}
-                      {needsMedia && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200">
-                          <AlertTriangle className="h-2.5 w-2.5" />Media required
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground line-clamp-2">{t.body}</p>
-                  </button>
-                );
-              })}
-
-              {approvedTemplates.length === 0 && (
-                <p className="text-xs text-muted-foreground px-1">No approved templates yet.</p>
-              )}
-
-              {/* A/B Version B */}
-              {state.abTest && (
-                <div className="mt-4 space-y-2 border-t border-dashed border-purple-200 pt-4">
-                  <p className="text-xs font-semibold text-purple-700">Version B Template</p>
-                  {approvedTemplates.map((t) => (
+                {/* Template cards */}
+                {approvedTemplates.map((t) => {
+                  const ht   = t.header_type?.toUpperCase() as string | undefined;
+                  const meta = ht && ht !== 'NONE' ? MEDIA_TYPE_MAP[ht] : null;
+                  const needsMedia = ht && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(ht);
+                  return (
                     <button
                       key={t.id}
-                      onClick={() => setState((s) => ({ ...s, templateIdB: t.id }))}
-                      className={cn(
-                        'w-full rounded-lg border p-3 text-left transition-colors',
-                        state.templateIdB === t.id ? 'border-purple-500 bg-purple-500/5' : 'border-border hover:border-purple-300',
-                      )}
+                      onClick={() => setState((s) => ({ ...s, templateId: t.id, mediaId: '', mediaType: '', mediaFileName: '' }))}
+                      className={cn('w-full rounded-lg border p-2.5 text-left transition-colors', state.templateId === t.id ? 'border-brand-500 bg-brand-500/5' : 'border-border hover:border-brand-300')}
                     >
-                      <p className="text-sm font-medium font-mono">{t.name}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{t.body}</p>
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <p className="text-sm font-medium font-mono flex-1 truncate">{t.name}</p>
+                        {meta && (
+                          <span className={cn('inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border', meta.color)}>
+                            {meta.icon}{meta.label}
+                          </span>
+                        )}
+                        {needsMedia && (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                            <AlertTriangle className="h-2.5 w-2.5" />URL needed
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-2">{t.body}</p>
                     </button>
-                  ))}
+                  );
+                })}
+
+                {/* A/B Version B */}
+                {state.abTest && (
+                  <div className="mt-3 pt-3 border-t border-dashed border-purple-200 space-y-2">
+                    <p className="text-xs font-semibold text-purple-700">Version B Template</p>
+                    {approvedTemplates.map((t) => (
+                      <button key={t.id} onClick={() => setState((s) => ({ ...s, templateIdB: t.id }))}
+                        className={cn('w-full rounded-lg border p-2.5 text-left transition-colors', state.templateIdB === t.id ? 'border-purple-500 bg-purple-500/5' : 'border-border hover:border-purple-300')}>
+                        <p className="text-sm font-medium font-mono">{t.name}</p>
+                        <p className="text-xs text-muted-foreground line-clamp-1">{t.body}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Media URL input (inline, only when needed) */}
+                {templateNeedsMedia && reqMediaType && (
+                  <MediaUrlInput
+                    headerType={reqMediaType}
+                    workspaceId={workspaceId}
+                    value={state.mediaId}
+                    onChange={(url, type, name) => setState((s) => ({ ...s, mediaId: url, mediaType: type, mediaFileName: name }))}
+                  />
+                )}
+              </div>
+
+              {/* Right: WhatsApp Preview */}
+              {selectedTemplate && (
+                <div className="w-72 shrink-0">
+                  <p className="text-xs font-medium text-muted-foreground mb-2 text-center">Preview</p>
+                  <WhatsAppPreview
+                    headerType={selectedTemplate.header_type ?? 'NONE'}
+                    headerText={selectedTemplate.header_type === 'TEXT' ? selectedTemplate.header_content ?? '' : undefined}
+                    mediaFileName={
+                      state.mediaId
+                        ? state.mediaFileName || state.mediaId.split('/').pop()
+                        : undefined
+                    }
+                    body={selectedTemplate.body}
+                    footer={selectedTemplate.footer ?? undefined}
+                    buttons={templateButtons}
+                  />
+                  {templateNeedsMedia && !state.mediaId && (
+                    <p className="text-center text-[11px] text-amber-600 mt-2 flex items-center justify-center gap-1">
+                      <AlertTriangle className="h-3 w-3" /> Paste URL to see header image
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -371,10 +496,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
           {step === 2 && (
             <div className="space-y-3">
               <Label>Audience Segment</Label>
-              <Select
-                value={state.audienceType}
-                onValueChange={(v) => setState((s) => ({ ...s, audienceType: v as WizardState['audienceType'] }))}
-              >
+              <Select value={state.audienceType} onValueChange={(v) => setState((s) => ({ ...s, audienceType: v as WizardState['audienceType'] }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">🌍 All Contacts</SelectItem>
@@ -382,20 +504,16 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   <SelectItem value="tags">🏷️🏷️ Multiple Tags (OR)</SelectItem>
                 </SelectContent>
               </Select>
-
               {state.audienceType === 'tag' && (
                 <div className="space-y-1.5">
                   <Label htmlFor="tag">Tag Name</Label>
                   <Input id="tag" value={state.audienceTag} onChange={(e) => setState((s) => ({ ...s, audienceTag: e.target.value }))} placeholder="e.g. vip" />
-                  <p className="text-[11px] text-muted-foreground">Sends to all contacts with this exact tag.</p>
                 </div>
               )}
-
               {state.audienceType === 'tags' && (
                 <div className="space-y-1.5">
                   <Label>Tags (comma separated)</Label>
                   <Input value={state.audienceTags} onChange={(e) => setState((s) => ({ ...s, audienceTags: e.target.value }))} placeholder="e.g. vip, premium, leads" />
-                  <p className="text-[11px] text-muted-foreground">Sends to contacts with ANY of these tags.</p>
                   {state.audienceTags && (
                     <div className="flex flex-wrap gap-1 mt-1">
                       {state.audienceTags.split(',').map((t) => t.trim()).filter(Boolean).map((tag) => (
@@ -417,157 +535,54 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
             </div>
           )}
 
-          {/* ── Step 4: Media ────────────────────────────────────────── */}
+          {/* ── Step 4: Review ───────────────────────────────────────── */}
           {step === 4 && (
             <div className="space-y-4">
-              {/* Header — required vs optional label */}
-              <div>
-                <div className="flex items-center gap-2">
-                  <Label>
-                    {templateNeedsMedia ? 'Header Media' : 'Attach Media'}
-                  </Label>
-                  {templateNeedsMedia ? (
-                    <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4">Required</Badge>
-                  ) : (
-                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">Optional</Badge>
-                  )}
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {templateNeedsMedia
-                    ? `Your selected template has a ${reqMediaType?.toLowerCase()} header — you must upload or select a ${reqMediaType?.toLowerCase()} below before the campaign can be sent.`
-                    : 'Image / video / PDF sent after the template. Only reaches contacts with an active 24-hr session.'}
-                </p>
-              </div>
-
-              {/* Required warning banner */}
-              {templateNeedsMedia && !state.mediaId && (
-                <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                  <p className="text-xs text-amber-800">
-                    <strong>Template &quot;{selectedTemplate?.name}&quot;</strong> requires a {reqMediaType?.toLowerCase()} header.
-                    Upload a new file or pick from Recent Uploads below.
-                  </p>
-                </div>
-              )}
-
-              {/* Currently selected media */}
-              {state.mediaId ? (
-                <div className="flex items-center gap-2 rounded-lg border border-brand-300 bg-brand-50 p-3">
-                  <Paperclip className="h-4 w-4 text-brand-600 shrink-0" />
-                  <span className="flex-1 text-sm text-brand-700 truncate">{state.mediaFileName}</span>
-                  <button onClick={() => setState((s) => ({ ...s, mediaId: '', mediaType: '', mediaFileName: '' }))} className="text-muted-foreground hover:text-destructive">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => mediaInputRef.current?.click()}
-                  disabled={isUploadingMedia}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border p-5 text-sm text-muted-foreground hover:border-brand-300 hover:text-brand-600 transition-colors disabled:opacity-50"
-                >
-                  {isUploadingMedia
-                    ? <><Spin className="h-4 w-4 animate-spin" /> Uploading…</>
-                    : <><Paperclip className="h-4 w-4" /> Click to upload image / video / PDF</>}
-                </button>
-              )}
-
-              <input
-                ref={mediaInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleMediaUpload(f); }}
-              />
-
-              {/* Recent Uploads */}
-              <div>
-                <div className="flex items-center gap-1.5 mb-2">
-                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-xs font-medium text-muted-foreground">Recent Uploads</span>
-                  {loadingRecent && <Spin className="h-3 w-3 animate-spin text-muted-foreground" />}
-                </div>
-
-                {!loadingRecent && recentMedia.length === 0 && (
-                  <p className="text-xs text-muted-foreground px-1">No recent uploads. Upload a file above — it will appear here for reuse.</p>
-                )}
-
-                <div className="space-y-1.5">
-                  {recentMedia.map((item) => {
-                    const isSelected = state.mediaId === item.media_id;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => selectFromLibrary(item)}
-                        className={cn(
-                          'w-full flex items-center gap-3 rounded-lg border p-2.5 text-left transition-colors',
-                          isSelected
-                            ? 'border-brand-500 bg-brand-50'
-                            : 'border-border hover:border-brand-300 hover:bg-muted/30',
-                        )}
-                      >
-                        {/* Type icon */}
-                        <div className="shrink-0 h-8 w-8 rounded-md bg-muted flex items-center justify-center">
-                          {item.media_type === 'image'    && <ImageIcon className="h-4 w-4 text-blue-500" />}
-                          {item.media_type === 'video'    && <Video className="h-4 w-4 text-purple-500" />}
-                          {item.media_type === 'document' && <FileText className="h-4 w-4 text-orange-500" />}
-                        </div>
-                        {/* Info */}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium truncate">{item.filename}</p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {formatBytes(item.file_size)} · {timeAgo(item.created_at)}
-                          </p>
-                        </div>
-                        {/* Reuse / selected indicator */}
-                        {isSelected ? (
-                          <Check className="h-4 w-4 text-brand-500 shrink-0" />
-                        ) : (
-                          <span className="text-[10px] text-brand-600 font-medium shrink-0 flex items-center gap-0.5">
-                            <RotateCcw className="h-3 w-3" /> Reuse
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── Step 5: Review ───────────────────────────────────────── */}
-          {step === 5 && (
-            <div className="space-y-3 text-sm">
               {templateNeedsMedia && !state.mediaId && (
                 <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
                   <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
-                  <p className="text-xs text-red-700">
-                    Template requires a {reqMediaType?.toLowerCase()} header — go back and upload one.
-                  </p>
+                  <p className="text-xs text-red-700">Template requires a {reqMediaType?.toLowerCase()} URL — go back to step 2.</p>
                 </div>
               )}
-              <div className="rounded-lg border border-border p-4 space-y-2">
-                <Row label="Name"     value={state.name} />
-                <Row label="Template" value={selectedTemplate?.name ?? '—'} mono />
+              <div className="rounded-lg border border-border p-4 space-y-2 text-sm">
+                <Row label="Name"         value={state.name} />
+                <Row label="Template"     value={selectedTemplate?.name ?? '—'} mono />
                 {selectedTemplate?.header_type && selectedTemplate.header_type !== 'NONE' && (
-                  <Row label="Header type" value={selectedTemplate.header_type} />
+                  <Row label="Header type"  value={selectedTemplate.header_type} />
                 )}
-                <Row label="Header media" value={state.mediaFileName || (templateNeedsMedia ? '⚠️ Missing!' : '—')} />
-                <Row
-                  label="Audience"
-                  value={
-                    state.audienceType === 'all'  ? 'All Contacts' :
-                    state.audienceType === 'tag'  ? `Tag: ${state.audienceTag}` :
-                    `Tags: ${state.audienceTags}`
-                  }
-                />
+                {state.mediaId && (
+                  <Row label="Header media" value={state.mediaFileName || state.mediaId} />
+                )}
+                <Row label="Audience" value={
+                  state.audienceType === 'all' ? 'All Contacts' :
+                  state.audienceType === 'tag' ? `Tag: ${state.audienceTag}` :
+                  `Tags: ${state.audienceTags}`
+                } />
                 <Row label="Schedule" value={state.scheduledAt ? new Date(state.scheduledAt).toLocaleString() : 'Draft'} />
               </div>
+              {/* Preview */}
+              {selectedTemplate && (
+                <div className="flex justify-center">
+                  <div className="w-64">
+                    <p className="text-xs text-muted-foreground text-center mb-2">Message Preview</p>
+                    <WhatsAppPreview
+                      headerType={selectedTemplate.header_type ?? 'NONE'}
+                      headerText={selectedTemplate.header_type === 'TEXT' ? selectedTemplate.header_content ?? '' : undefined}
+                      mediaFileName={state.mediaFileName || state.mediaId.split('/').pop()}
+                      body={selectedTemplate.body}
+                      footer={selectedTemplate.footer ?? undefined}
+                      buttons={templateButtons}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
 
+        {/* Footer buttons */}
         <div className="flex justify-between">
-          <Button variant="outline" onClick={() => step === 0 ? handleClose() : setStep((s) => s - 1)}>
+          <Button variant="outline" onClick={() => step === 0 ? resetAndClose() : setStep((s) => s - 1)}>
             {step === 0 ? 'Cancel' : 'Back'}
           </Button>
           {step < STEPS.length - 1 ? (
@@ -592,7 +607,7 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
   return (
     <div className="flex justify-between gap-2">
       <span className="text-muted-foreground shrink-0">{label}</span>
-      <span className={cn('font-medium text-right truncate', mono && 'font-mono text-xs')}>{value}</span>
+      <span className={cn('font-medium text-right truncate max-w-[60%]', mono && 'font-mono text-xs')}>{value}</span>
     </div>
   );
 }

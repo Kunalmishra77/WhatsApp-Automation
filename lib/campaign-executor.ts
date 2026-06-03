@@ -39,10 +39,15 @@ async function sendTemplateMessage(
   const components: Array<Record<string, unknown>> = [];
 
   // Include header media component when template has IMAGE/VIDEO/DOCUMENT header
+  // Supports both WhatsApp media ID ({ id }) and public URL ({ link })
   if (headerMediaId && headerMediaType) {
+    const isUrl = headerMediaId.startsWith('http://') || headerMediaId.startsWith('https://');
     components.push({
       type: 'header',
-      parameters: [{ type: headerMediaType, [headerMediaType]: { id: headerMediaId } }],
+      parameters: [{
+        type: headerMediaType,
+        [headerMediaType]: isUrl ? { link: headerMediaId } : { id: headerMediaId },
+      }],
     });
   }
 
