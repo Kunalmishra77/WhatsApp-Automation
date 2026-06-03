@@ -25,12 +25,13 @@ export async function loginAction(
 
   let { user, error } = await signInWithPassword(parsed.data.email, parsed.data.password);
 
-  // If email not confirmed, auto-confirm via admin and retry once
+  // If email not confirmed (old accounts), auto-confirm via admin and retry once
   if (!user && error === 'Please verify your email before signing in.') {
     try {
+      const { createAdminClient } = await import('@/services/supabase/admin');
       const adminDb = createAdminClient();
       const { data: list } = await adminDb.auth.admin.listUsers();
-      const found = list?.users?.find((u) => u.email === parsed.data.email);
+      const found = list?.users?.find((u: { email?: string }) => u.email === parsed.data.email);
       if (found) {
         await adminDb.auth.admin.updateUserById(found.id, { email_confirm: true });
         const retry = await signInWithPassword(parsed.data.email, parsed.data.password);
