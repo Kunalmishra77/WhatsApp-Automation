@@ -13,8 +13,14 @@ function generateSlug(businessName: string): string {
 }
 
 function generatePassword(): string {
-  return Math.random().toString(36).slice(2, 14);
+  // Cryptographically random 16-char password
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$';
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)))
+    .map((b) => chars[b % chars.length])
+    .join('');
 }
+
+const VALID_PLANS = ['free', 'starter', 'pro', 'enterprise'] as const;
 
 export async function POST(request: NextRequest) {
   try {
@@ -48,11 +54,14 @@ export async function POST(request: NextRequest) {
     if (!business_name?.trim()) {
       return NextResponse.json({ error: 'business_name is required' }, { status: 400 });
     }
-    if (!owner_email?.trim()) {
-      return NextResponse.json({ error: 'owner_email is required' }, { status: 400 });
+    if (!owner_email?.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(owner_email)) {
+      return NextResponse.json({ error: 'A valid owner_email is required' }, { status: 400 });
     }
-    if (!plan?.trim()) {
-      return NextResponse.json({ error: 'plan is required' }, { status: 400 });
+    if (!plan?.trim() || !VALID_PLANS.includes(plan as typeof VALID_PLANS[number])) {
+      return NextResponse.json(
+        { error: `plan must be one of: ${VALID_PLANS.join(', ')}` },
+        { status: 400 },
+      );
     }
 
     // 4. Create Supabase auth user
@@ -98,7 +107,7 @@ export async function POST(request: NextRequest) {
         industry: industry ?? null,
         onboarding_complete: false,
         is_active: true,
-        subscription_status: 'active',
+        subscription_status: plan === 'free' ? 'active' : 'trialing',
       })
       .select('id')
       .single();
@@ -140,7 +149,13 @@ export async function POST(request: NextRequest) {
 
     if (resendKey) {
       try {
-        const loginLink = `${appUrl}/login`;
+        // Generate a password reset link so client sets their own secure password
+        const { data: resetData } = await db.auth.admin.generateLink({
+          type: 'recovery',
+          email: owner_email,
+          options: { redirectTo: `${appUrl}/onboarding` },
+        });
+        const loginLink = resetData?.properties?.action_link ?? `${appUrl}/login`;
         const emailHtml = `
           <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
             <div style="background: #6366f1; border-radius: 8px; padding: 16px 24px; margin-bottom: 24px;">

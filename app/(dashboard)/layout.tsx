@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
 import { AppShell } from '@/components/layout/AppShell';
 import { StoreInitializer } from '@/components/StoreInitializer';
 import { getUser } from '@/modules/auth/services/auth.service';
@@ -38,7 +39,11 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
     avatar_url: profile?.avatar_url ?? (user.user_metadata['avatar_url'] as string | undefined) ?? null,
   };
 
-  const activeWorkspace = workspaces[0]!;
+  // Respect workspace cookie (set when user selects from workspace switcher)
+  const cookieStore = await cookies();
+  const preferredId = cookieStore.get('active_workspace_id')?.value;
+  const preferredWorkspace = preferredId ? workspaces.find((w) => w.id === preferredId) : undefined;
+  const activeWorkspace = preferredWorkspace ?? workspaces[0]!;
 
   // Guard: redirect to onboarding if workspace setup isn't complete
   const { data: ws } = await db

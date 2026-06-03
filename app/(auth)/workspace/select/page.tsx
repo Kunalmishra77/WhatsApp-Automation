@@ -23,7 +23,7 @@ export default async function WorkspaceSelectPage() {
         {workspaces.map((ws) => (
           <Link
             key={ws.id}
-            href={`${ROUTES.DASHBOARD}?workspace=${ws.id}`}
+            href={`/api/workspace/switch?id=${ws.id}`}
             className={cn(
               'group flex cursor-pointer items-center gap-4 rounded-xl border border-border p-4',
               'transition-all duration-150 hover:border-brand-400 hover:bg-brand-50',
