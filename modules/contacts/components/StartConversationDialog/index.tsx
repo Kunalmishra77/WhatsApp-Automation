@@ -76,7 +76,7 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-y-auto max-h-[60vh] pr-1">
           {/* WhatsApp rule notice */}
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
             <strong>WhatsApp Rule:</strong> First message must use an approved template. After they reply, you can send free-form messages for 24 hours.
@@ -123,7 +123,7 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
               {selectedTemplate && (
                 <div className="space-y-1.5">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preview</p>
-                  <div className="rounded-lg bg-[#ECE5DD] p-3">
+                  <div className="rounded-lg bg-[#ECE5DD] p-3 max-h-56 overflow-y-auto">
                     <div className="rounded-lg bg-white px-3 py-2 shadow-sm max-w-xs">
                       {selectedTemplate.header_content && (
                         <p className="text-sm font-semibold text-foreground mb-1">{selectedTemplate.header_content}</p>
