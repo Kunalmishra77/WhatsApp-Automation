@@ -72,8 +72,9 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
       form.append('file', file);
       form.append('workspaceId', workspaceId);
       const res  = await fetch('/api/campaigns/upload-media', { method: 'POST', body: form });
-      const data = await res.json() as { mediaId?: string; mediaType?: string; fileName?: string; error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
+      let data: { mediaId?: string; mediaType?: string; fileName?: string; error?: string } = {};
+      try { data = await res.json() as typeof data; } catch { /* non-JSON response */ }
+      if (!res.ok) throw new Error(data.error ?? 'Upload failed — check WhatsApp credentials in Settings');
       setState((s) => ({ ...s, mediaId: data.mediaId ?? '', mediaType: data.mediaType ?? '', mediaFileName: data.fileName ?? file.name }));
       toast.success('Media uploaded!');
     } catch (err) {
@@ -174,7 +175,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
           </div>
         </div>
 
-        <div className="min-h-40 py-2">
+        <div className="min-h-[100px] max-h-[52vh] overflow-y-auto py-2 pr-1">
           {step === 0 && (
             <div className="space-y-4">
               <div className="space-y-1.5">

@@ -63,8 +63,9 @@ export async function POST(request: NextRequest) {
     );
 
     if (!uploadRes.ok) {
-      const err = await uploadRes.json() as { error?: { message?: string } };
-      return NextResponse.json({ error: err?.error?.message ?? 'WhatsApp upload failed' }, { status: 400 });
+      let err: { error?: { message?: string } } = {};
+      try { err = await uploadRes.json() as typeof err; } catch { /* non-JSON */ }
+      return NextResponse.json({ error: err?.error?.message ?? 'WhatsApp upload failed. Check your access token.' }, { status: 400 });
     }
 
     const uploadData = await uploadRes.json() as { id?: string };
