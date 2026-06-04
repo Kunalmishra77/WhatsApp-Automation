@@ -76,6 +76,11 @@ export async function PATCH(
       is_active?: boolean;
       subscription_status?: string;
       custom_domain?: string | null;
+      // WhatsApp credentials — admin can set on behalf of client
+      phone_number_id?: string | null;
+      access_token?: string | null;
+      waba_id?: string | null;
+      onboarding_complete?: boolean;
     };
 
     const updateData: Record<string, unknown> = {};
@@ -92,6 +97,11 @@ export async function PATCH(
       }
     }
     if ('custom_domain' in body) updateData.custom_domain = body.custom_domain ?? null;
+    // WhatsApp credentials — allows admin to configure client without requiring onboarding
+    if ('phone_number_id' in body) updateData.phone_number_id = body.phone_number_id ?? null;
+    if ('access_token' in body)    updateData.access_token    = body.access_token    ?? null;
+    if ('waba_id' in body)         updateData.waba_id         = body.waba_id         ?? null;
+    if (body.onboarding_complete !== undefined) updateData.onboarding_complete = body.onboarding_complete;
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });

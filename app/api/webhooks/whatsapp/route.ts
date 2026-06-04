@@ -414,7 +414,7 @@ async function handleIncomingMessage(
       wsForRules.access_token,
     );
 
-    // Try flow engine — if a flow handles this message, skip AI auto-reply
+    // Try flow engine first — structured conversation flows take priority
     const flowHandled = await processFlowForMessage(
       supabase,
       workspaceId,
@@ -428,6 +428,11 @@ async function handleIncomingMessage(
 
     if (flowHandled) {
       console.log(`[Webhook] Flow handled message for conversation ${conversation.id}`);
+      // Flow handled → still do lead scoring + sentiment but skip AI reply
+      autoCreateOrUpdateLead(supabase as any, workspaceId, contact.id, conversation.id, content).catch(() => {});
+      if (content && content.length > 5) {
+        updateConversationSentiment(supabase as any, conversation.id, content).catch(() => {});
+      }
       return;
     }
   }

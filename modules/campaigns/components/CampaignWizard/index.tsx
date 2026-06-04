@@ -253,6 +253,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   });
   const mediaInputRef   = useRef<HTMLInputElement>(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [isLaunching, setIsLaunching] = useState(false);
   const workspaceId     = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
   const { data: templates = [] } = useTemplates();
   const create          = useCreateCampaign();
@@ -278,6 +279,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   };
 
   const handleCreate = async () => {
+    setIsLaunching(true);
     try {
       const audienceFilter = state.audienceType === 'tag'
         ? { tag: state.audienceTag }
@@ -342,6 +344,8 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
       resetAndClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create campaign');
+    } finally {
+      setIsLaunching(false);
     }
   };
 
@@ -642,10 +646,10 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
             </Button>
           ) : (
             <Button
-              disabled={create.isPending || (templateNeedsMedia && !state.mediaId)}
+              disabled={create.isPending || isLaunching || (templateNeedsMedia && !state.mediaId)}
               onClick={() => void handleCreate()}
             >
-              {create.isPending ? (state.scheduledAt ? 'Scheduling…' : 'Launching…') : (state.scheduledAt ? 'Schedule Campaign' : 'Send Now')}
+              {(create.isPending || isLaunching) ? (state.scheduledAt ? 'Scheduling…' : 'Launching…') : (state.scheduledAt ? 'Schedule Campaign' : 'Send Now')}
             </Button>
           )}
         </div>

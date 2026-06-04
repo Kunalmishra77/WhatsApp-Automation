@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Wifi, WifiOff } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -11,6 +11,8 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -57,7 +59,33 @@ function StatCard({
 
 export function ClientDetail({ workspace: w, onClose, onRefetch }: ClientDetailProps) {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [showWaForm, setShowWaForm]       = useState(false);
+  const [waPhone, setWaPhone]             = useState((w as any).phone_number_id ?? '');
+  const [waToken, setWaToken]             = useState('');
+  const [waWaba,  setWaWaba]              = useState((w as any).waba_id ?? '');
   const limits = getLimits(w.plan);
+
+  const handleSaveWhatsApp = async () => {
+    if (!waPhone.trim() || !waToken.trim()) {
+      toast.error('Phone Number ID and Access Token are required');
+      return;
+    }
+    setPendingAction('wa');
+    try {
+      await patchWorkspace({
+        phone_number_id:     waPhone.trim(),
+        access_token:        waToken.trim(),
+        waba_id:             waWaba.trim() || null,
+        onboarding_complete: true,
+      }, `WhatsApp credentials saved for ${w.name}`);
+      setShowWaForm(false);
+      setWaToken('');
+    } catch {
+      toast.error('Failed to save WhatsApp credentials');
+    } finally {
+      setPendingAction(null);
+    }
+  };
 
   const patchWorkspace = async (body: Record<string, unknown>, successMsg: string) => {
     const res = await fetch(`/api/admin/workspaces/${w.id}`, {
@@ -196,13 +224,57 @@ export function ClientDetail({ workspace: w, onClose, onRefetch }: ClientDetailP
             </div>
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground w-28 shrink-0">WhatsApp:</span>
-              <span className="text-green-600 font-medium">Connected ✅</span>
+              {(w as any).phone_number_id ? (
+                <span className="text-green-600 font-medium flex items-center gap-1">
+                  <Wifi className="h-3.5 w-3.5" /> Connected ({(w as any).phone_number_id})
+                </span>
+              ) : (
+                <span className="text-red-500 font-medium flex items-center gap-1">
+                  <WifiOff className="h-3.5 w-3.5" /> Not configured
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground w-28 shrink-0">Custom Domain:</span>
               <span className="font-medium text-foreground">{w.custom_domain ?? '—'}</span>
             </div>
           </div>
+
+          {/* WhatsApp Credentials Form */}
+          {showWaForm ? (
+            <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3 space-y-3">
+              <p className="text-xs font-semibold text-blue-800">WhatsApp Business Credentials</p>
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Phone Number ID *</Label>
+                  <Input value={waPhone} onChange={(e) => setWaPhone(e.target.value)} placeholder="e.g. 1173335072523347" className="text-xs h-8" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Permanent Access Token *</Label>
+                  <Input value={waToken} onChange={(e) => setWaToken(e.target.value)} placeholder="EAAVyl..." type="password" className="text-xs h-8" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">WhatsApp Business Account ID</Label>
+                  <Input value={waWaba} onChange={(e) => setWaWaba(e.target.value)} placeholder="e.g. 1708964607185517" className="text-xs h-8" />
+                </div>
+              </div>
+              <p className="text-[11px] text-blue-700">
+                Webhook URL to give client: <code className="bg-blue-100 px-1 rounded">https://app.aiagentixdev.com/api/webhooks/whatsapp</code>
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" className="h-7 text-xs" onClick={() => void handleSaveWhatsApp()} disabled={pendingAction === 'wa'}>
+                  {pendingAction === 'wa' ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save & Activate'}
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowWaForm(false)}>Cancel</Button>
+              </div>
+            </div>
+          ) : (
+            <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 w-full border-blue-200 text-blue-700 hover:bg-blue-50"
+              onClick={() => setShowWaForm(true)}>
+              <Wifi className="h-3.5 w-3.5" />
+              {(w as any).phone_number_id ? 'Update WhatsApp Credentials' : 'Set WhatsApp Credentials (Required)'}
+            </Button>
+          )}
 
           {/* Actions */}
           <div className="flex items-center gap-2 pt-1 flex-wrap">
