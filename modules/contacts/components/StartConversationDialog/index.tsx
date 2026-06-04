@@ -1,19 +1,28 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, CheckCircle2, ImageIcon, Video, FileText, Link } from 'lucide-react';
+import { MessageSquare, CheckCircle2, ImageIcon, Video, FileText, Link, Clock, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTemplates } from '@/modules/templates/hooks/useTemplates';
+import { useWorkspaceStore } from '@/store/workspace.store';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { ContactRow } from '../../services/contact.service';
+
+interface MediaLibraryItem {
+  id: string;
+  filename: string;
+  media_id: string;
+  media_type: string;
+  created_at: string;
+}
 
 const MEDIA_HEADER_TYPES = ['IMAGE', 'VIDEO', 'DOCUMENT'] as const;
 
@@ -33,8 +42,10 @@ interface StartConversationDialogProps {
 export function StartConversationDialog({ contact, open, onClose }: StartConversationDialogProps) {
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [mediaUrl, setMediaUrl] = useState('');
+  const [recentMedia, setRecentMedia] = useState<MediaLibraryItem[]>([]);
   const [sending, setSending] = useState(false);
   const router = useRouter();
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
 
   const { data: templates = [] } = useTemplates();
   const approvedTemplates = templates.filter((t) => t.status === 'approved');
@@ -42,6 +53,18 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
   const selectedTemplate = approvedTemplates.find((t) => t.id === selectedTemplateId);
   const headerType = selectedTemplate?.header_type?.toUpperCase() ?? '';
   const needsMedia = MEDIA_HEADER_TYPES.includes(headerType as typeof MEDIA_HEADER_TYPES[number]);
+
+  // Load recent media from Media Library when media header template selected
+  useEffect(() => {
+    if (!needsMedia || !workspaceId) return;
+    const mediaType = headerType.toLowerCase();
+    fetch(`/api/campaigns/upload-media?workspaceId=${workspaceId}`)
+      .then((r) => r.json())
+      .then((d: { items?: MediaLibraryItem[] }) => {
+        setRecentMedia((d.items ?? []).filter((i) => i.media_type === mediaType));
+      })
+      .catch(() => {});
+  }, [needsMedia, headerType, workspaceId]);
 
   // Preview: replace {{1}} with contact name, {{2}} with phone
   const previewBody = selectedTemplate?.body
@@ -78,6 +101,7 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
   const handleClose = () => {
     setSelectedTemplateId('');
     setMediaUrl('');
+    setRecentMedia([]);
     onClose();
   };
 
@@ -158,7 +182,39 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
                     </div>
                   </div>
                   {mediaUrl && (
-                    <p className="text-[11px] text-green-700">✓ URL set</p>
+                    <p className="text-[11px] text-green-700">✓ URL / ID set</p>
+                  )}
+
+                  {/* Recent from Media Library */}
+                  {recentMedia.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] text-muted-foreground font-medium flex items-center gap-1">
+                        <Clock className="h-3 w-3" /> Media Library se recent:
+                      </p>
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {recentMedia.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setMediaUrl(item.media_id)}
+                            className={cn(
+                              'w-full flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors',
+                              mediaUrl === item.media_id
+                                ? 'border-green-400 bg-green-50'
+                                : 'border-border bg-white hover:border-brand-300 hover:bg-muted/30',
+                            )}
+                          >
+                            <div className="h-6 w-6 rounded bg-muted flex items-center justify-center shrink-0">
+                              {mediaIcon(headerType)}
+                            </div>
+                            <span className="flex-1 truncate font-medium">{item.filename}</span>
+                            {mediaUrl === item.media_id
+                              ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                              : <RotateCcw className="h-3 w-3 text-brand-500 shrink-0" />}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
