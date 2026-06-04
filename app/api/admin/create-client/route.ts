@@ -180,19 +180,25 @@ export async function POST(request: NextRequest) {
           </div>
         `;
 
-        await fetch('https://api.resend.com/emails', {
+        const emailRes = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${resendKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            from: 'Agentix <noreply@agentix.in>',
+            from: 'Agentix <onboarding@resend.dev>',
             to: [owner_email],
-            subject: 'Your Agentix account is ready',
+            subject: `Your Agentix account is ready — ${business_name}`,
             html: emailHtml,
           }),
         });
+        const emailData = await emailRes.json();
+        if (!emailRes.ok) {
+          console.error('[admin/create-client] Resend error:', JSON.stringify(emailData));
+        } else {
+          console.log('[admin/create-client] Email sent, id:', (emailData as any).id);
+        }
       } catch (emailErr) {
         console.error('[admin/create-client] email send error:', emailErr);
         // Non-fatal — account was created
