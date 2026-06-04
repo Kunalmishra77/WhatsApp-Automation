@@ -4,7 +4,7 @@ import { createAdminClient } from '@/services/supabase/admin';
 // GET /api/cron/check-sla-breaches?secret=
 export async function GET(request: NextRequest) {
   const secret  = request.nextUrl.searchParams.get('secret') ?? '';
-  const allowed = secret === 'agentix2026cron' || request.headers.get('x-vercel-cron') === '1';
+  const allowed = secret === (process.env.CRON_SECRET ?? 'agentix2026cron') || request.headers.get('x-vercel-cron') === '1';
   if (!allowed) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const db = createAdminClient() as any;

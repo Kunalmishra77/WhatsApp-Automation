@@ -5,7 +5,7 @@ import { createAdminClient } from '@/services/supabase/admin';
 // Sends a morning metrics email to workspace admins via Resend API (plain fetch — no SDK)
 export async function GET(request: NextRequest) {
   const secret  = request.nextUrl.searchParams.get('secret') ?? '';
-  const allowed = secret === 'agentix2026cron' || request.headers.get('x-vercel-cron') === '1';
+  const allowed = secret === (process.env.CRON_SECRET ?? 'agentix2026cron') || request.headers.get('x-vercel-cron') === '1';
   if (!allowed) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const resendApiKey = process.env.RESEND_API_KEY;

@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
   // OR request comes from Vercel internal cron (x-vercel-cron header)
   const url = new URL(request.url);
   const secret = url.searchParams.get('secret') ?? '';
-  const allowed = secret === 'agentix2026cron' ||
+  const allowed = secret === (process.env.CRON_SECRET ?? 'agentix2026cron') ||
     request.headers.get('x-vercel-cron') === '1';
 
   if (!allowed) {

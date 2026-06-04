@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const secret = url.searchParams.get('secret') ?? '';
   const allowed =
-    secret === 'agentix2026cron' ||
+    secret === (process.env.CRON_SECRET ?? 'agentix2026cron') ||
     request.headers.get('x-vercel-cron') === '1';
 
   if (!allowed) {
