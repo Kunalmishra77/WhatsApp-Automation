@@ -205,7 +205,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, workspaceId, userId: newUser.id });
+    // Always return the password so admin can share it manually if email fails
+    return NextResponse.json({ success: true, workspaceId, userId: newUser.id, password, owner_email });
   } catch (err) {
     console.error('[admin/create-client] error:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

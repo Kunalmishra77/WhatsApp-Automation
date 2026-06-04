@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Mail } from 'lucide-react';
+import { Loader2, Mail, Copy, CheckCircle2, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,6 +27,12 @@ interface FormState {
   industry: string;
 }
 
+interface CreatedCredentials {
+  email: string;
+  password: string;
+  business_name: string;
+}
+
 const INITIAL: FormState = {
   business_name: '',
   owner_email:   '',
@@ -36,9 +42,11 @@ const INITIAL: FormState = {
 };
 
 export function CreateClientModal({ open, onOpenChange, onSuccess }: CreateClientModalProps) {
-  const [form, setForm]     = useState<FormState>(INITIAL);
+  const [form, setForm]       = useState<FormState>(INITIAL);
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
+  const [errors, setErrors]   = useState<Partial<Record<keyof FormState, string>>>({});
+  const [created, setCreated] = useState<CreatedCredentials | null>(null);
+  const [copied, setCopied]   = useState(false);
 
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) => {
     setForm((p) => ({ ...p, [key]: val }));
@@ -74,13 +82,15 @@ export function CreateClientModal({ open, onOpenChange, onSuccess }: CreateClien
           industry:      form.industry.trim() || undefined,
         }),
       });
-      const data = await res.json() as { success?: boolean; error?: string };
+      const data = await res.json() as { success?: boolean; error?: string; password?: string; owner_email?: string };
       if (!res.ok) throw new Error(data.error ?? 'Failed to create client');
 
-      toast.success(`✅ ${form.business_name} created! Login credentials sent to ${form.owner_email}`);
-      setForm(INITIAL);
-      setErrors({});
-      onOpenChange(false);
+      // Show credentials to admin (in case email didn't arrive)
+      setCreated({
+        email:         data.owner_email ?? form.owner_email,
+        password:      data.password ?? '',
+        business_name: form.business_name.trim(),
+      });
       onSuccess();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create client');
@@ -89,19 +99,93 @@ export function CreateClientModal({ open, onOpenChange, onSuccess }: CreateClien
     }
   };
 
-  const handleOpenChange = (val: boolean) => {
-    if (loading) return;
-    if (!val) { setForm(INITIAL); setErrors({}); }
-    onOpenChange(val);
+  const handleCopy = () => {
+    if (!created) return;
+    const appUrl = window.location.origin;
+    const text = `Agentix Login Credentials — ${created.business_name}\n\nURL: ${appUrl}/login\nEmail: ${created.email}\nPassword: ${created.password}\n\nPlease log in and complete your WhatsApp setup.`;
+    void navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+    toast.success('Credentials copied! Share with client via WhatsApp/email.');
   };
 
+  const handleClose = () => {
+    if (loading) return;
+    setForm(INITIAL);
+    setErrors({});
+    setCreated(null);
+    setCopied(false);
+    onOpenChange(false);
+  };
+
+  // ── Credentials screen (after creation) ─────────────────────────────────
+  if (created) {
+    return (
+      <Dialog open={open} onOpenChange={handleClose}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-green-500" />
+              Client Created!
+            </DialogTitle>
+            <DialogDescription>
+              Share these credentials with <strong>{created.business_name}</strong>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="rounded-xl border border-green-200 bg-green-50 p-4 space-y-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Login URL</Label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-sm bg-white border rounded px-2 py-1.5 font-mono">
+                    {window.location.origin}/login
+                  </code>
+                  <a href="/login" target="_blank">
+                    <ExternalLink className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                  </a>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Email (Username)</Label>
+                <code className="block text-sm bg-white border rounded px-2 py-1.5 font-mono">
+                  {created.email}
+                </code>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Password</Label>
+                <code className="block text-sm bg-white border rounded px-2 py-1.5 font-mono font-bold tracking-wide">
+                  {created.password}
+                </code>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+              <strong>Note:</strong> Email delivery may not always work. Copy these credentials and share with the client directly via WhatsApp or email.
+            </div>
+
+            <div className="flex gap-3">
+              <Button className="flex-1 gap-2" onClick={handleCopy}>
+                {copied
+                  ? <><CheckCircle2 className="h-4 w-4 text-green-400" /> Copied!</>
+                  : <><Copy className="h-4 w-4" /> Copy Credentials</>}
+              </Button>
+              <Button variant="outline" onClick={handleClose}>Done</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  // ── Create form ───────────────────────────────────────────────────────────
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[460px]">
         <DialogHeader>
           <DialogTitle>Add New Client</DialogTitle>
           <DialogDescription>
-            Creates a workspace and sends login credentials to the client's email. The client will complete WhatsApp setup after first login.
+            Creates a workspace and generates login credentials. You'll be shown the password to share with the client.
           </DialogDescription>
         </DialogHeader>
 
@@ -149,22 +233,20 @@ export function CreateClientModal({ open, onOpenChange, onSuccess }: CreateClien
               onChange={(e) => set('industry', e.target.value)} disabled={loading} />
           </div>
 
-          {/* Info box */}
           <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs text-blue-700 flex items-start gap-2">
             <Mail className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <span>
-              Login ID + password will be emailed to the client. They'll set up WhatsApp credentials
-              on first login. You approve their account from this panel.
+              After creating, you'll see the login credentials to copy and share with the client directly.
             </span>
           </div>
 
           <DialogFooter className="pt-2">
-            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={loading}>
+            <Button type="button" variant="outline" onClick={handleClose} disabled={loading}>
               Cancel
             </Button>
             <Button type="submit" disabled={loading} className="gap-2">
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {loading ? 'Creating...' : 'Create & Send Invite'}
+              {loading ? 'Creating...' : 'Create Client'}
             </Button>
           </DialogFooter>
         </form>
