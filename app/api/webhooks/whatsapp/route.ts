@@ -7,6 +7,7 @@ import { processFlowForMessage } from '@/lib/flow-engine';
 import { dispatchWebhookEvent } from '@/lib/outbound-webhook';
 import { checkAutoReplyLimit } from '@/lib/rate-limit';
 import { isWithinBusinessHours, type BusinessHoursConfig } from '@/app/api/business-hours/route';
+import { callAI } from '@/lib/ai-client';
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -24,22 +25,25 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 }
 
-function verifySignature(body: string, signature: string): boolean {
-  const cleanSignature = signature.trim();
-  if (!cleanSignature.startsWith('sha256=')) return false;
-
-  const expected = 'sha256=' + crypto
-    .createHmac('sha256', getRequiredSecret('META_APP_SECRET'))
-    .update(body, 'utf8')
-    .digest('hex');
-
+// Per-workspace signature verification — app_secret is stored in workspace.settings.app_secret
+function checkSignature(body: string, signature: string, appSecret: string): boolean {
+  const clean = signature.trim();
+  if (!clean.startsWith('sha256=')) return false;
+  const expected = 'sha256=' + crypto.createHmac('sha256', appSecret).update(body, 'utf8').digest('hex');
   try {
-    return crypto.timingSafeEqual(
-      Buffer.from(cleanSignature, 'utf8'),
-      Buffer.from(expected, 'utf8'),
-    );
+    return crypto.timingSafeEqual(Buffer.from(clean, 'utf8'), Buffer.from(expected, 'utf8'));
   } catch {
     return false;
+  }
+}
+
+// Extract phone_number_id from raw payload without fully parsing
+function peekPhoneNumberId(rawBody: string): string | null {
+  try {
+    const p = JSON.parse(rawBody) as WhatsAppPayload;
+    return p?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -47,16 +51,32 @@ export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get('x-hub-signature-256') ?? '';
 
-  if (!verifySignature(rawBody, signature)) {
-    console.error('[Webhook] Invalid signature');
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
-  }
-
+  // Parse JSON first (needed to get phone_number_id for workspace lookup)
   let payload: WhatsAppPayload;
   try {
     payload = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  // Look up app_secret for this workspace (stored in workspace.settings.app_secret)
+  const phoneNumberId = peekPhoneNumberId(rawBody);
+  if (phoneNumberId) {
+    const db = createAdminClient() as any;
+    const { data: ws } = await db
+      .from('workspaces')
+      .select('settings')
+      .eq('phone_number_id', phoneNumberId)
+      .single();
+    const appSecret: string | undefined = ws?.settings?.app_secret;
+
+    if (appSecret && signature) {
+      if (!checkSignature(rawBody, signature, appSecret)) {
+        console.error('[Webhook] Invalid signature for phone_number_id:', phoneNumberId);
+        return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+      }
+    }
+    // If no app_secret stored yet, skip signature check (client hasn't filled it in)
   }
 
   const supabase = createAdminClient();
@@ -585,113 +605,62 @@ function checkEscalationKeywords(message: string): boolean {
 }
 
 async function detectNegativeSentiment(message: string): Promise<boolean> {
-  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-  if (!apiKey) return false;
-
   try {
-    const timeoutSignal = AbortSignal.timeout(3000);
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      signal: timeoutSignal,
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
-        'X-Title': 'Agentix',
-      },
-      body: JSON.stringify({
-        model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Analyze if this customer message shows strong negative sentiment, frustration, anger, or urgent need for human help. Reply with ONLY "true" or "false".',
-          },
-          { role: 'user', content: message },
-        ],
-        max_tokens: 5,
-        temperature: 0,
-      }),
-    });
-
-    if (!res.ok) return false;
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const answer = data?.choices?.[0]?.message?.content?.toLowerCase().trim();
-    return answer === 'true';
+    const answer = await callAI(
+      [
+        {
+          role: 'system',
+          content:
+            'Analyze if this customer message shows strong negative sentiment, frustration, anger, or urgent need for human help. Reply with ONLY "true" or "false".',
+        },
+        { role: 'user', content: message },
+      ],
+      { model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free', maxTokens: 5, temperature: 0 },
+    );
+    return answer?.toLowerCase().trim() === 'true';
   } catch {
     return false;
   }
 }
 
 async function detectLanguage(content: string): Promise<string | null> {
-  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-  if (!apiKey) return null;
-
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
-        'X-Title': 'Agentix',
-      },
-      body: JSON.stringify({
-        model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Detect the language of the given text. Reply with ONLY the ISO 639-1 code (e.g. "en", "hi", "es", "ar", "fr"). No explanation.',
-          },
-          { role: 'user', content: content.slice(0, 200) },
-        ],
-        max_tokens: 5,
-        temperature: 0,
-      }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const lang = data?.choices?.[0]?.message?.content?.toLowerCase().trim();
-    return /^[a-z]{2,3}$/.test(lang ?? '') ? lang! : null;
+    const lang = await callAI(
+      [
+        {
+          role: 'system',
+          content:
+            'Detect the language of the given text. Reply with ONLY the ISO 639-1 code (e.g. "en", "hi", "es", "ar", "fr"). No explanation.',
+        },
+        { role: 'user', content: content.slice(0, 200) },
+      ],
+      { model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free', maxTokens: 5, temperature: 0 },
+    );
+    const lower = lang?.toLowerCase().trim();
+    return /^[a-z]{2,3}$/.test(lower ?? '') ? lower! : null;
   } catch {
     return null;
   }
 }
 
 async function categorizeMessage(content: string): Promise<string | null> {
-  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-  if (!apiKey || content.length < 10) return null;
+  if (content.length < 10) return null;
 
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
-        'X-Title': 'Agentix',
-      },
-      body: JSON.stringify({
-        model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Categorize this customer message into exactly ONE of these labels: billing, support, sales, complaint, inquiry, spam, general. Reply with ONLY the label word.',
-          },
-          { role: 'user', content },
-        ],
-        max_tokens: 10,
-        temperature: 0,
-      }),
-    });
-
-    if (!res.ok) return null;
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const label = data?.choices?.[0]?.message?.content?.toLowerCase().trim();
+    const label = await callAI(
+      [
+        {
+          role: 'system',
+          content:
+            'Categorize this customer message into exactly ONE of these labels: billing, support, sales, complaint, inquiry, spam, general. Reply with ONLY the label word.',
+        },
+        { role: 'user', content },
+      ],
+      { model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free', maxTokens: 10, temperature: 0 },
+    );
+    const lower = label?.toLowerCase().trim();
     const validLabels = ['billing', 'support', 'sales', 'complaint', 'inquiry', 'spam', 'general'];
-    return validLabels.includes(label ?? '') ? label! : null;
+    return validLabels.includes(lower ?? '') ? lower! : null;
   } catch {
     return null;
   }
@@ -801,16 +770,10 @@ async function getAIReply(
   wsSettings?: Record<string, unknown>,
   businessName = 'our team',
 ): Promise<string | null> {
-  const apiKey = process.env.OPENROUTER_API_KEY?.replace(/\uFEFF/g, '').trim();
   const { getModel } = await import('@/lib/ai-router');
   const model = imageUrl
     ? getModel(wsSettings ?? null, 'vision_model')
     : getModel(wsSettings ?? null, 'auto_reply_model');
-
-  if (!apiKey) {
-    console.warn('[AI] OPENROUTER_API_KEY not set \u2014 using fallback reply');
-    return null;
-  }
 
   const kbSection = kbContext
     ? `\n\nKNOWLEDGE BASE \u2014 use this to answer accurately:\n${kbContext}\n\nIf the answer is in the knowledge base, use it. If not, give a helpful general response.`
@@ -822,46 +785,63 @@ Be friendly, professional, and concise \u2014 max 2-3 sentences.
 Customer name: ${customerName}
 ${kbSection ? kbSection : 'If you do not know the answer, politely say you will have a team member follow up.'}`;
 
-  // Build user message \u2014 multimodal if we have an image URL
-  const userContent = imageUrl
-    ? [
-        { type: 'image_url', image_url: { url: imageUrl } },
-        { type: 'text', text: customerMessage || 'What is in this image? Respond helpfully.' },
-      ]
-    : customerMessage;
-
-  try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
-        'X-Title': 'Agentix',
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user',   content: userContent },
-        ],
-        max_tokens: 300,
-        temperature: 0.7,
-      }),
-    });
-
-    if (!res.ok) {
-      const errBody = await res.text();
-      console.error(`[AI] OpenRouter error ${res.status}:`, errBody);
+  // Vision path: multimodal content (image URL array) requires direct OpenRouter fetch
+  if (imageUrl) {
+    const apiKey = process.env.OPENROUTER_API_KEY?.replace(/\uFEFF/g, '').trim();
+    if (!apiKey) {
+      console.warn('[AI] OPENROUTER_API_KEY not set \u2014 using fallback reply');
       return null;
     }
+    try {
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
+          'X-Title': 'Agentix',
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            {
+              role: 'user',
+              content: [
+                { type: 'image_url', image_url: { url: imageUrl } },
+                { type: 'text', text: customerMessage || 'What is in this image? Respond helpfully.' },
+              ],
+            },
+          ],
+          max_tokens: 300,
+          temperature: 0.7,
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.text();
+        console.error(`[AI] OpenRouter vision error ${res.status}:`, errBody);
+        return null;
+      }
+      const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+      const reply = data?.choices?.[0]?.message?.content?.trim() ?? null;
+      if (!reply) console.warn('[AI] Empty response from OpenRouter (vision)');
+      return reply;
+    } catch (error) {
+      console.error('[AI] Vision fetch error:', error);
+      return null;
+    }
+  }
 
-    const data = await res.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-
-    const reply = data?.choices?.[0]?.message?.content?.trim() ?? null;
-    if (!reply) console.warn('[AI] Empty response from OpenRouter');
+  // Text path: use the central AI client
+  try {
+    const reply = await callAI(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: customerMessage },
+      ],
+      { model, maxTokens: 300, temperature: 0.7 },
+    );
+    if (!reply) console.warn('[AI] Empty response from AI client');
     return reply;
   } catch (error) {
     console.error('[AI] Network/parse error:', error);
@@ -941,35 +921,20 @@ async function autoCreateOrUpdateLead(
 
 // Lightweight sentiment classifier — updates conversation.sentiment non-blocking
 async function updateConversationSentiment(db: any, conversationId: string, text: string) {
-  const apiKey = process.env.OPENROUTER_API_KEY?.replace(/﻿/g, '').trim();
-  if (!apiKey) return;
-
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
-        'X-Title': 'Agentix',
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: 'Classify the sentiment of this customer message. Reply with ONLY one word: positive, neutral, or negative.',
-          },
-          { role: 'user', content: text },
-        ],
-        max_tokens: 5,
-        temperature: 0,
-      }),
-    });
-    if (!res.ok) return;
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const raw = data?.choices?.[0]?.message?.content?.toLowerCase().trim() ?? '';
-    const sentiment = ['positive', 'neutral', 'negative'].includes(raw) ? raw : null;
+    const raw = await callAI(
+      [
+        {
+          role: 'system',
+          content: 'Classify the sentiment of this customer message. Reply with ONLY one word: positive, neutral, or negative.',
+        },
+        { role: 'user', content: text },
+      ],
+      { model: 'openai/gpt-4o-mini', maxTokens: 5, temperature: 0 },
+    );
+    const sentiment = raw && ['positive', 'neutral', 'negative'].includes(raw.toLowerCase().trim())
+      ? raw.toLowerCase().trim()
+      : null;
     if (sentiment) {
       await db.from('conversations').update({ sentiment }).eq('id', conversationId);
     }

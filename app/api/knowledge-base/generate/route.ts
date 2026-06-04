@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { callAI } from '@/lib/ai-client';
 
 export const maxDuration = 30;
 
@@ -16,28 +17,12 @@ export async function POST(request: NextRequest) {
 
     await requireWorkspacePermission(workspaceId, 'manage_workspace');
 
-    const apiKey = process.env.OPENROUTER_API_KEY?.replace(/﻿/g, '').trim();
     const model = process.env.AI_MODEL?.trim() ?? 'openai/gpt-4o-mini';
 
-    if (!apiKey) return NextResponse.json({ error: 'AI not configured' }, { status: 503 });
-
-    let res: Response;
-    try {
-      res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        signal: AbortSignal.timeout(25000),
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
-          'X-Title': 'Agentix',
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            {
-              role: 'system',
-              content: `You are a customer support knowledge base generator. Based on the company description provided, generate 6-8 knowledge base entries that a WhatsApp customer support bot can use to answer customer questions accurately.
+    const kbGenMessages = [
+      {
+        role: 'system' as const,
+        content: `You are a customer support knowledge base generator. Based on the company description provided, generate 6-8 knowledge base entries that a WhatsApp customer support bot can use to answer customer questions accurately.
 
 Return ONLY a valid JSON array with this exact format:
 [
@@ -49,35 +34,19 @@ Return ONLY a valid JSON array with this exact format:
 ]
 
 Make the content specific, helpful, and conversational. Include realistic details based on the company description.`,
-            },
-            {
-              role: 'user',
-              content: `Company description: ${companyDescription.trim().slice(0, 1000)}`,
-            },
-          ],
-          max_tokens: 2000,
-          temperature: 0.7,
-        }),
-      });
-    } catch (fetchErr) {
-      const isTimeout = fetchErr instanceof Error && fetchErr.name === 'TimeoutError';
-      return NextResponse.json(
-        { error: isTimeout ? 'AI timed out — try again' : 'Failed to reach AI service' },
-        { status: 503 },
-      );
+      },
+      {
+        role: 'user' as const,
+        content: `Company description: ${companyDescription.trim().slice(0, 1000)}`,
+      },
+    ];
+
+    const rawContent = await callAI(kbGenMessages, { model, maxTokens: 2000, temperature: 0.7 });
+    if (!rawContent) {
+      return NextResponse.json({ error: 'AI request failed' }, { status: 502 });
     }
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      console.error('[KB Generate] OpenRouter error:', res.status, errText);
-      return NextResponse.json({ error: 'AI request failed' }, { status: 500 });
-    }
-
-    const data = await res.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-
-    const raw = data?.choices?.[0]?.message?.content?.trim() ?? '';
+    const raw = rawContent.trim();
 
     let entries: Array<{ title: string; content: string; category: string }> = [];
     try {

@@ -106,8 +106,8 @@ export async function POST(request: NextRequest) {
         owner_phone: owner_phone ?? null,
         industry: industry ?? null,
         onboarding_complete: false,
-        is_active: true,
-        subscription_status: plan === 'free' ? 'active' : 'trialing',
+        is_active: false,
+        subscription_status: 'pending_approval',
       })
       .select('id')
       .single();
@@ -149,13 +149,7 @@ export async function POST(request: NextRequest) {
 
     if (resendKey) {
       try {
-        // Generate a password reset link so client sets their own secure password
-        const { data: resetData } = await db.auth.admin.generateLink({
-          type: 'recovery',
-          email: owner_email,
-          options: { redirectTo: `${appUrl}/onboarding` },
-        });
-        const loginLink = resetData?.properties?.action_link ?? `${appUrl}/login`;
+        const loginLink = `${appUrl}/login`;
         const emailHtml = `
           <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
             <div style="background: #6366f1; border-radius: 8px; padding: 16px 24px; margin-bottom: 24px;">
@@ -164,20 +158,24 @@ export async function POST(request: NextRequest) {
             <h2 style="color: #111827; font-size: 20px;">Your Agentix account is ready!</h2>
             <p style="color: #374151;">Hello,</p>
             <p style="color: #374151;">
-              Your <strong>${plan.charAt(0).toUpperCase() + plan.slice(1)}</strong> plan workspace
-              <strong>${business_name}</strong> has been set up on Agentix — the AI-powered WhatsApp CRM.
+              Your workspace <strong>${business_name}</strong> has been created on Agentix — the AI-powered WhatsApp CRM.
+              Here are your login credentials:
             </p>
-            <p style="color: #374151;">Click the button below to sign in and get started:</p>
+            <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0; font-family: monospace;">
+              <p style="margin: 0 0 8px; color: #374151;"><strong>Login URL:</strong> <a href="${loginLink}" style="color: #6366f1;">${loginLink}</a></p>
+              <p style="margin: 0 0 8px; color: #374151;"><strong>Email:</strong> ${owner_email}</p>
+              <p style="margin: 0; color: #374151;"><strong>Password:</strong> ${password}</p>
+            </div>
+            <p style="color: #374151; font-size: 14px;">
+              After logging in, you will be taken through a quick setup wizard where you'll connect your WhatsApp Business account and choose your plan.
+            </p>
             <div style="text-align: center; margin: 32px 0;">
               <a href="${loginLink}" style="background: #6366f1; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; display: inline-block;">
-                Sign In to Agentix
+                Log In to Agentix →
               </a>
             </div>
-            <p style="color: #6b7280; font-size: 13px;">
-              Login URL: <a href="${loginLink}" style="color: #6366f1;">${loginLink}</a>
-            </p>
-            <p style="color: #6b7280; font-size: 12px; margin-top: 32px; border-top: 1px solid #e5e7eb; padding-top: 16px;">
-              This email was sent by Agentix platform. If you did not expect this, please ignore it.
+            <p style="color: #6b7280; font-size: 12px; margin-top: 24px; border-top: 1px solid #e5e7eb; padding-top: 16px;">
+              For security, please change your password after your first login via Settings → Profile.
             </p>
           </div>
         `;

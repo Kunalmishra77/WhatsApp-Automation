@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { callAI } from '@/lib/ai-client';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -37,36 +38,23 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ summary: 'No text messages to summarize.' });
     }
 
-    const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-    if (!apiKey) return NextResponse.json({ error: 'AI not configured' }, { status: 503 });
-
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
-        'X-Title': 'Agentix',
+    const summarizeMessages = [
+      {
+        role: 'system' as const,
+        content:
+          'You are a concise summarizer. Given a WhatsApp conversation transcript, write a 2-3 sentence summary. Include: main topic, current status/resolution, and any pending action items. Be factual and brief.',
       },
-      body: JSON.stringify({
-        model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are a concise summarizer. Given a WhatsApp conversation transcript, write a 2-3 sentence summary. Include: main topic, current status/resolution, and any pending action items. Be factual and brief.',
-          },
-          { role: 'user', content: `Conversation transcript:\n\n${transcript}` },
-        ],
-        max_tokens: 200,
-        temperature: 0.3,
-      }),
+      { role: 'user' as const, content: `Conversation transcript:\n\n${transcript}` },
+    ];
+
+    const summaryContent = await callAI(summarizeMessages, {
+      model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free',
+      maxTokens: 200,
+      temperature: 0.3,
     });
+    if (!summaryContent) return NextResponse.json({ error: 'AI service unavailable' }, { status: 503 });
 
-    if (!res.ok) return NextResponse.json({ error: 'AI service unavailable' }, { status: 503 });
-
-    const aiData = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const summary = aiData?.choices?.[0]?.message?.content?.trim() ?? 'Unable to generate summary.';
+    const summary = summaryContent.trim() || 'Unable to generate summary.';
 
     // Persist the summary
     await db

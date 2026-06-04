@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { createAdminClient } from '@/services/supabase/admin';
 import { generateEmbedding, formatEmbedding } from '@/lib/embeddings';
+import { callAI } from '@/lib/ai-client';
 
 const DOC_TYPES: Record<string, string> = {
   faq:           'Frequently Asked Questions (FAQ)',
@@ -33,9 +34,6 @@ export async function POST(request: NextRequest) {
 
     await requireWorkspacePermission(workspaceId, 'manage_workspace');
 
-    const apiKey = process.env.OPENROUTER_API_KEY?.replace(/﻿/g, '').trim();
-    if (!apiKey) return NextResponse.json({ error: 'AI not configured' }, { status: 503 });
-
     const docTypeLabel = DOC_TYPES[docType ?? 'custom'] ?? 'Custom Document';
     const biz = businessName?.trim() || 'the business';
 
@@ -59,33 +57,17 @@ Details: ${prompt.trim()}
 
 Generate a complete, detailed ${docTypeLabel} document for ${biz}.`;
 
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://agentix.com',
-        'X-Title': 'Agentix KB Generator',
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user',   content: userPrompt },
-        ],
-        max_tokens: 3000,
-        temperature: 0.6,
-      }),
+    const vecKbMessages = [
+      { role: 'system' as const, content: systemPrompt },
+      { role: 'user' as const,   content: userPrompt },
+    ];
+
+    const content = await callAI(vecKbMessages, {
+      model: 'openai/gpt-4o-mini',
+      maxTokens: 3000,
+      temperature: 0.6,
     });
-
-    if (!res.ok) {
-      return NextResponse.json({ error: 'AI generation failed' }, { status: 502 });
-    }
-
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const content = data?.choices?.[0]?.message?.content?.trim() ?? '';
-
-    if (!content) return NextResponse.json({ error: 'AI returned empty content' }, { status: 500 });
+    if (!content) return NextResponse.json({ error: 'AI generation failed' }, { status: 502 });
 
     const slug = (businessName ?? 'document').toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     const typeSlug = (docType ?? 'custom').replace(/[^a-z0-9_]/g, '');

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Building2, CheckCircle2, TrendingUp, AlertCircle, Plus } from 'lucide-react';
+import { Building2, CheckCircle2, TrendingUp, AlertCircle, Plus, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -57,6 +57,7 @@ function StatCard({
 export function AdminDashboard() {
   const [search, setSearch] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const {
     data: statsData,
@@ -88,6 +89,22 @@ export function AdminDashboard() {
     void refetchWorkspaces();
   };
 
+  const handleResetAll = async () => {
+    if (!confirm('DELETE ALL workspaces and client accounts? This cannot be undone.')) return;
+    setResetting(true);
+    try {
+      const res = await fetch('/api/admin/workspaces', { method: 'DELETE' });
+      const data = await res.json() as { success?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Reset failed');
+      alert('All workspaces deleted. Platform is now fresh.');
+      void refetchWorkspaces();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Reset failed');
+    } finally {
+      setResetting(false);
+    }
+  };
+
   const filteredWorkspaces = (workspacesData?.workspaces ?? []).filter((w) => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
@@ -111,10 +128,21 @@ export function AdminDashboard() {
             Manage all client workspaces and platform usage
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Add New Client
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+            onClick={() => void handleResetAll()}
+            disabled={resetting}
+          >
+            {resetting ? <><Building2 className="h-4 w-4 animate-pulse" /> Deleting…</> : <><Trash2 className="h-4 w-4" /> Reset Platform</>}
+          </Button>
+          <Button onClick={() => setCreateOpen(true)} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Add New Client
+          </Button>
+        </div>
       </div>
 
       {/* Stats cards */}

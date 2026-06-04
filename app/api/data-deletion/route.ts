@@ -1,6 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { getRequiredSecret } from '@/lib/supabase-env';
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,14 +17,17 @@ export async function POST(request: NextRequest) {
     const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { user_id?: string };
     const userId = data.user_id ?? 'unknown';
 
-    const sig = Buffer.from(encodedSig, 'base64url');
-    const expectedSig = crypto
-      .createHmac('sha256', getRequiredSecret('META_APP_SECRET'))
-      .update(payload, 'utf8')
-      .digest();
-
-    if (!crypto.timingSafeEqual(sig, expectedSig)) {
-      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+    // Verify signature only if META_APP_SECRET is configured (platform-level GDPR endpoint)
+    const metaAppSecret = process.env.META_APP_SECRET;
+    if (metaAppSecret) {
+      const sig = Buffer.from(encodedSig, 'base64url');
+      const expectedSig = crypto
+        .createHmac('sha256', metaAppSecret)
+        .update(payload, 'utf8')
+        .digest();
+      if (!crypto.timingSafeEqual(sig, expectedSig)) {
+        return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+      }
     }
 
     const confirmationCode = `del_${userId}_${Date.now()}`;

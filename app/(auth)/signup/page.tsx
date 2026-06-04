@@ -1,16 +1,6 @@
-import type { Metadata } from 'next';
-import { AuthCard } from '@/modules/auth/components/AuthCard';
-import { SignupForm } from '@/modules/auth/components/SignupForm';
+import { redirect } from 'next/navigation';
 
-export const metadata: Metadata = { title: 'Create Account' };
-
+// Public signup is disabled — accounts are created by platform admin only
 export default function SignupPage() {
-  return (
-    <AuthCard
-      title="Create your account"
-      subtitle="Start managing WhatsApp conversations at scale"
-    >
-      <SignupForm />
-    </AuthCard>
-  );
+  redirect('/login');
 }

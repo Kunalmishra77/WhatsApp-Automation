@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { callAI } from '@/lib/ai-client';
 
 export const maxDuration = 30;
 
@@ -28,21 +29,7 @@ export async function POST(request: NextRequest) {
 
     await requireWorkspacePermission(workspaceId, 'manage_workspace');
 
-    const apiKey = process.env.OPENROUTER_API_KEY?.replace(/﻿/g, '').trim();
     const model = process.env.AI_MODEL?.trim() ?? 'openai/gpt-4o-mini';
-
-    if (!apiKey) {
-      // No AI — try basic parsing for structured formats
-      if (fileType === 'csv') {
-        const entries = parseCSV(text);
-        return NextResponse.json({ entries, source: 'file' });
-      }
-      if (fileType === 'json') {
-        const entries = parseJSON(text);
-        return NextResponse.json({ entries, source: 'file' });
-      }
-      return NextResponse.json({ error: 'AI not configured — use CSV or JSON format' }, { status: 503 });
-    }
 
     // For CSV/JSON, parse directly (faster, no AI needed)
     if (fileType === 'csv') {
@@ -57,23 +44,10 @@ export async function POST(request: NextRequest) {
     // For TXT/MD/PDF-pasted text — use AI to intelligently extract KB entries
     const truncatedText = text.slice(0, 8000); // Keep within token limits
 
-    let res: Response;
-    try {
-      res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        signal: AbortSignal.timeout(25000),
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
-          'X-Title': 'Agentix',
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            {
-              role: 'system',
-              content: `You are a knowledge base extractor. Given a company document, extract clear, useful knowledge base entries that a customer support bot can use to answer customer questions.
+    const uploadMessages = [
+      {
+        role: 'system' as const,
+        content: `You are a knowledge base extractor. Given a company document, extract clear, useful knowledge base entries that a customer support bot can use to answer customer questions.
 
 Return ONLY a valid JSON array (no markdown, no explanation):
 [
@@ -91,30 +65,19 @@ Rules:
 - Merge related info into single entries (don't fragment)
 - Skip boilerplate/legal text unless customer-relevant
 - Make content conversational, like a support agent would say it`,
-            },
-            {
-              role: 'user',
-              content: `Filename: ${filename ?? 'document'}\n\nContent:\n${truncatedText}`,
-            },
-          ],
-          max_tokens: 3000,
-          temperature: 0.3,
-        }),
-      });
-    } catch (fetchErr) {
-      const isTimeout = fetchErr instanceof Error && fetchErr.name === 'TimeoutError';
-      return NextResponse.json(
-        { error: isTimeout ? 'AI timed out — try a smaller document' : 'Failed to reach AI' },
-        { status: 503 },
-      );
+      },
+      {
+        role: 'user' as const,
+        content: `Filename: ${filename ?? 'document'}\n\nContent:\n${truncatedText}`,
+      },
+    ];
+
+    const rawContent = await callAI(uploadMessages, { model, maxTokens: 3000, temperature: 0.3 });
+    if (!rawContent) {
+      return NextResponse.json({ error: 'AI request failed' }, { status: 502 });
     }
 
-    if (!res.ok) {
-      return NextResponse.json({ error: `AI error: ${res.status}` }, { status: 500 });
-    }
-
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const raw = data?.choices?.[0]?.message?.content?.trim() ?? '';
+    const raw = rawContent.trim();
 
     let entries: KBEntry[] = [];
     try {

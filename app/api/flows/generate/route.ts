@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { callAI } from '@/lib/ai-client';
 
 // POST /api/flows/generate
 // Body: { workspaceId: string, description: string }
@@ -16,9 +17,6 @@ export async function POST(request: NextRequest) {
     }
 
     await requireWorkspacePermission(workspaceId, 'manage_workspace');
-
-    const apiKey = process.env.OPENROUTER_API_KEY?.replace(/﻿/g, '').trim();
-    if (!apiKey) return NextResponse.json({ error: 'AI not configured' }, { status: 503 });
 
     const systemPrompt = `You are an expert WhatsApp chatbot flow designer. Given a user's description, generate a complete flow as JSON.
 
@@ -52,34 +50,21 @@ Return ONLY valid JSON in this exact shape:
   ]
 }`;
 
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://agentix.com',
-        'X-Title': 'Agentix Flow Builder',
-      },
-      body: JSON.stringify({
-        model: await (await import('@/lib/ai-model')).resolveWorkspaceModel(workspaceId),
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user',   content: `Create a WhatsApp nurture flow for: ${description.trim()}` },
-        ],
-        max_tokens: 2000,
-        temperature: 0.4,
-        response_format: { type: 'json_object' },
-      }),
-    });
+    const flowModel = await (await import('@/lib/ai-model')).resolveWorkspaceModel(workspaceId);
+    const flowMessages = [
+      { role: 'system' as const, content: systemPrompt },
+      { role: 'user' as const,   content: `Create a WhatsApp nurture flow for: ${description.trim()}` },
+    ];
 
-    if (!res.ok) {
-      const err = await res.text();
-      console.error('[FlowGenerate] OpenRouter error:', err);
+    const raw = await callAI(flowMessages, {
+      model: flowModel,
+      maxTokens: 2000,
+      temperature: 0.4,
+      jsonMode: true,
+    });
+    if (!raw) {
       return NextResponse.json({ error: 'AI generation failed' }, { status: 502 });
     }
-
-    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const raw = data?.choices?.[0]?.message?.content ?? '';
 
     let flow: Record<string, unknown>;
     try {

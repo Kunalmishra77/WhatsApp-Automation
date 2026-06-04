@@ -76,13 +76,10 @@ export function LoginForm() {
       </Button>
 
       <p className="text-center text-body-md text-muted-foreground">
-        No account?{' '}
-        <Link
-          href="/signup"
-          className="font-medium text-brand-600 transition-colors hover:text-brand-700"
-        >
-          Create one free
-        </Link>
+        Access is by invitation only.{' '}
+        <a href="mailto:support@agentix.in" className="font-medium text-brand-600 hover:text-brand-700">
+          Contact us
+        </a>
       </p>
     </form>
   );

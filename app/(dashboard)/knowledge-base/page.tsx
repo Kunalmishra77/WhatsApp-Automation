@@ -214,10 +214,11 @@ export default function KnowledgeBasePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspaceId, query: searchQuery, limit: 5 }),
       });
-      const data = await res.json() as { results: SearchResult[] };
+      const data = await res.json() as { results?: SearchResult[]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Search failed');
       setSearchResults(data.results ?? []);
-    } catch {
-      toast.error('Search failed');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Search failed');
     } finally {
       setSearching(false);
     }

@@ -2,24 +2,15 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 
 interface CreateClientModalProps {
@@ -36,45 +27,40 @@ interface FormState {
   industry: string;
 }
 
-const INITIAL_FORM: FormState = {
+const INITIAL: FormState = {
   business_name: '',
-  owner_email: '',
-  owner_phone: '',
-  plan: 'starter',
-  industry: '',
+  owner_email:   '',
+  owner_phone:   '',
+  plan:          'starter',
+  industry:      '',
 };
 
 export function CreateClientModal({ open, onOpenChange, onSuccess }: CreateClientModalProps) {
-  const [form, setForm] = useState<FormState>(INITIAL_FORM);
+  const [form, setForm]     = useState<FormState>(INITIAL);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
 
-  const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-    if (errors[key]) setErrors((prev) => ({ ...prev, [key]: undefined }));
+  const set = <K extends keyof FormState>(key: K, val: FormState[K]) => {
+    setForm((p) => ({ ...p, [key]: val }));
+    if (errors[key]) setErrors((p) => ({ ...p, [key]: undefined }));
   };
 
   const validate = (): boolean => {
-    const newErrors: Partial<Record<keyof FormState, string>> = {};
-    if (!form.business_name.trim()) {
-      newErrors.business_name = 'Business name is required';
-    }
+    const e: Partial<Record<keyof FormState, string>> = {};
+    if (!form.business_name.trim()) e.business_name = 'Business name is required';
     if (!form.owner_email.trim()) {
-      newErrors.owner_email = 'Owner email is required';
+      e.owner_email = 'Owner email is required';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.owner_email)) {
-      newErrors.owner_email = 'Enter a valid email address';
+      e.owner_email = 'Enter a valid email address';
     }
-    if (!form.plan) {
-      newErrors.plan = 'Plan is required';
-    }
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    if (!form.plan) e.plan = 'Plan is required';
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
-
     setLoading(true);
     try {
       const res = await fetch('/api/admin/create-client', {
@@ -82,27 +68,22 @@ export function CreateClientModal({ open, onOpenChange, onSuccess }: CreateClien
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           business_name: form.business_name.trim(),
-          owner_email: form.owner_email.trim(),
-          owner_phone: form.owner_phone.trim() || undefined,
-          plan: form.plan,
-          industry: form.industry.trim() || undefined,
+          owner_email:   form.owner_email.trim(),
+          owner_phone:   form.owner_phone.trim() || undefined,
+          plan:          form.plan,
+          industry:      form.industry.trim() || undefined,
         }),
       });
-
       const data = await res.json() as { success?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Failed to create client');
 
-      if (!res.ok) {
-        throw new Error(data.error ?? 'Failed to create client');
-      }
-
-      toast.success('Client created! Invite email sent.');
-      setForm(INITIAL_FORM);
+      toast.success(`✅ ${form.business_name} created! Login credentials sent to ${form.owner_email}`);
+      setForm(INITIAL);
       setErrors({});
       onOpenChange(false);
       onSuccess();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create client';
-      toast.error(message);
+      toast.error(err instanceof Error ? err.message : 'Failed to create client');
     } finally {
       setLoading(false);
     }
@@ -110,127 +91,80 @@ export function CreateClientModal({ open, onOpenChange, onSuccess }: CreateClien
 
   const handleOpenChange = (val: boolean) => {
     if (loading) return;
-    if (!val) {
-      setForm(INITIAL_FORM);
-      setErrors({});
-    }
+    if (!val) { setForm(INITIAL); setErrors({}); }
     onOpenChange(val);
   };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent className="sm:max-w-[460px]">
         <DialogHeader>
           <DialogTitle>Add New Client</DialogTitle>
           <DialogDescription>
-            Create a new client workspace and send them an invite email.
+            Creates a workspace and sends login credentials to the client's email. The client will complete WhatsApp setup after first login.
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
-          {/* Business Name */}
           <div className="space-y-1.5">
-            <Label htmlFor="business_name">
-              Business Name <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="business_name"
-              placeholder="e.g. Sharma Medical Centre"
-              value={form.business_name}
-              onChange={(e) => setField('business_name', e.target.value)}
-              disabled={loading}
-              className={errors.business_name ? 'border-destructive' : ''}
-            />
-            {errors.business_name && (
-              <p className="text-xs text-destructive">{errors.business_name}</p>
-            )}
+            <Label htmlFor="business_name">Business Name <span className="text-destructive">*</span></Label>
+            <Input id="business_name" placeholder="e.g. Pagar Book" value={form.business_name}
+              onChange={(e) => set('business_name', e.target.value)} disabled={loading}
+              className={errors.business_name ? 'border-destructive' : ''} />
+            {errors.business_name && <p className="text-xs text-destructive">{errors.business_name}</p>}
           </div>
 
-          {/* Owner Email */}
           <div className="space-y-1.5">
-            <Label htmlFor="owner_email">
-              Owner Email <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="owner_email"
-              type="email"
-              placeholder="owner@business.com"
-              value={form.owner_email}
-              onChange={(e) => setField('owner_email', e.target.value)}
-              disabled={loading}
-              className={errors.owner_email ? 'border-destructive' : ''}
-            />
-            {errors.owner_email && (
-              <p className="text-xs text-destructive">{errors.owner_email}</p>
-            )}
+            <Label htmlFor="owner_email">Owner Email <span className="text-destructive">*</span></Label>
+            <Input id="owner_email" type="email" placeholder="owner@business.com" value={form.owner_email}
+              onChange={(e) => set('owner_email', e.target.value)} disabled={loading}
+              className={errors.owner_email ? 'border-destructive' : ''} />
+            {errors.owner_email && <p className="text-xs text-destructive">{errors.owner_email}</p>}
           </div>
 
-          {/* Owner Phone */}
-          <div className="space-y-1.5">
-            <Label htmlFor="owner_phone">
-              Owner Phone <span className="text-muted-foreground text-xs">(optional)</span>
-            </Label>
-            <Input
-              id="owner_phone"
-              type="tel"
-              placeholder="+91 98765 43210"
-              value={form.owner_phone}
-              onChange={(e) => setField('owner_phone', e.target.value)}
-              disabled={loading}
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="owner_phone">Phone <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input id="owner_phone" type="tel" placeholder="+91 98765 43210" value={form.owner_phone}
+                onChange={(e) => set('owner_phone', e.target.value)} disabled={loading} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Plan <span className="text-destructive">*</span></Label>
+              <Select value={form.plan} onValueChange={(v) => set('plan', v)} disabled={loading}>
+                <SelectTrigger className={errors.plan ? 'border-destructive' : ''}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="starter">Starter — ₹1,499/mo</SelectItem>
+                  <SelectItem value="pro">Pro — ₹2,999/mo</SelectItem>
+                  <SelectItem value="enterprise">Enterprise — ₹9,999/mo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
-          {/* Plan */}
           <div className="space-y-1.5">
-            <Label htmlFor="plan">
-              Plan <span className="text-destructive">*</span>
-            </Label>
-            <Select
-              value={form.plan}
-              onValueChange={(val) => setField('plan', val)}
-              disabled={loading}
-            >
-              <SelectTrigger id="plan" className={errors.plan ? 'border-destructive' : ''}>
-                <SelectValue placeholder="Select plan" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="free">Free</SelectItem>
-                <SelectItem value="starter">Starter — ₹1,499/mo</SelectItem>
-                <SelectItem value="pro">Pro — ₹2,999/mo</SelectItem>
-                <SelectItem value="enterprise">Enterprise — ₹9,999/mo</SelectItem>
-              </SelectContent>
-            </Select>
-            {errors.plan && (
-              <p className="text-xs text-destructive">{errors.plan}</p>
-            )}
+            <Label htmlFor="industry">Industry <span className="text-muted-foreground text-xs">(optional)</span></Label>
+            <Input id="industry" placeholder="e.g. HR, Healthcare, Retail" value={form.industry}
+              onChange={(e) => set('industry', e.target.value)} disabled={loading} />
           </div>
 
-          {/* Industry */}
-          <div className="space-y-1.5">
-            <Label htmlFor="industry">
-              Industry <span className="text-muted-foreground text-xs">(optional)</span>
-            </Label>
-            <Input
-              id="industry"
-              placeholder="e.g. Healthcare, Retail, Education"
-              value={form.industry}
-              onChange={(e) => setField('industry', e.target.value)}
-              disabled={loading}
-            />
+          {/* Info box */}
+          <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs text-blue-700 flex items-start gap-2">
+            <Mail className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>
+              Login ID + password will be emailed to the client. They'll set up WhatsApp credentials
+              on first login. You approve their account from this panel.
+            </span>
           </div>
 
           <DialogFooter className="pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleOpenChange(false)}
-              disabled={loading}
-            >
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={loading}>
               Cancel
             </Button>
             <Button type="submit" disabled={loading} className="gap-2">
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {loading ? 'Creating...' : 'Create Client'}
+              {loading ? 'Creating...' : 'Create & Send Invite'}
             </Button>
           </DialogFooter>
         </form>

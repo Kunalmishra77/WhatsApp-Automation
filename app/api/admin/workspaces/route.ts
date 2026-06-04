@@ -126,3 +126,39 @@ export async function GET(_request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+// DELETE /api/admin/workspaces — delete ALL workspaces + their auth users (platform reset)
+export async function DELETE(_request: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const db = createAdminClient() as any;
+    const { data: profile } = await db.from('profiles').select('is_platform_admin').eq('id', user.id).single();
+    if (!profile?.is_platform_admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+    // Get all members across all workspaces (to delete their auth accounts)
+    const { data: allMembers } = await db.from('workspace_members').select('user_id').neq('user_id', user.id);
+
+    // Delete all workspaces (cascades to all related data)
+    await db.from('workspaces').delete().neq('id', '00000000-0000-0000-0000-000000000000'); // delete all
+
+    // Delete auth users who are NOT the current platform admin
+    const deletedCount = { workspaces: 0, users: 0 };
+    if (allMembers?.length) {
+      const uniqueUserIds = [...new Set((allMembers as Array<{ user_id: string }>).map((m) => m.user_id))];
+      for (const uid of uniqueUserIds) {
+        if (uid !== user.id) {
+          await db.auth.admin.deleteUser(uid);
+          deletedCount.users++;
+        }
+      }
+    }
+
+    return NextResponse.json({ success: true, deleted: deletedCount });
+  } catch (err) {
+    console.error('[admin/workspaces/deleteAll]', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}

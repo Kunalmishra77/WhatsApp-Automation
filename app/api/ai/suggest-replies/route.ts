@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/services/supabase/server';
 import { authzResponse, requireWorkspacePermission } from '@/lib/authz';
+import { callAI } from '@/lib/ai-client';
 
 export const maxDuration = 30;
 
@@ -53,54 +54,27 @@ export async function POST(request: NextRequest) {
       })
       .join('\n');
 
-    const apiKey = process.env.OPENROUTER_API_KEY?.trim();
     const { resolveWorkspaceModel } = await import('@/lib/ai-model');
     const model = await resolveWorkspaceModel(conversation.workspace_id);
 
-    if (!apiKey) {
-      return NextResponse.json({ error: 'AI not configured' }, { status: 503 });
-    }
-
     const aiMessages = [
       {
-        role: 'system',
+        role: 'system' as const,
         content:
           'You are a WhatsApp customer support agent for V4TOU Tech. Based on the conversation context, suggest 3 short, helpful reply options. Return ONLY a JSON array of 3 strings, no explanation. Each reply should be under 100 characters. Example: ["Thank you for contacting us!", "I\'ll check that for you.", "Could you provide more details?"]',
       },
       {
-        role: 'user',
+        role: 'user' as const,
         content: `Conversation:\n${conversationContext}\n\nSuggest 3 replies:`,
       },
     ];
 
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      signal: AbortSignal.timeout(8000),
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
-        'X-Title': 'Agentix',
-      },
-      body: JSON.stringify({
-        model,
-        messages: aiMessages,
-        max_tokens: 200,
-        temperature: 0.7,
-      }),
-    });
-
-    if (!res.ok) {
-      const errBody = await res.text();
-      console.error('[SuggestReplies] OpenRouter error:', errBody);
+    const rawContent = await callAI(aiMessages, { model, maxTokens: 200, temperature: 0.7 });
+    if (!rawContent) {
       return NextResponse.json({ error: 'AI request failed' }, { status: 502 });
     }
 
-    const data = await res.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-
-    const raw = data?.choices?.[0]?.message?.content?.trim() ?? '';
+    const raw = rawContent.trim();
 
     let suggestions: string[] = [];
     try {
