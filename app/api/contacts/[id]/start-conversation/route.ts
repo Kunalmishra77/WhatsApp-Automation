@@ -8,7 +8,7 @@ export async function POST(
 ) {
   try {
     const { id: contactId } = await params;
-    const { templateId } = await request.json() as { templateId?: string };
+    const { templateId, mediaUrl } = await request.json() as { templateId?: string; mediaUrl?: string };
 
     if (!templateId) {
       return NextResponse.json({ error: 'templateId required' }, { status: 400 });
@@ -30,10 +30,10 @@ export async function POST(
 
     await requireWorkspacePermission(contact.workspace_id, 'handle_conversations');
 
-    // Load template
+    // Load template (include header_type for media headers)
     const { data: template, error: templateError } = await db
       .from('templates')
-      .select('name, language, body, variables, status')
+      .select('name, language, body, variables, status, header_type')
       .eq('id', templateId)
       .eq('workspace_id', contact.workspace_id)
       .single();
@@ -67,9 +67,27 @@ export async function POST(
       return '';
     });
 
-    const components = variables.length > 0
-      ? [{ type: 'body', parameters: variables.map((v: string) => ({ type: 'text', text: v || ' ' })) }]
-      : [];
+    const components: Array<Record<string, unknown>> = [];
+
+    // Add header component for IMAGE/VIDEO/DOCUMENT templates
+    const headerType = (template.header_type as string | null)?.toUpperCase();
+    const isMediaHeader = headerType && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType);
+    if (isMediaHeader && mediaUrl) {
+      const mediaKey = headerType.toLowerCase();
+      const isUrl = mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://');
+      components.push({
+        type: 'header',
+        parameters: [{
+          type: mediaKey,
+          [mediaKey]: isUrl ? { link: mediaUrl } : { id: mediaUrl },
+        }],
+      });
+    }
+
+    // Add body variables
+    if (variables.length > 0) {
+      components.push({ type: 'body', parameters: variables.map((v: string) => ({ type: 'text', text: v || ' ' })) });
+    }
 
     // Send WhatsApp template message
     const waRes = await fetch(

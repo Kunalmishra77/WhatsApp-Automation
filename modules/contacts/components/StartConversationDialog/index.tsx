@@ -7,11 +7,22 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, CheckCircle2 } from 'lucide-react';
+import { MessageSquare, CheckCircle2, ImageIcon, Video, FileText, Link } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTemplates } from '@/modules/templates/hooks/useTemplates';
 import { toast } from 'sonner';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import type { ContactRow } from '../../services/contact.service';
+
+const MEDIA_HEADER_TYPES = ['IMAGE', 'VIDEO', 'DOCUMENT'] as const;
+
+function mediaIcon(type: string) {
+  if (type === 'IMAGE')    return <ImageIcon className="h-3.5 w-3.5 text-blue-500" />;
+  if (type === 'VIDEO')    return <Video className="h-3.5 w-3.5 text-purple-500" />;
+  if (type === 'DOCUMENT') return <FileText className="h-3.5 w-3.5 text-orange-500" />;
+  return null;
+}
 
 interface StartConversationDialogProps {
   contact: ContactRow | null;
@@ -21,6 +32,7 @@ interface StartConversationDialogProps {
 
 export function StartConversationDialog({ contact, open, onClose }: StartConversationDialogProps) {
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [mediaUrl, setMediaUrl] = useState('');
   const [sending, setSending] = useState(false);
   const router = useRouter();
 
@@ -28,6 +40,8 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
   const approvedTemplates = templates.filter((t) => t.status === 'approved');
 
   const selectedTemplate = approvedTemplates.find((t) => t.id === selectedTemplateId);
+  const headerType = selectedTemplate?.header_type?.toUpperCase() ?? '';
+  const needsMedia = MEDIA_HEADER_TYPES.includes(headerType as typeof MEDIA_HEADER_TYPES[number]);
 
   // Preview: replace {{1}} with contact name, {{2}} with phone
   const previewBody = selectedTemplate?.body
@@ -43,7 +57,7 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
       const res = await fetch(`/api/contacts/${contact.id}/start-conversation`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ templateId: selectedTemplateId }),
+        body: JSON.stringify({ templateId: selectedTemplateId, mediaUrl: mediaUrl.trim() || undefined }),
       });
       const data = await res.json() as { success?: boolean; conversationId?: string; error?: string };
 
@@ -63,6 +77,7 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
 
   const handleClose = () => {
     setSelectedTemplateId('');
+    setMediaUrl('');
     onClose();
   };
 
@@ -119,6 +134,35 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
                 </div>
               </div>
 
+              {/* Media URL input — shown only when template has IMAGE/VIDEO/DOCUMENT header */}
+              {needsMedia && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    {mediaIcon(headerType)}
+                    <Label className="text-xs font-medium text-amber-800">
+                      {headerType} URL <span className="text-red-500">*</span>
+                    </Label>
+                  </div>
+                  <p className="text-[11px] text-amber-700">
+                    Is template ka {headerType.toLowerCase()} header hai — public URL paste karo jo WhatsApp fetch kar sake.
+                  </p>
+                  <div className="flex gap-2">
+                    <Input
+                      value={mediaUrl}
+                      onChange={(e) => setMediaUrl(e.target.value)}
+                      placeholder={`https://example.com/file.${headerType === 'IMAGE' ? 'jpg' : headerType === 'VIDEO' ? 'mp4' : 'pdf'}`}
+                      className={cn('text-xs', mediaUrl && 'border-green-400 bg-green-50/50')}
+                    />
+                    <div className="flex items-center">
+                      <Link className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </div>
+                  {mediaUrl && (
+                    <p className="text-[11px] text-green-700">✓ URL set</p>
+                  )}
+                </div>
+              )}
+
               {/* Live preview */}
               {selectedTemplate && (
                 <div className="space-y-1.5">
@@ -143,7 +187,7 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
         <DialogFooter>
           <Button variant="outline" onClick={handleClose}>Cancel</Button>
           <Button
-            disabled={!selectedTemplateId || sending}
+            disabled={!selectedTemplateId || sending || (needsMedia && !mediaUrl.trim())}
             onClick={() => void handleSend()}
             className="gap-1.5"
           >
