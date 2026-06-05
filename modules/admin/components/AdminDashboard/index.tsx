@@ -59,6 +59,13 @@ export function AdminDashboard() {
   const [createOpen, setCreateOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
 
+  // Auto-redirect to login if session is wrong (403 = not admin)
+  const handleAuthError = (status: number) => {
+    if (status === 403 || status === 401) {
+      window.location.href = '/login?reason=session_expired';
+    }
+  };
+
   const {
     data: statsData,
     isLoading: statsLoading,
@@ -66,7 +73,7 @@ export function AdminDashboard() {
     queryKey: ['admin-stats'],
     queryFn: async () => {
       const res = await fetch('/api/admin/stats');
-      if (!res.ok) throw new Error('Failed to fetch stats');
+      if (!res.ok) { handleAuthError(res.status); throw new Error('Failed to fetch stats'); }
       return res.json();
     },
     refetchInterval: 60_000,
@@ -80,7 +87,7 @@ export function AdminDashboard() {
     queryKey: ['admin-workspaces'],
     queryFn: async () => {
       const res = await fetch('/api/admin/workspaces');
-      if (!res.ok) throw new Error('Failed to fetch workspaces');
+      if (!res.ok) { handleAuthError(res.status); throw new Error('Failed to fetch workspaces'); }
       return res.json();
     },
   });

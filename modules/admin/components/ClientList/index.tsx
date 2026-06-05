@@ -93,6 +93,13 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [detailWorkspace, setDetailWorkspace] = useState<WorkspaceRow | null>(null);
 
+  const handleAuthError = (status: number) => {
+    if (status === 403 || status === 401) {
+      alert('Session expired or wrong account. Please login as admin again.');
+      window.location.href = '/login?reason=session_expired';
+    }
+  };
+
   const handleToggleBlock = async (workspace: WorkspaceRow) => {
     setPendingBlock(workspace.id);
     try {
@@ -101,7 +108,7 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !workspace.is_active }),
       });
-      if (!res.ok) throw new Error('Failed');
+      if (!res.ok) { handleAuthError(res.status); throw new Error('Failed'); }
       toast.success(
         workspace.is_active
           ? `${workspace.name} has been blocked`
@@ -166,7 +173,7 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subscription_status: 'active' }),
       });
-      if (!res.ok) throw new Error('Failed');
+      if (!res.ok) { handleAuthError(res.status); throw new Error('Failed'); }
       toast.success(`${workspace.name} approved and activated`);
       onRefetch();
     } catch {
