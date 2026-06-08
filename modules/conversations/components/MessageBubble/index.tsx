@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { Check, CheckCheck, Clock, List, Languages, Loader2, MousePointerClick } from 'lucide-react';
+import { Check, CheckCheck, Clock, List, Languages, Loader2, MousePointerClick, Play, FileText, Music, X, Download } from 'lucide-react';
 import { useState } from 'react';
 import type { MessageRow } from '../../services/message.service';
 import type { Json } from '@/types/database.types';
@@ -86,6 +86,18 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
 
   const displayContent = showTranslated && translated ? translated : message.content;
 
+  const [lightbox, setLightbox] = useState(false);
+
+  // Media fields
+  const mediaUrl      = (message as any).media_url as string | null;
+  const mediaMime     = (message as any).media_mime_type as string | null ?? '';
+  const mediaFilename = (message as any).media_filename as string | null;
+  const isImageMsg    = message.type === 'image' || mediaMime.startsWith('image/');
+  const isVideoMsg    = message.type === 'video' || mediaMime.startsWith('video/');
+  const isAudioMsg    = message.type === 'audio' || mediaMime.startsWith('audio/');
+  const isDocMsg      = message.type === 'document' || mediaMime.startsWith('application/');
+  const hasMedia      = !!(mediaUrl && (isImageMsg || isVideoMsg || isAudioMsg || isDocMsg));
+
   const interactiveMeta = isInteractive ? parseInteractiveMeta(message.metadata) : null;
   const interactiveType    = interactiveMeta?.interactive_type;
   const interactivePayload = interactiveMeta?.payload;
@@ -108,6 +120,63 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
           <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-amber-600">
             Internal Note
           </p>
+        )}
+
+        {/* ── Media preview ── */}
+        {hasMedia && (
+          <div className="mb-1">
+            {isImageMsg && (
+              <button
+                onClick={() => setLightbox(true)}
+                className="block w-full overflow-hidden rounded-xl"
+                style={{ maxWidth: 260 }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={mediaUrl!}
+                  alt={mediaFilename ?? 'image'}
+                  className="w-full object-cover rounded-xl hover:opacity-90 transition-opacity"
+                  style={{ maxHeight: 220 }}
+                  loading="lazy"
+                />
+              </button>
+            )}
+            {isVideoMsg && (
+              <div className="relative overflow-hidden rounded-xl bg-black/20" style={{ maxWidth: 260 }}>
+                <video src={mediaUrl!} className="w-full rounded-xl" style={{ maxHeight: 180 }} controls preload="metadata" />
+              </div>
+            )}
+            {isAudioMsg && (
+              <div className={cn('flex items-center gap-2 rounded-xl px-3 py-2', isOutbound ? 'bg-white/15' : 'bg-muted')}>
+                <div className="h-8 w-8 rounded-full bg-brand-500/20 flex items-center justify-center shrink-0">
+                  <Music className="h-4 w-4 text-brand-500" />
+                </div>
+                <audio src={mediaUrl!} controls className="h-7 flex-1 min-w-0" style={{ maxWidth: 160 }} />
+              </div>
+            )}
+            {isDocMsg && (
+              <a
+                href={mediaUrl!}
+                download={mediaFilename ?? true}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  'flex items-center gap-2.5 rounded-xl px-3 py-2.5 transition-opacity hover:opacity-80',
+                  isOutbound ? 'bg-white/15 text-white' : 'bg-muted text-foreground',
+                )}
+                style={{ maxWidth: 260 }}
+              >
+                <div className="h-9 w-9 rounded-lg bg-brand-500/20 flex items-center justify-center shrink-0">
+                  <FileText className="h-5 w-5 text-brand-500" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium truncate">{mediaFilename ?? 'Document'}</p>
+                  <p className="text-[10px] opacity-60">Tap to download</p>
+                </div>
+                <Download className="h-4 w-4 opacity-50 shrink-0" />
+              </a>
+            )}
+          </div>
         )}
 
         {/* ── Inbound: customer clicked a button or selected a list item ── */}
@@ -223,6 +292,38 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
           </>
         )}
       </div>
+
+      {/* Image lightbox */}
+      {lightbox && mediaUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm"
+          onClick={() => setLightbox(false)}
+        >
+          <button
+            onClick={() => setLightbox(false)}
+            className="absolute top-4 right-4 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <a
+            href={mediaUrl}
+            download
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={e => e.stopPropagation()}
+            className="absolute top-4 right-16 h-9 w-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+          >
+            <Download className="h-4 w-4" />
+          </a>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={mediaUrl}
+            alt={mediaFilename ?? 'image'}
+            className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
 
       {/* Translate toggle for inbound messages */}
       {canTranslate && (

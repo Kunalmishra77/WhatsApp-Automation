@@ -20,7 +20,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Send, StickyNote, LayoutList, IndianRupee, Sparkles, Loader2, X, ShoppingBag, Paperclip, Image } from 'lucide-react';
+import { Send, StickyNote, LayoutList, IndianRupee, Sparkles, Loader2, X, ShoppingBag, Paperclip, Image, Smile } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useSendMessage, useSuggestedReplies, useTypingBroadcast } from '../../hooks/useMessages';
@@ -50,7 +50,9 @@ export function MessageInput({ conversationId }: MessageInputProps) {
   const [quickReplies, setQuickReplies] = useState<Array<{ id: string; shortcut: string; title: string; content: string }>>([]);
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   const sendMessage = useSendMessage();
   const suggestReplies = useSuggestedReplies(conversationId);
@@ -259,6 +261,7 @@ export function MessageInput({ conversationId }: MessageInputProps) {
         )}
         <div className="flex items-end gap-2">
           <Textarea
+            ref={textareaRef}
             value={text}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
@@ -270,6 +273,54 @@ export function MessageInput({ conversationId }: MessageInputProps) {
             rows={1}
           />
           <div className="flex items-center gap-1.5 pb-0.5">
+            {/* Emoji picker */}
+            <div className="relative">
+              <Tooltip delayDuration={0}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn('h-8 w-8', showEmojiPicker && 'text-brand-500')}
+                    onClick={() => setShowEmojiPicker(v => !v)}
+                    type="button"
+                  >
+                    <Smile className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Emoji</TooltipContent>
+              </Tooltip>
+              {showEmojiPicker && (
+                <div className="absolute bottom-10 left-0 z-50 w-64 rounded-xl border border-border bg-card shadow-xl p-2">
+                  <div className="grid grid-cols-8 gap-0.5 max-h-44 overflow-y-auto">
+                    {['😀','😂','🥰','😍','🤩','😎','🥳','😊','👍','👎','👏','🙏','❤️','💪','🔥','✅','⭐','💡','📞','💬','📢','🎉','🎁','💰','🛒','📦','⚡','🚀','😅','😭','🤔','😬','🙄','😤','😡','🥺','😢','😱','🤗','🫡','💯','🆕','📝','✉️','📅','⏰','💎','🏆','👋','🤝'].map(emoji => (
+                      <button
+                        key={emoji}
+                        onClick={() => {
+                          const ta = textareaRef.current;
+                          if (ta) {
+                            const start = ta.selectionStart;
+                            const end = ta.selectionEnd;
+                            const newText = text.slice(0, start) + emoji + text.slice(end);
+                            setText(newText);
+                            setTimeout(() => {
+                              ta.focus();
+                              ta.setSelectionRange(start + emoji.length, start + emoji.length);
+                            }, 0);
+                          } else {
+                            setText(t => t + emoji);
+                          }
+                          setShowEmojiPicker(false);
+                        }}
+                        className="text-lg p-1 rounded hover:bg-accent transition-colors leading-none"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <Tooltip delayDuration={0}>
               <TooltipTrigger asChild>
                 <Button

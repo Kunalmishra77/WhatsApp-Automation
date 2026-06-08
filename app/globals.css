@@ -28,9 +28,11 @@
     --input:              214.3 31.8% 91.4%;
     --ring:               199 89% 48%;
     --radius:             0.5rem;
+    --chat-bg:            #f0f2f5;
   }
 
   .dark {
+    --chat-bg:            #0d1117;
     --surface-primary:    222.2 84% 4.9%;
     --surface-secondary:  217.2 32.6% 10%;
     --surface-elevated:   217.2 32.6% 13%;
@@ -56,6 +58,7 @@
     --ring:               199 89% 48%;
   }
 }
+
 
 @layer base {
   * {

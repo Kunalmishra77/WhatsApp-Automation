@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { fetchConversation, markConversationRead } from '../../services/conversation.service';
 import { useConversationStore } from '@/store/conversation.store';
 import { useWorkspaceStore } from '@/store/workspace.store';
+import { isToday, isYesterday, format } from 'date-fns';
 
 interface ChatWindowProps {
   conversationId: string;
@@ -71,7 +72,11 @@ export function ChatWindow({ conversationId, panelToggle }: ChatWindowProps) {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      {/* Chat area — subtle WA-style background */}
+      <div
+        className="flex-1 overflow-y-auto px-4 py-4"
+        style={{ background: 'var(--chat-bg, #f0f2f5)' }}
+      >
         {isLoading ? (
           <div className="space-y-3">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -81,10 +86,25 @@ export function ChatWindow({ conversationId, panelToggle }: ChatWindowProps) {
             ))}
           </div>
         ) : (
-          <div className="space-y-2">
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} conversationId={conversationId} />
-            ))}
+          <div className="space-y-1">
+            {messages.map((msg, idx) => {
+              const msgDate = new Date(msg.created_at);
+              const prevDate = idx > 0 ? new Date(messages[idx - 1].created_at) : null;
+              const showDate = !prevDate || msgDate.toDateString() !== prevDate.toDateString();
+              const dateLabel = isToday(msgDate) ? 'Today' : isYesterday(msgDate) ? 'Yesterday' : format(msgDate, 'd MMM yyyy');
+              return (
+                <div key={msg.id}>
+                  {showDate && (
+                    <div className="flex items-center justify-center my-3">
+                      <span className="bg-white/80 backdrop-blur-sm text-[11px] text-muted-foreground font-medium px-3 py-1 rounded-full shadow-sm border border-border/50">
+                        {dateLabel}
+                      </span>
+                    </div>
+                  )}
+                  <MessageBubble message={msg} conversationId={conversationId} />
+                </div>
+              );
+            })}
             {typingUsers.length > 0 && <TypingIndicator />}
             <div ref={bottomRef} />
           </div>
