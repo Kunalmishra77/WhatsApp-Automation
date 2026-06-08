@@ -143,66 +143,35 @@ export async function POST(request: NextRequest) {
       // Non-fatal
     }
 
-    // 8. Send invite email via Resend
-    const resendKey = process.env.RESEND_API_KEY;
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.agentix.in';
-
-    if (resendKey) {
-      try {
-        const loginLink = `${appUrl}/login`;
-        const emailHtml = `
-          <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
-            <div style="background: #6366f1; border-radius: 8px; padding: 16px 24px; margin-bottom: 24px;">
-              <h1 style="color: white; margin: 0; font-size: 22px;">Agentix</h1>
-            </div>
-            <h2 style="color: #111827; font-size: 20px;">Your Agentix account is ready!</h2>
-            <p style="color: #374151;">Hello,</p>
-            <p style="color: #374151;">
-              Your workspace <strong>${business_name}</strong> has been created on Agentix — the AI-powered WhatsApp CRM.
-              Here are your login credentials:
-            </p>
-            <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0; font-family: monospace;">
-              <p style="margin: 0 0 8px; color: #374151;"><strong>Login URL:</strong> <a href="${loginLink}" style="color: #6366f1;">${loginLink}</a></p>
-              <p style="margin: 0 0 8px; color: #374151;"><strong>Email:</strong> ${owner_email}</p>
-              <p style="margin: 0; color: #374151;"><strong>Password:</strong> ${password}</p>
-            </div>
-            <p style="color: #374151; font-size: 14px;">
-              After logging in, you will be taken through a quick setup wizard where you'll connect your WhatsApp Business account and choose your plan.
-            </p>
-            <div style="text-align: center; margin: 32px 0;">
-              <a href="${loginLink}" style="background: #6366f1; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; display: inline-block;">
-                Log In to Agentix →
-              </a>
-            </div>
-            <p style="color: #6b7280; font-size: 12px; margin-top: 24px; border-top: 1px solid #e5e7eb; padding-top: 16px;">
-              For security, please change your password after your first login via Settings → Profile.
-            </p>
-          </div>
-        `;
-
-        const emailRes = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${resendKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: 'Agentix <onboarding@resend.dev>',
-            to: [owner_email],
-            subject: `Your Agentix account is ready — ${business_name}`,
-            html: emailHtml,
-          }),
-        });
-        const emailData = await emailRes.json();
-        if (!emailRes.ok) {
-          console.error('[admin/create-client] Resend error:', JSON.stringify(emailData));
-        } else {
-          console.log('[admin/create-client] Email sent, id:', (emailData as any).id);
-        }
-      } catch (emailErr) {
-        console.error('[admin/create-client] email send error:', emailErr);
-        // Non-fatal — account was created
-      }
+    // 8. Send invite email via Gmail SMTP (or Resend fallback)
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.aiagentixdev.com';
+    const loginLink = `${appUrl}/login`;
+    const emailHtml = `
+      <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 24px;">
+        <div style="background: #6366f1; border-radius: 8px; padding: 16px 24px; margin-bottom: 24px;">
+          <h1 style="color: white; margin: 0; font-size: 22px;">Agentix</h1>
+        </div>
+        <h2 style="color: #111827; font-size: 20px;">Your Agentix account is ready!</h2>
+        <p style="color: #374151;">Hello,</p>
+        <p style="color: #374151;">Your workspace <strong>${business_name}</strong> has been created. Here are your login credentials:</p>
+        <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0; font-family: monospace;">
+          <p style="margin: 0 0 8px; color: #374151;"><strong>Login URL:</strong> <a href="${loginLink}">${loginLink}</a></p>
+          <p style="margin: 0 0 8px; color: #374151;"><strong>Email:</strong> ${owner_email}</p>
+          <p style="margin: 0; color: #374151;"><strong>Password:</strong> ${password}</p>
+        </div>
+        <p style="color: #374151; font-size: 14px;">After logging in, complete the WhatsApp setup wizard to activate your account.</p>
+        <div style="text-align: center; margin: 32px 0;">
+          <a href="${loginLink}" style="background: #6366f1; color: white; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">Log In to Agentix →</a>
+        </div>
+      </div>
+    `;
+    try {
+      const { sendMail } = await import('@/lib/mailer');
+      const mailResult = await sendMail({ to: owner_email, subject: `Your Agentix account is ready — ${business_name}`, html: emailHtml });
+      if (mailResult.ok) console.log('[admin/create-client] Invite email sent to', owner_email);
+      else console.warn('[admin/create-client] Email failed:', mailResult.error);
+    } catch (emailErr) {
+      console.error('[admin/create-client] email error:', emailErr);
     }
 
     // Always return the password so admin can share it manually if email fails

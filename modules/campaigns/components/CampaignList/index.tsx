@@ -319,7 +319,7 @@ export function CampaignList() {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{readPct}%</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {c.scheduled_at ? format(new Date(c.scheduled_at), 'MMM d, HH:mm') : '—'}
+                        {c.scheduled_at ? new Date(c.scheduled_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) + ' IST' : '—'}
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1">

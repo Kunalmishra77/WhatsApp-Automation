@@ -584,9 +584,18 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
           {/* ── Step 3: Schedule ─────────────────────────────────────── */}
           {step === 3 && (
             <div className="space-y-3">
-              <Label>Schedule (optional)</Label>
-              <p className="text-xs text-muted-foreground">Leave empty to send immediately. Set a date/time to schedule for later.</p>
-              <Input type="datetime-local" value={state.scheduledAt} onChange={(e) => setState((s) => ({ ...s, scheduledAt: e.target.value }))} />
+              <Label>Schedule (optional) — IST (India Standard Time)</Label>
+              <p className="text-xs text-muted-foreground">Leave empty to send immediately. Select date & time in IST.</p>
+              <Input
+                type="datetime-local"
+                value={state.scheduledAt}
+                onChange={(e) => setState((s) => ({ ...s, scheduledAt: e.target.value }))}
+              />
+              {state.scheduledAt && (
+                <p className="text-xs text-brand-600 font-medium">
+                  ✓ Scheduled: {new Date(state.scheduledAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' })} IST
+                </p>
+              )}
             </div>
           )}
 
@@ -613,7 +622,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   state.audienceType === 'tag' ? `Tag: ${state.audienceTag}` :
                   `Tags: ${state.audienceTags}`
                 } />
-                <Row label="Schedule" value={state.scheduledAt ? new Date(state.scheduledAt).toLocaleString() : 'Send immediately'} />
+                <Row label="Schedule" value={state.scheduledAt ? new Date(state.scheduledAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) + ' IST' : 'Send immediately'} />
               </div>
               {/* Preview */}
               {selectedTemplate && (

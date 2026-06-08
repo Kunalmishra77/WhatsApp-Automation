@@ -37,8 +37,8 @@ export default function PendingApprovalPage() {
     // Clean up
     if (intervalRef.current) clearInterval(intervalRef.current);
     realtimeRef.current?.removeAllChannels();
-    // Redirect after short delay so user sees the success state
-    setTimeout(() => { router.replace('/'); }, 2000);
+    // Full page reload to clear server-side cache and pick up new is_active state
+    setTimeout(() => { window.location.href = '/conversations'; }, 2000);
   };
 
   useEffect(() => {
