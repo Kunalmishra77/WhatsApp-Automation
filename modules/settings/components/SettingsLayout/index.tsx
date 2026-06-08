@@ -27,11 +27,12 @@ import { BrandingSettings } from '../BrandingSettings';
 import { BillingSettings } from '../BillingSettings';
 import { MediaLibrary } from '../MediaLibrary';
 import { CatalogSettings } from '../CatalogSettings';
+import { AutomationTriggersSettings } from '../AutomationTriggersSettings';
 
 type SettingKey =
   | 'profile' | 'workspace' | 'branding' | 'billing'
   | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library'
-  | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers'
+  | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers' | 'auto-triggers'
   | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models'
   | 'audit-logs';
 
@@ -70,6 +71,7 @@ const NAV_SECTIONS: NavSection[] = [
       { key: 'labels',         label: 'Labels',         icon: Tag },
       { key: 'custom-fields',  label: 'Custom Fields',  icon: Layers },
       { key: 'time-triggers',  label: 'Time Triggers',  icon: AlarmClock },
+      { key: 'auto-triggers',  label: 'Auto Triggers',  icon: Zap },
     ],
   },
   {
@@ -109,6 +111,7 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'api-keys':       <ApiKeys />,
   'ai-models':      <LlmSettings />,
   'catalog':        <CatalogSettings />,
+  'auto-triggers':  <AutomationTriggersSettings />,
   'media-library':  <MediaLibrary />,
   'audit-logs':     <AuditLogs />,
 };
