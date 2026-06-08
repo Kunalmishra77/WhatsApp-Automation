@@ -265,8 +265,8 @@
   <div class="cover-logo">Agent<span>ix</span></div>
   <div class="cover-tagline">WhatsApp Automation &amp; AI Customer Engagement Platform</div>
   <div class="cover-meta">
-    <div><strong>Version</strong>1.0 — Phase 2 Complete</div>
-    <div><strong>Stack</strong>Next.js 15 · Supabase · WhatsApp Cloud API · OpenAI</div>
+    <div><strong>Version</strong>3.0 — Full ROADMAP Complete (10/10)</div>
+    <div><strong>Stack</strong>Next.js 15 · Supabase · WhatsApp Cloud API · OpenAI · Instagram Graph API</div>
     <div><strong>Document Type</strong>Complete Project Reference</div>
     <div><strong>Date</strong>June 2026</div>
   </div>
@@ -298,6 +298,15 @@
     <li><a href="#api">Public API (v1)</a></li>
     <li><a href="#db">Database Schema Overview</a></li>
     <li><a href="#env">Environment Variables Reference</a></li>
+    <li><a href="#interactive">Interactive Messages (Buttons &amp; Lists)</a></li>
+    <li><a href="#catalog">WhatsApp Product Catalog</a></li>
+    <li><a href="#auto-triggers">Automation Triggers (Birthday, Cart, Re-engagement)</a></li>
+    <li><a href="#chat-widget">Chat Widget (Website Embed)</a></li>
+    <li><a href="#wa-forms">WhatsApp Forms</a></li>
+    <li><a href="#shopify">Shopify Integration</a></li>
+    <li><a href="#onboarding">Onboarding Flow &amp; Quick Start</a></li>
+    <li><a href="#instagram">Instagram DM Inbox</a></li>
+    <li><a href="#ai-revenue">AI Revenue Intelligence</a></li>
   </ol>
 </div>
 
@@ -478,7 +487,12 @@
     </div>
   </div>
 
-  <p>The Conversations page is the main inbox. Every WhatsApp contact has one conversation. Agents read &amp; reply here. Conversations can be assigned, labelled, and resolved.</p>
+  <p>The Conversations page is the main unified inbox. Supports WhatsApp and Instagram DMs in the same view. Every contact has one conversation per channel. Agents read &amp; reply here. Conversations can be assigned, labelled, and resolved.</p>
+
+  <div class="callout info">
+    <strong>Multi-Channel Inbox</strong>
+    Channel filter tabs (All / WhatsApp / Instagram) appear above the status tabs. Instagram conversations show a purple <strong>IG</strong> badge. Sending auto-routes to the correct API based on the conversation channel.
+  </div>
 
   <h3>Conversation States</h3>
   <div class="feature-grid">
@@ -972,6 +986,12 @@
       <tr><td><strong>Knowledge Base</strong></td><td>Add/edit AI training articles</td></tr>
       <tr><td><strong>Team</strong></td><td>Invite members, change roles, remove</td></tr>
       <tr><td><strong>Billing</strong></td><td>View plan, upgrade, subscription management via Razorpay</td></tr>
+      <tr><td><strong>Product Catalog</strong></td><td>Sync products with Meta Catalog API — send product cards in chat</td></tr>
+      <tr><td><strong>Chat Widget</strong></td><td>Generate embeddable WhatsApp floating button for any website</td></tr>
+      <tr><td><strong>WA Forms</strong></td><td>Build multi-step WhatsApp data collection forms</td></tr>
+      <tr><td><strong>Automation Triggers</strong></td><td>Birthday, re-engagement, abandoned cart — event-driven automations</td></tr>
+      <tr><td><strong>Instagram DM</strong></td><td>Connect Instagram Business account — receive &amp; reply to DMs</td></tr>
+      <tr><td><strong>Shopify</strong></td><td>Connect Shopify store — sync orders, products, customers to contacts</td></tr>
     </tbody>
   </table>
 </div>
@@ -1030,6 +1050,12 @@
     <br/>Meta sends all WhatsApp events here: new messages, message status updates (sent → delivered → read), and button replies.
   </div>
 
+  <h3>Inbound: Instagram DM Webhook</h3>
+  <div class="callout info">
+    <strong>URL:</strong> <code>POST /api/webhooks/instagram</code>
+    <br/>Meta sends Instagram DM events here. Same verify token as WhatsApp. Subscribe to <code>messages</code> field in Meta App → Webhooks → instagram.
+  </div>
+
   <h3>Outbound: Custom Webhooks</h3>
   <p>Workspaces can configure outbound webhooks (Settings → Webhooks) to forward events to their own systems (Zapier, n8n, CRMs). Events include:</p>
   <div class="feature-grid">
@@ -1066,7 +1092,8 @@
       <tr><td><code>/api/cron/time-triggers</code></td><td>Daily 10am</td><td>Resumes Flow sessions paused at Wait nodes</td></tr>
       <tr><td><code>/api/cron/daily-digest</code></td><td>Daily 3:30am</td><td>Sends daily summary email to workspace owners</td></tr>
       <tr><td><code>/api/cron/cleanup-flow-sessions</code></td><td>Daily 2am</td><td>Archives stale/abandoned flow sessions</td></tr>
-      <tr><td><code>/api/cron/process-campaign-queue</code></td><td>Daily 6am</td><td>Processes large campaigns (>50 contacts) from queue</td></tr>
+      <tr><td><code>/api/cron/process-campaign-queue</code></td><td>Daily 6am</td><td>Processes large campaigns (&gt;50 contacts) from queue</td></tr>
+      <tr><td><code>/api/cron/automation-triggers</code></td><td>Daily 8am</td><td>Fires birthday, re-engagement &amp; abandoned cart triggers for due contacts</td></tr>
     </tbody>
   </table>
 
@@ -1132,6 +1159,16 @@
       <tr><td><code>webhook_endpoints</code></td><td>Outbound webhook URLs configured per workspace</td></tr>
       <tr><td><code>webhook_deliveries</code></td><td>Log of outbound webhook attempts</td></tr>
       <tr><td><code>workspace_usage</code></td><td>Monthly usage counters for plan limit enforcement</td></tr>
+      <tr><td><code>catalog_products</code></td><td>Product catalog synced from Meta — name, price, image, retailer_id</td></tr>
+      <tr><td><code>automation_triggers</code></td><td>Trigger rules — birthday, re-engagement, abandoned cart, back-in-stock</td></tr>
+      <tr><td><code>automation_trigger_logs</code></td><td>Execution log per trigger fire — contact, sent_at, status</td></tr>
+      <tr><td><code>chat_widgets</code></td><td>Embeddable chat widget config — color, pre-fill message, position</td></tr>
+      <tr><td><code>wa_forms</code></td><td>WhatsApp form definitions — steps/questions JSON</td></tr>
+      <tr><td><code>wa_form_sessions</code></td><td>Active form fill sessions — contact, current step, collected answers</td></tr>
+      <tr><td><code>wa_form_responses</code></td><td>Completed form submissions — answers JSON, contact_id</td></tr>
+      <tr><td><code>orders</code></td><td>Shopify/manual orders linked to contacts — revenue attribution</td></tr>
+      <tr><td><code>instagram_accounts</code></td><td>Connected Instagram Business accounts — ig_user_id, access_token</td></tr>
+      <tr><td><code>contact_insights</code></td><td>AI Revenue Intelligence — lead_score, hot_lead, buy_signals, best_send_hour</td></tr>
     </tbody>
   </table>
 </div>
@@ -1169,6 +1206,425 @@
       <tr><td><code>NEXT_PUBLIC_APP_URL</code></td><td>✅</td><td>Public app URL (e.g. https://app.agentix.in)</td></tr>
     </tbody>
   </table>
+</div>
+
+<!-- ══════════════════════  21. INTERACTIVE MESSAGES  ══════════════════════ -->
+<div class="section" id="interactive">
+  <div class="section-header">
+    <div class="section-icon" style="background:#DBEAFE;">🔘</div>
+    <div>
+      <span class="section-num">Section 21</span>
+      <h2>Interactive Messages (Buttons &amp; Lists)</h2>
+    </div>
+  </div>
+
+  <p>Agents can send rich interactive messages directly from the chat composer — Quick Reply buttons, List menus, and Call-to-Action buttons. These are native WhatsApp UI elements, not text.</p>
+
+  <div class="feature-grid">
+    <div class="feature-card"><div class="icon">🔘</div><h4>Quick Reply Buttons</h4><p>Up to 3 buttons. Customer taps → reply sent automatically. Ideal for Yes/No, option selection.</p></div>
+    <div class="feature-card"><div class="icon">📋</div><h4>List Messages</h4><p>Up to 10 items in a scrollable menu. Great for product categories, FAQs, service selection.</p></div>
+    <div class="feature-card"><div class="icon">🔗</div><h4>CTA Buttons</h4><p>URL button (opens website) or Call button (dials number). Used in campaigns and flows.</p></div>
+  </div>
+
+  <h3>How It Works</h3>
+  <div class="flow" style="text-align:center; line-height:2.5;">
+    <span class="flow-box">Agent opens interactive composer</span>
+    <span class="arrow">→</span>
+    <span class="flow-box blue">Builds payload (buttons/list/CTA)</span>
+    <br/><br/>
+    <span class="flow-box purple">POST /api/messages/send-interactive</span>
+    <span class="arrow">→</span>
+    <span class="flow-box green">WA API: messaging_product=whatsapp, type=interactive</span>
+    <br/><br/>
+    <span class="flow-box orange">Customer taps button → inbound message with interactive.button_reply</span>
+    <span class="arrow">→</span>
+    <span class="flow-box green">Flow engine reads button ID for branching</span>
+  </div>
+
+  <h3>Key Files</h3>
+  <div class="card">
+    <p><code>modules/conversations/components/MessageComposer/</code> — Interactive tab in composer</p>
+    <p><code>app/api/messages/send-interactive/route.ts</code> — Sends interactive payload to WA API</p>
+    <p><code>app/api/webhooks/whatsapp/route.ts</code> — Parses <code>msg.interactive.button_reply</code> / <code>list_reply</code></p>
+  </div>
+</div>
+
+<!-- ══════════════════════  22. CATALOG  ══════════════════════ -->
+<div class="section" id="catalog">
+  <div class="section-header">
+    <div class="section-icon" style="background:#FEF3C7;">🛍️</div>
+    <div>
+      <span class="section-num">Section 22</span>
+      <h2>WhatsApp Product Catalog</h2>
+    </div>
+  </div>
+
+  <p>Agentix syncs your product catalog from Meta's Catalog API. Products can be sent as native WhatsApp product cards directly in conversations.</p>
+
+  <h3>Catalog Sync Flow</h3>
+  <div class="flow" style="text-align:center; line-height:2.5;">
+    <span class="flow-box blue">Settings → Product Catalog → Sync</span>
+    <span class="arrow">→</span>
+    <span class="flow-box purple">GET Meta Graph API /catalog/products</span>
+    <br/><br/>
+    <span class="flow-box green">Upsert into <code>catalog_products</code> table (conflict on retailer_id)</span>
+    <br/><br/>
+    <span class="flow-box orange">From chat composer → select product → send as WA product card</span>
+  </div>
+
+  <h3>Features</h3>
+  <div class="feature-grid">
+    <div class="feature-card"><div class="icon">🔄</div><h4>Auto-Sync</h4><p>One-click sync pulls all products from your Meta Business catalog</p></div>
+    <div class="feature-card"><div class="icon">📦</div><h4>Product Cards</h4><p>Send native WhatsApp product cards with image, name, price from chat</p></div>
+    <div class="feature-card"><div class="icon">🔍</div><h4>Full-text Search</h4><p>GIN index on product names — fast search even with 10,000+ products</p></div>
+  </div>
+
+  <h3>Key Files</h3>
+  <div class="card">
+    <p><code>app/api/catalog/route.ts</code> — GET (list), POST (sync from Meta), PUT (update)</p>
+    <p><code>modules/settings/components/CatalogSettings/</code> — Settings UI</p>
+    <p><code>database/migrations/025_catalog.sql</code> — <code>catalog_products</code> table</p>
+  </div>
+</div>
+
+<!-- ══════════════════════  23. AUTO TRIGGERS  ══════════════════════ -->
+<div class="section" id="auto-triggers">
+  <div class="section-header">
+    <div class="section-icon" style="background:#FEF9C3;">⚡</div>
+    <div>
+      <span class="section-num">Section 23</span>
+      <h2>Automation Triggers</h2>
+    </div>
+  </div>
+
+  <p>Event-based automations that run on a schedule. When a condition is met for a contact, a WhatsApp template message is sent automatically — no agent intervention needed.</p>
+
+  <h3>Trigger Types</h3>
+  <table>
+    <thead><tr><th>Trigger</th><th>Condition</th><th>Use Case</th></tr></thead>
+    <tbody>
+      <tr><td>🎂 <strong>Birthday</strong></td><td>Contact's birthday = today (from custom_fields)</td><td>"Happy Birthday! Here's your discount 🎁"</td></tr>
+      <tr><td>😴 <strong>Re-engagement</strong></td><td>No inbound message in last N days</td><td>"We miss you! Here's what's new 👋"</td></tr>
+      <tr><td>🛒 <strong>Abandoned Cart</strong></td><td>Webhook from Shopify: checkout.abandon event</td><td>"You left something behind — complete your order 🛍️"</td></tr>
+      <tr><td>📦 <strong>Back-in-Stock</strong></td><td>Webhook: product restocked event</td><td>"The item you wanted is back in stock!"</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Trigger Execution Flow</h3>
+  <div class="flow" style="text-align:center; line-height:2.5;">
+    <span class="flow-box blue">Daily cron: /api/cron/automation-triggers</span>
+    <br/><br/>
+    <span class="flow-box purple">For each active trigger → find matching contacts</span>
+    <br/><br/>
+    <span class="flow-box orange">Check: already sent today? (trigger_logs dedup) → skip if yes</span>
+    <br/><br/>
+    <span class="flow-box green">Send WA template → log to automation_trigger_logs</span>
+  </div>
+
+  <h3>Key Files</h3>
+  <div class="card">
+    <p><code>app/api/automation-triggers/route.ts</code> — CRUD for trigger rules</p>
+    <p><code>app/api/cron/automation-triggers/route.ts</code> — Daily execution engine</p>
+    <p><code>modules/settings/components/AutomationTriggersSettings/</code> — UI</p>
+    <p><code>database/migrations/026_automation_triggers.sql</code></p>
+  </div>
+</div>
+
+<!-- ══════════════════════  24. CHAT WIDGET  ══════════════════════ -->
+<div class="section" id="chat-widget">
+  <div class="section-header">
+    <div class="section-icon" style="background:#DCFCE7;">💬</div>
+    <div>
+      <span class="section-num">Section 24</span>
+      <h2>Chat Widget (Website Embed)</h2>
+    </div>
+  </div>
+
+  <p>A floating WhatsApp button that businesses embed on their website. Visitors click it and are taken directly to a WhatsApp chat with a pre-filled message. Leads from the widget are tagged automatically.</p>
+
+  <h3>Features</h3>
+  <div class="feature-grid">
+    <div class="feature-card"><div class="icon">🎨</div><h4>Customizable</h4><p>Choose color, position (bottom-left/right), pre-fill message, and CTA text</p></div>
+    <div class="feature-card"><div class="icon">📋</div><h4>One-line Embed</h4><p>Copy a single <code>&lt;script&gt;</code> tag — paste anywhere on your site</p></div>
+    <div class="feature-card"><div class="icon">🏷️</div><h4>Lead Tagging</h4><p>Contacts from widget get tagged <code>website-lead</code> automatically</p></div>
+    <div class="feature-card"><div class="icon">📱</div><h4>Preview</h4><p>Live preview of the widget before publishing</p></div>
+  </div>
+
+  <h3>How It Works</h3>
+  <div class="flow" style="text-align:center; line-height:2.5;">
+    <span class="flow-box blue">Settings → Chat Widget → configure → copy embed code</span>
+    <br/><br/>
+    <span class="flow-box purple">Embed code loads script from <code>/widget/[workspaceId]</code></span>
+    <br/><br/>
+    <span class="flow-box green">Visitor clicks → opens <code>wa.me/[number]?text=[pre-fill]</code></span>
+    <br/><br/>
+    <span class="flow-box orange">First inbound message tagged "website-lead" via webhook</span>
+  </div>
+
+  <h3>Key Files</h3>
+  <div class="card">
+    <p><code>app/api/chat-widgets/route.ts</code> — CRUD for widget config</p>
+    <p><code>app/(widget)/widget/[workspaceId]/page.tsx</code> — Embeddable widget renderer</p>
+    <p><code>modules/settings/components/ChatWidgetSettings/</code> — Settings UI</p>
+    <p><code>database/migrations/027_chat_widgets.sql</code></p>
+  </div>
+</div>
+
+<!-- ══════════════════════  25. WA FORMS  ══════════════════════ -->
+<div class="section" id="wa-forms">
+  <div class="section-header">
+    <div class="section-icon" style="background:#EDE9FE;">📝</div>
+    <div>
+      <span class="section-num">Section 25</span>
+      <h2>WhatsApp Forms</h2>
+    </div>
+  </div>
+
+  <p>Multi-step data collection inside WhatsApp conversations. The form engine sends questions one-by-one and collects structured answers — all through natural WhatsApp messages, no web forms needed.</p>
+
+  <h3>Question Types</h3>
+  <div class="feature-grid">
+    <div class="feature-card"><div class="icon">📝</div><h4>Text</h4><p>Free-form text answer — name, address, feedback</p></div>
+    <div class="feature-card"><div class="icon">📞</div><h4>Phone</h4><p>Validates Indian phone number format</p></div>
+    <div class="feature-card"><div class="icon">📧</div><h4>Email</h4><p>Validates email format before accepting</p></div>
+    <div class="feature-card"><div class="icon">🔢</div><h4>Number</h4><p>Numeric answers — quantity, age, etc.</p></div>
+    <div class="feature-card"><div class="icon">📅</div><h4>Date</h4><p>Date collection with format guidance</p></div>
+    <div class="feature-card"><div class="icon">☑️</div><h4>Choice</h4><p>Button options — multiple choice via Quick Reply buttons</p></div>
+  </div>
+
+  <h3>Form Execution Flow</h3>
+  <div class="flow" style="text-align:center; line-height:2.5;">
+    <span class="flow-box blue">Agent sends form / flow triggers form</span>
+    <span class="arrow">→</span>
+    <span class="flow-box purple">Create wa_form_sessions row (step=0)</span>
+    <br/><br/>
+    <span class="flow-box orange">Send Q1 → customer replies → validate → save answer</span>
+    <span class="arrow">→</span>
+    <span class="flow-box orange">Send Q2 → ...</span>
+    <br/><br/>
+    <span class="flow-box green">Last question answered → create wa_form_responses row → notify agent</span>
+  </div>
+
+  <h3>Key Files</h3>
+  <div class="card">
+    <p><code>app/api/wa-forms/route.ts</code> — CRUD for form definitions</p>
+    <p><code>app/api/wa-forms/[id]/send/route.ts</code> — Trigger form for a contact</p>
+    <p><code>app/api/webhooks/whatsapp/route.ts</code> — Intercepts replies during active form session</p>
+    <p><code>modules/settings/components/WaFormsSettings/</code> — Form builder UI</p>
+    <p><code>database/migrations/028_wa_forms.sql</code></p>
+  </div>
+</div>
+
+<!-- ══════════════════════  26. SHOPIFY  ══════════════════════ -->
+<div class="section" id="shopify">
+  <div class="section-header">
+    <div class="section-icon" style="background:#F0FDF4;">🛒</div>
+    <div>
+      <span class="section-num">Section 26</span>
+      <h2>Shopify Integration</h2>
+    </div>
+  </div>
+
+  <p>Connect a Shopify store to Agentix. Customers are synced as contacts. Orders trigger automatic WhatsApp notifications. Abandoned carts trigger re-engagement messages.</p>
+
+  <h3>What Gets Synced</h3>
+  <table>
+    <thead><tr><th>Shopify Event</th><th>Agentix Action</th></tr></thead>
+    <tbody>
+      <tr><td>New Customer</td><td>Create/update Contact — name, email, phone, tags=["shopify-customer"]</td></tr>
+      <tr><td>Order Confirmed</td><td>Send WA message: "Your order #1234 is confirmed 🎉"</td></tr>
+      <tr><td>Order Shipped</td><td>Send WA message with tracking link</td></tr>
+      <tr><td>Order Delivered</td><td>Send WA message: "Your order has been delivered!"</td></tr>
+      <tr><td>Checkout Abandoned</td><td>Trigger abandoned cart automation (via automation_triggers)</td></tr>
+      <tr><td>Product Sync</td><td>Pull products into catalog for sending in chat</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Integration Flow</h3>
+  <div class="flow" style="text-align:center; line-height:2.5;">
+    <span class="flow-box blue">Settings → Integrations → Connect Shopify</span>
+    <span class="arrow">→</span>
+    <span class="flow-box purple">Enter store URL + API key</span>
+    <br/><br/>
+    <span class="flow-box orange">POST /api/shopify/sync-contacts → pulls all customers</span>
+    <br/><br/>
+    <span class="flow-box green">Shopify webhooks → POST /api/shopify/webhook → auto-triggers WA messages</span>
+  </div>
+
+  <h3>Key Files</h3>
+  <div class="card">
+    <p><code>app/api/shopify/connect/route.ts</code> — Save store credentials</p>
+    <p><code>app/api/shopify/sync-contacts/route.ts</code> — Bulk customer → contact sync</p>
+    <p><code>app/api/shopify/sync-orders/route.ts</code> — Pull recent orders</p>
+    <p><code>app/api/shopify/webhook/route.ts</code> — Handle Shopify webhook events</p>
+    <p><code>modules/settings/components/IntegrationSettings/</code> — Connect UI</p>
+  </div>
+</div>
+
+<!-- ══════════════════════  27. ONBOARDING  ══════════════════════ -->
+<div class="section" id="onboarding">
+  <div class="section-header">
+    <div class="section-icon" style="background:#FFF7ED;">🚀</div>
+    <div>
+      <span class="section-num">Section 27</span>
+      <h2>Onboarding Flow &amp; Quick Start</h2>
+    </div>
+  </div>
+
+  <p>New workspaces go through a guided 5-step setup wizard before accessing the dashboard. After setup, a Quick Start checklist appears in the inbox until all steps are complete.</p>
+
+  <h3>Onboarding Wizard — 5 Steps</h3>
+  <div class="flow" style="text-align:center; line-height:2.8;">
+    <span class="flow-box">① Business Info</span>
+    <span class="arrow">→</span>
+    <span class="flow-box green">② Connect WhatsApp</span>
+    <span class="arrow">→</span>
+    <span class="flow-box blue">③ Import Contacts</span>
+    <span class="arrow">→</span>
+    <span class="flow-box purple">④ Choose Plan</span>
+    <span class="arrow">→</span>
+    <span class="flow-box orange">⑤ Submit for Approval</span>
+  </div>
+
+  <div class="callout info">
+    <strong>Step 2 — WhatsApp Connect</strong>
+    Webhook URL is shown dynamically (<code>window.location.origin/api/webhooks/whatsapp</code>) — no hardcoded domain. Verify Token: <code>agentix-webhook-secret-2026</code>.
+  </div>
+
+  <div class="callout success">
+    <strong>Step 3 — Import Contacts (new)</strong>
+    Add up to 10 contacts manually (name + phone) during onboarding. Has "Skip for now" option. Calls <code>POST /api/contacts/import</code> with inline contacts array.
+  </div>
+
+  <h3>Quick Start Checklist</h3>
+  <p>Shows in the Conversations empty state until all 4 items are ticked. Dismissible (localStorage). Auto-hides when all done.</p>
+  <table>
+    <thead><tr><th>Step</th><th>Checks</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td>Connect WhatsApp</td><td><code>workspace.phone_number_id</code> not null</td><td>→ /settings?tab=whatsapp</td></tr>
+      <tr><td>Add first contact</td><td><code>contacts</code> count &gt; 0</td><td>→ /contacts</td></tr>
+      <tr><td>Send first broadcast</td><td><code>campaigns</code> count &gt; 0</td><td>→ /campaigns</td></tr>
+      <tr><td>Set up automation</td><td><code>chatbot_flows</code> count &gt; 0</td><td>→ /flows</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Key Files</h3>
+  <div class="card">
+    <p><code>modules/onboarding/components/OnboardingWizard/</code> — 5-step wizard</p>
+    <p><code>modules/onboarding/components/QuickStartChecklist/</code> — Inbox widget</p>
+    <p><code>app/api/onboarding/complete/route.ts</code> — Sets workspace.onboarding_complete=true</p>
+    <p><code>app/api/onboarding/test-connection/route.ts</code> — Validates WhatsApp credentials</p>
+    <p><code>app/api/onboarding/checklist/route.ts</code> — Returns 4-item completion state</p>
+  </div>
+</div>
+
+<!-- ══════════════════════  28. INSTAGRAM  ══════════════════════ -->
+<div class="section" id="instagram">
+  <div class="section-header">
+    <div class="section-icon" style="background:#FDF2F8;">📸</div>
+    <div>
+      <span class="section-num">Section 28</span>
+      <h2>Instagram DM Inbox</h2>
+    </div>
+  </div>
+
+  <p>Receive and reply to Instagram Direct Messages from the same Agentix inbox as WhatsApp. No separate tool needed — unified inbox with channel-based filtering.</p>
+
+  <h3>How It Works</h3>
+  <div class="flow" style="text-align:center; line-height:2.5;">
+    <span class="flow-box green">Instagram user sends DM to business</span>
+    <span class="arrow">→</span>
+    <span class="flow-box blue">POST /api/webhooks/instagram</span>
+    <br/><br/>
+    <span class="flow-box purple">Lookup workspace by ig_user_id → create contact (phone=ig:{igsid})</span>
+    <br/><br/>
+    <span class="flow-box purple">Create conversation with channel='instagram' + meta.ig_sender_id</span>
+    <br/><br/>
+    <span class="flow-box green">Message appears in inbox with purple IG badge</span>
+    <br/><br/>
+    <span class="flow-box orange">Agent replies → POST /api/messages/send → routes to Instagram Graph API</span>
+  </div>
+
+  <h3>Setup Steps</h3>
+  <ol style="padding-left:20px; line-height:2.2; font-size:14px;">
+    <li>Go to <strong>Settings → WhatsApp → Instagram DM</strong></li>
+    <li>Enter Instagram Business Account ID + Page Access Token</li>
+    <li>In Meta App → Webhooks → instagram: add <code>/api/webhooks/instagram</code>, subscribe to <strong>messages</strong></li>
+    <li>Instagram DMs now appear in the unified inbox</li>
+  </ol>
+
+  <h3>Key Details</h3>
+  <div class="feature-grid">
+    <div class="feature-card"><div class="icon">🔀</div><h4>Unified Inbox</h4><p>Channel filter: All / WhatsApp / Instagram. Instagram convos show purple "IG" badge.</p></div>
+    <div class="feature-card"><div class="icon">📱</div><h4>Contact Identity</h4><p>Instagram contacts stored with <code>phone=ig:{igsid}</code> for unique identification.</p></div>
+    <div class="feature-card"><div class="icon">✉️</div><h4>Send API</h4><p><code>POST /api/messages/send</code> auto-routes: WhatsApp channel → WA API, Instagram channel → IG Messages API.</p></div>
+    <div class="feature-card"><div class="icon">🔐</div><h4>Auth</h4><p>Same webhook verify token as WhatsApp (<code>agentix-webhook-secret-2026</code>).</p></div>
+  </div>
+
+  <h3>Key Files</h3>
+  <div class="card">
+    <p><code>app/api/webhooks/instagram/route.ts</code> — Instagram DM handler</p>
+    <p><code>app/api/instagram/connect/route.ts</code> — Save/fetch IG credentials (validates token with Meta)</p>
+    <p><code>app/api/instagram/disconnect/route.ts</code> — Remove connection</p>
+    <p><code>app/api/messages/send/route.ts</code> — Channel-aware send (WhatsApp or Instagram)</p>
+    <p><code>modules/settings/components/InstagramSettings/</code> — Connect UI</p>
+    <p><code>modules/conversations/components/ConversationList/</code> — Channel filter tabs</p>
+    <p><code>database/migrations/029_instagram_inbox.sql</code> — <code>instagram_accounts</code> table</p>
+  </div>
+</div>
+
+<!-- ══════════════════════  29. AI REVENUE  ══════════════════════ -->
+<div class="section" id="ai-revenue">
+  <div class="section-header">
+    <div class="section-icon" style="background:#FFF1F2;">📈</div>
+    <div>
+      <span class="section-num">Section 29</span>
+      <h2>AI Revenue Intelligence</h2>
+    </div>
+  </div>
+
+  <p>AI-powered sales intelligence that scores every contact's purchase likelihood, detects buy signals, and predicts the best time to send messages. Accessible at <strong>/ai-revenue</strong> in the sidebar.</p>
+
+  <h3>What It Provides</h3>
+  <div class="feature-grid">
+    <div class="feature-card"><div class="icon">🔥</div><h4>Lead Scoring (0–100)</h4><p>GPT-4o reads recent conversation + keyword signals → assigns a score. 80+ = Very Hot, 65+ = Hot, 50+ = Warm.</p></div>
+    <div class="feature-card"><div class="icon">🎯</div><h4>Buy Signal Detection</h4><p>Scans for keywords: price, buy, interested, order, delivery, discount etc. + AI semantic analysis.</p></div>
+    <div class="feature-card"><div class="icon">⏰</div><h4>Best Send Time</h4><p>Analyzes timestamps of a contact's inbound messages → finds peak hour → shows per-contact best time.</p></div>
+    <div class="feature-card"><div class="icon">📊</div><h4>Global Insights</h4><p>Summary cards: total hot leads, avg score across workspace, best global send hour.</p></div>
+  </div>
+
+  <h3>How Analysis Works</h3>
+  <div class="flow" style="text-align:center; line-height:2.5;">
+    <span class="flow-box blue">POST /api/ai/revenue/analyze</span>
+    <br/><br/>
+    <span class="flow-box purple">Fetch top 50 contacts ordered by recency</span>
+    <br/><br/>
+    <span class="flow-box purple">For each: get last 20 messages → keyword scan + best-hour stats</span>
+    <br/><br/>
+    <span class="flow-box orange">GPT-4o prompt: conversation excerpt → JSON { lead_score, hot_lead, buy_signals, insights_summary }</span>
+    <br/><br/>
+    <span class="flow-box green">Upsert into contact_insights → GET /api/ai/revenue/insights → dashboard</span>
+  </div>
+
+  <h3>Dashboard UI</h3>
+  <table>
+    <thead><tr><th>Component</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>4 Stat Cards</td><td>Hot Leads count · Analyzed count · Avg Score · Best Time to Send</td></tr>
+      <tr><td>Hot Leads Table</td><td>Contacts with score ≥ 50, sorted by score — name, phone, score badge, buy signals chips, best send time, Message link</td></tr>
+      <tr><td>Score Bar</td><td>Visual bar per contact: red (80+), orange (65+), amber (50+), blue (lower)</td></tr>
+      <tr><td>AI Summary</td><td>One-line GPT insight per contact: "Customer asked about pricing twice — likely to buy this week"</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Key Files</h3>
+  <div class="card">
+    <p><code>app/api/ai/revenue/analyze/route.ts</code> — AI analysis engine (keyword + GPT scoring)</p>
+    <p><code>app/api/ai/revenue/insights/route.ts</code> — Dashboard data (hot leads + summary stats)</p>
+    <p><code>modules/ai-revenue/components/AIRevenueDashboard/</code> — Full dashboard UI</p>
+    <p><code>app/(dashboard)/ai-revenue/page.tsx</code> — Route page</p>
+    <p><code>database/migrations/030_ai_revenue.sql</code> — <code>contact_insights</code> table</p>
+  </div>
 </div>
 
 <!-- ══════════════════════  FOOTER  ══════════════════════ -->
