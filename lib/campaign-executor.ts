@@ -27,6 +27,11 @@ function buildVariables(template: Template, contact: Contact): string[] {
   });
 }
 
+function sanitizePhone(phone: string): string {
+  // Strip everything except digits and leading +, producing E.164 format
+  return phone.replace(/[^\d+]/g, '');
+}
+
 async function sendTemplateMessage(
   ws: Workspace,
   toPhone: string,
@@ -207,12 +212,12 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
       const headerMediaId  = isMediaHeader ? (campaign.media_id as string | undefined ?? undefined) : undefined;
       const headerMediaType = headerMediaId ? (tmplHeaderType?.toLowerCase() ?? undefined) : undefined;
 
-      result      = await sendTemplateMessage(ws, contact.phone, template.name, template.language ?? 'en', variables, headerMediaId, headerMediaType);
+      result      = await sendTemplateMessage(ws, sanitizePhone(contact.phone), template.name, template.language ?? 'en', variables, headerMediaId, headerMediaType);
       msgContent  = template.body;
       msgType     = 'template';
     } else {
       // ── Media-only send (works only for contacts in active 24-hr session) ───
-      result     = await sendMediaMessage(ws, contact.phone, campaign.media_id as string, campaign.media_type as string).then(() => ({ success: true })).catch((e: unknown) => ({ success: false, error: String(e) }));
+      result     = await sendMediaMessage(ws, sanitizePhone(contact.phone), campaign.media_id as string, campaign.media_type as string).then(() => ({ success: true })).catch((e: unknown) => ({ success: false, error: String(e) }));
       msgContent = `[${campaign.media_type}]`;
       msgType    = campaign.media_type as string ?? 'image';
     }
@@ -258,7 +263,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
       // Send extra media attachment after template (only when template was sent AND campaign has extra media)
       if (template && campaign.media_id && campaign.media_type) {
-        await sendMediaMessage(ws, contact.phone, campaign.media_id as string, campaign.media_type as string);
+        await sendMediaMessage(ws, sanitizePhone(contact.phone), campaign.media_id as string, campaign.media_type as string);
         await new Promise((r) => setTimeout(r, 100));
       }
     } else {
