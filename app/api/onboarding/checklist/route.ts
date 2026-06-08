@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
       db.from('workspaces').select('phone_number_id').eq('id', workspaceId).single(),
       db.from('contacts').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId),
       db.from('campaigns').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId),
-      db.from('automation_rules').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId),
+      db.from('chatbot_flows').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId),
     ]);
 
     return NextResponse.json({

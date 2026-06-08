@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   User, Building2, MessageSquare, Shield, Clock,
   Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText, Camera,
@@ -127,7 +128,15 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
 };
 
 export function SettingsLayout() {
-  const [active, setActive] = useState<SettingKey>('profile');
+  const searchParams = useSearchParams();
+  const [active, setActive] = useState<SettingKey>(
+    (searchParams.get('tab') as SettingKey | null) ?? 'profile',
+  );
+
+  useEffect(() => {
+    const tab = searchParams.get('tab') as SettingKey | null;
+    if (tab && tab in CONTENT_MAP) setActive(tab);
+  }, [searchParams]);
 
   return (
     <div className="flex h-full overflow-hidden">

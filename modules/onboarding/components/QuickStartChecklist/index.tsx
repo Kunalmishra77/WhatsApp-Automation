@@ -28,7 +28,7 @@ const ITEMS: Item[] = [
     icon:        MessageSquare,
     label:       'Connect WhatsApp',
     description: 'Link your WhatsApp Business API credentials.',
-    href:        '/settings/whatsapp',
+    href:        '/settings?tab=whatsapp',
     cta:         'Go to Settings',
   },
   {
@@ -52,7 +52,7 @@ const ITEMS: Item[] = [
     icon:        Zap,
     label:       'Set up an automation',
     description: 'Auto-reply, follow-ups, or drip sequences.',
-    href:        '/automations',
+    href:        '/flows',
     cta:         'Create Automation',
   },
 ];
