@@ -288,13 +288,17 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
           : {};
       const isScheduled = !!state.scheduledAt;
 
+      // datetime-local gives "YYYY-MM-DDTHH:mm" with no tz — append IST offset so
+      // Postgres stores the correct UTC value instead of treating it as UTC.
+      const scheduledAtIST = state.scheduledAt ? state.scheduledAt + ':00+05:30' : undefined;
+
       if (state.abTest) {
         const campA = await create.mutateAsync({
           name:            `${state.name} — Version A`,
           template_id:     state.templateId,
           audience_type:   state.audienceType,
           audience_filter: audienceFilter,
-          scheduled_at:    state.scheduledAt || undefined,
+          scheduled_at:    scheduledAtIST,
           media_id:        state.mediaId || undefined,
           media_type:      state.mediaType || undefined,
           ab_test_group:   'A',
@@ -305,7 +309,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
           template_id:        state.templateIdB || state.templateId,
           audience_type:      state.audienceType,
           audience_filter:    audienceFilter,
-          scheduled_at:       state.scheduledAt || undefined,
+          scheduled_at:       scheduledAtIST,
           media_id:           state.mediaId || undefined,
           media_type:         state.mediaType || undefined,
           ab_test_group:      'B',
@@ -324,7 +328,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
           template_id:     state.templateId,
           audience_type:   state.audienceType,
           audience_filter: audienceFilter,
-          scheduled_at:    state.scheduledAt || undefined,
+          scheduled_at:    scheduledAtIST,
           media_id:        state.mediaId   || undefined,
           media_type:      state.mediaType || undefined,
         } as Parameters<typeof create.mutateAsync>[0]);
