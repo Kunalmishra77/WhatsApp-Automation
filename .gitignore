@@ -37,9 +37,8 @@ dev.log
 *.png
 !public/**/*.png
 
-# scripts with sensitive credentials only
-scripts/*.local.js
-scripts/*.secret.js
+# scripts/ folder contains DB credentials — NEVER commit
+scripts/
 .pnpm-debug.log*
 
 # env files
