@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     const workspaceName = (workspace?.name as string | null) ?? 'Agentix';
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://whatsapp-automation-kohl-six.vercel.app';
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.aiagentixdev.com';
     const resendKey = process.env.RESEND_API_KEY;
 
     if (resendKey) {

@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Trigger execution asynchronously via internal cron endpoint
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://whatsapp-automation-kohl-six.vercel.app';
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.aiagentixdev.com';
   void fetch(`${baseUrl}/api/campaigns/${campaign.id as string}/run`, { method: 'POST' }).catch(() => {});
 
   return NextResponse.json({ data: campaign, message: 'Broadcast queued for execution' }, { status: 202 });

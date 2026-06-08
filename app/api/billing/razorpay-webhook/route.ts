@@ -111,7 +111,7 @@ async function sendEmail(
   const { data: ws } = await (db as any).from('workspaces').select('owner_email, name').eq('id', workspaceId).single();
   if (!ws?.owner_email) return;
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.agentix.in';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.aiagentixdev.com';
 
   const emails = {
     payment_success: {

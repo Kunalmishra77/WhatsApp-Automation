@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       .eq('id', workspaceId)
       .single();
 
-    const origin = process.env.NEXT_PUBLIC_APP_URL ?? 'https://whatsapp-automation-kohl-six.vercel.app';
+    const origin = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.aiagentixdev.com';
     const session = await createCheckoutSession({
       customerId: ws?.stripe_customer_id ?? undefined,
       priceId:    planConfig.priceId,
