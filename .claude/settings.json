@@ -66,7 +66,9 @@
       "Bash(powershell -Command \"\\(Get-Content .gitignore\\) -replace '# scripts with sensitive credentials only', '# scripts folder — contains DB credentials, never commit' | Set-Content .gitignore\")",
       "Bash(ls -la \"d:\\\\WhatsApp-Automation\\\\\" | head -30)",
       "Read(//d//**)",
-      "Bash(grep -E \"\\\\.\\(ts|js\\)$\")"
+      "Bash(grep -E \"\\\\.\\(ts|js\\)$\")",
+      "WebFetch(domain:app.getgabs.com)",
+      "WebFetch(domain:www.getgabs.com)"
     ],
     "additionalDirectories": [
       "d:\\WhatsApp-Automation\\app\\api\\contacts\\[id]",

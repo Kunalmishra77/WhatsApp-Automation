@@ -3,11 +3,11 @@ import type { FlowNode, FlowEdge, ChatbotFlow } from '@/modules/flows/types';
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
-async function sendWhatsAppText(
+async function sendWhatsAppMessage(
   phoneNumberId: string,
   accessToken: string,
   toPhone: string,
-  text: string,
+  payload: Record<string, unknown>,
 ): Promise<string | null> {
   try {
     const res = await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
@@ -20,8 +20,7 @@ async function sendWhatsAppText(
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
         to: toPhone,
-        type: 'text',
-        text: { preview_url: false, body: text },
+        ...payload,
       }),
     });
     if (!res.ok) {
@@ -36,12 +35,51 @@ async function sendWhatsAppText(
   }
 }
 
+function sendWhatsAppText(
+  phoneNumberId: string,
+  accessToken: string,
+  toPhone: string,
+  text: string,
+): Promise<string | null> {
+  return sendWhatsAppMessage(phoneNumberId, accessToken, toPhone, {
+    type: 'text',
+    text: { preview_url: false, body: text },
+  });
+}
+
+function sendWhatsAppButtons(
+  phoneNumberId: string,
+  accessToken: string,
+  toPhone: string,
+  body: string,
+  buttons: string[],
+  header?: string,
+  footer?: string,
+): Promise<string | null> {
+  return sendWhatsAppMessage(phoneNumberId, accessToken, toPhone, {
+    type: 'interactive',
+    interactive: {
+      type: 'button',
+      ...(header ? { header: { type: 'text', text: header } } : {}),
+      body: { text: body },
+      ...(footer ? { footer: { text: footer } } : {}),
+      action: {
+        buttons: buttons.slice(0, 3).map((title, i) => ({
+          type: 'reply',
+          reply: { id: `btn_${i}`, title: title.slice(0, 20) },
+        })),
+      },
+    },
+  });
+}
+
 async function saveOutboundMessage(
   supabase: AdminClient,
   workspaceId: string,
   conversationId: string,
   text: string,
   waMessageId: string | null,
+  msgType: 'text' | 'interactive' = 'text',
 ) {
   const now = new Date().toISOString();
   await (supabase as any).from('messages').insert({
@@ -50,7 +88,7 @@ async function saveOutboundMessage(
     sender_type:     'bot',
     sender_id:       null,
     direction:       'outbound',
-    type:            'text',
+    type:            msgType,
     content:         text,
     status:          'sent',
     whatsapp_msg_id: waMessageId,
@@ -140,10 +178,17 @@ async function executeNode(
     }
 
     case 'question': {
-      const d = node.data as { message: string };
+      const d = node.data as { message: string; buttons?: string[]; footer?: string; header?: string };
       if (d.message) {
-        const waId = await sendWhatsAppText(phoneNumberId, accessToken, contactPhone, d.message);
-        await saveOutboundMessage(supabase, workspaceId, conversationId, d.message, waId);
+        let waId: string | null;
+        if (d.buttons && d.buttons.length > 0) {
+          // Send interactive button message — customer taps instead of typing
+          waId = await sendWhatsAppButtons(phoneNumberId, accessToken, contactPhone, d.message, d.buttons, d.header, d.footer);
+          await saveOutboundMessage(supabase, workspaceId, conversationId, d.message, waId, 'interactive');
+        } else {
+          waId = await sendWhatsAppText(phoneNumberId, accessToken, contactPhone, d.message);
+          await saveOutboundMessage(supabase, workspaceId, conversationId, d.message, waId);
+        }
       }
       // Wait for reply — session stays on this node
       await updateSession(supabase, sessionId, node.id);

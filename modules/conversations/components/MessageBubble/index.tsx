@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { Check, CheckCheck, Clock, List, Languages, Loader2 } from 'lucide-react';
+import { Check, CheckCheck, Clock, List, Languages, Loader2, MousePointerClick } from 'lucide-react';
 import { useState } from 'react';
 import type { MessageRow } from '../../services/message.service';
 import type { Json } from '@/types/database.types';
@@ -35,6 +35,13 @@ interface InteractivePayload {
 interface InteractiveMetadata {
   interactive_type?: 'button' | 'list';
   payload?: InteractivePayload;
+  // Inbound: customer clicked a button or selected a list item
+  interactive_reply?: {
+    type?: 'button_reply' | 'list_reply';
+    id?: string;
+    title?: string;
+    description?: string;
+  };
 }
 
 function parseInteractiveMeta(meta: Json): InteractiveMetadata | null {
@@ -80,8 +87,9 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
   const displayContent = showTranslated && translated ? translated : message.content;
 
   const interactiveMeta = isInteractive ? parseInteractiveMeta(message.metadata) : null;
-  const interactiveType = interactiveMeta?.interactive_type;
+  const interactiveType    = interactiveMeta?.interactive_type;
   const interactivePayload = interactiveMeta?.payload;
+  const interactiveReply   = interactiveMeta?.interactive_reply; // inbound customer click
   const replyButtons = interactiveType === 'button' ? (interactivePayload?.action?.buttons ?? []) : [];
 
   return (
@@ -102,7 +110,22 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
           </p>
         )}
 
-        {isInteractive ? (
+        {/* ── Inbound: customer clicked a button or selected a list item ── */}
+        {isInteractive && !isOutbound && interactiveReply ? (
+          <div className="px-3.5 py-2.5 space-y-1">
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold text-brand-500 uppercase tracking-wide">
+              <MousePointerClick className="h-3 w-3" />
+              {interactiveReply.type === 'list_reply' ? 'Selected' : 'Clicked'}
+            </div>
+            <p className="text-[13px] font-medium">{interactiveReply.title}</p>
+            {interactiveReply.description && (
+              <p className="text-[11px] text-muted-foreground">{interactiveReply.description}</p>
+            )}
+            <div className="flex items-center justify-end gap-1 text-muted-foreground">
+              <span className="text-[10px]">{time}</span>
+            </div>
+          </div>
+        ) : isInteractive ? (
           <>
             {interactivePayload?.header?.text && (
               <div

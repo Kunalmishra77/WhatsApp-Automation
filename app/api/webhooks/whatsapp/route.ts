@@ -283,6 +283,15 @@ async function handleIncomingMessage(
     metadata: {
       whatsapp: msg,
       display_phone_number: metadata.display_phone_number,
+      // Store interactive reply details for UI display and flow branching
+      ...(msg.interactive && {
+        interactive_reply: {
+          type: msg.interactive.type,
+          id:    msg.interactive.button_reply?.id ?? msg.interactive.list_reply?.id,
+          title: msg.interactive.button_reply?.title ?? msg.interactive.list_reply?.title,
+          description: msg.interactive.list_reply?.description,
+        },
+      }),
     } as Record<string, unknown>,
     created_at: createdAt,
   });
@@ -1364,6 +1373,12 @@ function extractMessageContent(msg: WAMessage): string {
     case 'document': return msg.document?.filename ?? '[Document]';
     case 'location': return `[Location: ${msg.location?.latitude},${msg.location?.longitude}]`;
     case 'sticker': return '[Sticker]';
+    case 'interactive': {
+      const ir = msg.interactive;
+      if (ir?.type === 'button_reply') return ir.button_reply?.title ?? '[Button Reply]';
+      if (ir?.type === 'list_reply')   return ir.list_reply?.title   ?? '[List Reply]';
+      return '[Interactive]';
+    }
     default: return `[${msg.type}]`;
   }
 }
@@ -1397,6 +1412,12 @@ interface WAContact {
   profile?: { name: string };
 }
 
+interface WAInteractiveReply {
+  type: 'button_reply' | 'list_reply';
+  button_reply?: { id: string; title: string };
+  list_reply?: { id: string; title: string; description?: string };
+}
+
 interface WAMessage {
   id: string;
   from: string;
@@ -1409,6 +1430,7 @@ interface WAMessage {
   document?: { filename?: string; id: string };
   location?: { latitude: number; longitude: number };
   sticker?: { id: string };
+  interactive?: WAInteractiveReply;
 }
 
 interface WAStatus {
