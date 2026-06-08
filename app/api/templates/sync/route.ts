@@ -130,6 +130,20 @@ export async function POST(request: NextRequest) {
     let synced = 0;
     let updated = 0;
 
+    // Mark local templates as 'deleted' if they no longer exist on Meta
+    const metaNames = new Set(allTemplates.map((t) => t.name));
+    const { data: localTemplates } = await db
+      .from('templates')
+      .select('id, name')
+      .eq('workspace_id', workspaceId)
+      .neq('status', 'deleted');
+
+    for (const local of (localTemplates ?? [])) {
+      if (!metaNames.has(local.name)) {
+        await db.from('templates').update({ status: 'deleted', updated_at: new Date().toISOString() }).eq('id', local.id);
+      }
+    }
+
     for (const mt of allTemplates) {
       const { header_type, header_content, body, footer, buttons, variables } = extractFromComponents(mt.components);
       if (!body) continue; // skip templates with no body

@@ -39,6 +39,19 @@ export async function POST(
       return NextResponse.json({ error: 'Sequence has no steps' }, { status: 400 });
     }
 
+    // Prevent duplicate enrollment — one active enrollment per contact per sequence
+    const { data: existing } = await db
+      .from('contact_sequences')
+      .select('id')
+      .eq('sequence_id', sequenceId)
+      .eq('contact_id', body.contactId)
+      .eq('status', 'active')
+      .maybeSingle();
+
+    if (existing) {
+      return NextResponse.json({ error: 'Contact is already enrolled in this sequence' }, { status: 409 });
+    }
+
     const firstStep = steps[0];
     const firstDelayMs = (firstStep?.delay_hours ?? 24) * 60 * 60 * 1000;
     const nextSendAt = new Date(Date.now() + firstDelayMs).toISOString();

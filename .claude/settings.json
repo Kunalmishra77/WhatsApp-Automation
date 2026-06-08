@@ -61,7 +61,12 @@
       "Bash(xargs wc -l)",
       "Bash(xargs ls -lS)",
       "Bash(awk '{print $9, $5}')",
-      "Bash(xargs grep -l \"openai\\\\|AI_MODEL\")"
+      "Bash(xargs grep -l \"openai\\\\|AI_MODEL\")",
+      "Bash(sed -i 's/# scripts with sensitive credentials only\\\\nscripts\\\\/\\\\*.local\\\\.js\\\\nscripts\\\\/\\\\*.secret\\\\.js/# scripts folder — contains DB credentials, never commit\\\\nscripts\\\\//' .gitignore)",
+      "Bash(powershell -Command \"\\(Get-Content .gitignore\\) -replace '# scripts with sensitive credentials only', '# scripts folder — contains DB credentials, never commit' | Set-Content .gitignore\")",
+      "Bash(ls -la \"d:\\\\WhatsApp-Automation\\\\\" | head -30)",
+      "Read(//d//**)",
+      "Bash(grep -E \"\\\\.\\(ts|js\\)$\")"
     ],
     "additionalDirectories": [
       "d:\\WhatsApp-Automation\\app\\api\\contacts\\[id]",

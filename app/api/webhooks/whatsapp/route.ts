@@ -1236,7 +1236,8 @@ async function checkAndHandleCsatReply(
 ): Promise<boolean> {
   const trimmed = content.trim();
   const score = parseInt(trimmed, 10);
-  if (isNaN(score) || score < 1 || score > 5 || trimmed.length !== 1) return false;
+  // Accept single-digit 1–5; trimmed must be exactly one character after stripping whitespace
+  if (isNaN(score) || score < 1 || score > 5 || trimmed !== String(score)) return false;
 
   // Check for pending CSAT record for this conversation
   const db = supabase as any;
@@ -1296,8 +1297,10 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
   if (!validStatuses.includes(status.status as (typeof validStatuses)[number])) return;
 
   const patch: Record<string, string> = { status: status.status };
-  if (status.status === 'delivered') patch.delivered_at = new Date(parseInt(status.timestamp, 10) * 1000).toISOString();
-  if (status.status === 'read') patch.read_at = new Date(parseInt(status.timestamp, 10) * 1000).toISOString();
+  const ts = new Date(parseInt(status.timestamp, 10) * 1000).toISOString();
+  if (status.status === 'delivered') patch.delivered_at = ts;
+  if (status.status === 'read')      patch.read_at      = ts;
+  if (status.status === 'failed')    patch.failed_at    = ts;
 
   const db = supabase as any;
 
@@ -1316,21 +1319,21 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
     .select('campaign_id')
     .maybeSingle();
 
-  if (updatedCr?.campaign_id && (status.status === 'delivered' || status.status === 'read')) {
-    // Re-aggregate from campaign_recipients (accurate regardless of order of events)
+  if (updatedCr?.campaign_id && ['delivered', 'read', 'failed'].includes(status.status)) {
+    // Re-aggregate from campaign_recipients (accurate regardless of event order)
     const { data: rows } = await db
       .from('campaign_recipients')
       .select('status')
       .eq('campaign_id', updatedCr.campaign_id);
 
     const allRows = (rows ?? []) as Array<{ status: string }>;
-    // delivered_count = everyone who got at least delivered (delivered + read + replied)
     const deliveredCount = allRows.filter((r) => ['delivered', 'read', 'replied'].includes(r.status)).length;
     const readCount      = allRows.filter((r) => ['read', 'replied'].includes(r.status)).length;
+    const failedCount    = allRows.filter((r) => r.status === 'failed').length;
 
     await db
       .from('campaigns')
-      .update({ delivered_count: deliveredCount, read_count: readCount })
+      .update({ delivered_count: deliveredCount, read_count: readCount, failed_count: failedCount })
       .eq('id', updatedCr.campaign_id);
   }
 }

@@ -21,11 +21,10 @@ export async function GET(request: NextRequest) {
 
   const now = new Date().toISOString();
 
-  // Find all campaigns due to run:
-  // status = 'scheduled' AND scheduled_at <= now AND scheduled_at > 5 min ago (grace window)
-  // Grace window: 24h so daily Vercel cron picks up all missed campaigns
-  // External minute-cron: reduces this to ~2 min in practice
-  const fiveMinAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  // Campaigns due to run: status='scheduled', scheduled_at <= now, scheduled_at > 20min ago.
+  // 20-minute grace window covers the 15-minute cron interval plus drift.
+  // Campaigns won't double-run because executeCampaign checks for 'running'/'completed' status.
+  const fiveMinAgo = new Date(Date.now() - 20 * 60 * 1000).toISOString();
 
   const { data: dueCampaigns, error } = await db
     .from('campaigns')

@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/services/supabase/admin';
+import { checkWAOutboundLimit } from '@/lib/rate-limit';
 
 interface Contact {
   id: string;
@@ -200,6 +201,13 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   let failedCount = 0;
 
   for (const contact of recipients) {
+    // Respect WhatsApp outbound rate limit (60/sec per workspace)
+    const allowed = await checkWAOutboundLimit(campaign.workspace_id as string);
+    if (!allowed) {
+      // Back off 1 second and retry once
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
     let result: { success: boolean; waMessageId?: string; error?: string };
     let msgContent = '';
     let msgType    = 'template';

@@ -57,6 +57,22 @@ function getWebhookLimiter(): Ratelimit | null {
   return webhookLimiter;
 }
 
+// WhatsApp outbound rate limiter: Meta allows ~80 msg/sec per phone number.
+// We cap at 60/sec per workspace to stay safely below the limit.
+let waOutboundLimiter: Ratelimit | null = null;
+function getWAOutboundLimiter(): Ratelimit | null {
+  if (waOutboundLimiter) return waOutboundLimiter;
+  const r = getRedis();
+  if (!r) return null;
+  waOutboundLimiter = new Ratelimit({
+    redis: r,
+    limiter: Ratelimit.slidingWindow(60, '1 s'),
+    prefix: 'agentix:wa_outbound',
+    analytics: false,
+  });
+  return waOutboundLimiter;
+}
+
 export interface RateLimitResult {
   success: boolean;
   remaining: number;
@@ -111,5 +127,21 @@ export async function checkWebhookLimit(workspaceId: string): Promise<boolean> {
     return success;
   } catch {
     return true;
+  }
+}
+
+/**
+ * Check WhatsApp outbound rate limit per workspace phone number.
+ * Returns false if the workspace is sending too fast (>60/sec).
+ */
+export async function checkWAOutboundLimit(workspaceId: string): Promise<boolean> {
+  const limiter = getWAOutboundLimiter();
+  if (!limiter) return true;
+
+  try {
+    const { success } = await limiter.limit(workspaceId);
+    return success;
+  } catch {
+    return true; // Fail open — never block on Redis errors
   }
 }

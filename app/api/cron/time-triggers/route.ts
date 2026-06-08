@@ -126,9 +126,17 @@ export async function GET(request: NextRequest) {
 
       // Find the next node after the wait node
       const edges = flow.edges as Array<{ source: string; target: string }>;
+      const nodes = flow.nodes as Array<{ id: string }>;
       const nextEdge = edges.find((ed) => ed.source === session.current_node_id);
       if (!nextEdge) {
-        // No next node — end the session
+        await db.from('flow_sessions').update({ status: 'completed' }).eq('id', session.id);
+        continue;
+      }
+
+      // Validate the target node still exists in the flow definition
+      const targetExists = nodes.some((n) => n.id === nextEdge.target);
+      if (!targetExists) {
+        console.warn(`[TimeTriggers] Node ${nextEdge.target} not found in flow — ending session ${session.id}`);
         await db.from('flow_sessions').update({ status: 'completed' }).eq('id', session.id);
         continue;
       }
