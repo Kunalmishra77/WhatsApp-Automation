@@ -19,6 +19,8 @@ const securityHeaders = [
 ];
 
 const config: NextConfig = {
+  output: 'standalone',
+
   // Increase body size limit for KB document uploads (PDFs up to 10MB)
   experimental: {
     serverActions: {
