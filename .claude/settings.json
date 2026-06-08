@@ -69,7 +69,8 @@
       "Bash(grep -E \"\\\\.\\(ts|js\\)$\")",
       "WebFetch(domain:app.getgabs.com)",
       "WebFetch(domain:www.getgabs.com)",
-      "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js\\)$\")"
+      "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js\\)$\")",
+      "Bash(supabase --version)"
     ],
     "additionalDirectories": [
       "d:\\WhatsApp-Automation\\app\\api\\contacts\\[id]",

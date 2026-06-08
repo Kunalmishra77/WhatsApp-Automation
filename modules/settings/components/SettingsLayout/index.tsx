@@ -28,10 +28,11 @@ import { BillingSettings } from '../BillingSettings';
 import { MediaLibrary } from '../MediaLibrary';
 import { CatalogSettings } from '../CatalogSettings';
 import { AutomationTriggersSettings } from '../AutomationTriggersSettings';
+import { ChatWidgetSettings } from '../ChatWidgetSettings';
 
 type SettingKey =
   | 'profile' | 'workspace' | 'branding' | 'billing'
-  | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library'
+  | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library' | 'chat-widget'
   | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers' | 'auto-triggers'
   | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models'
   | 'audit-logs';
@@ -59,6 +60,7 @@ const NAV_SECTIONS: NavSection[] = [
       { key: 'quick-replies',  label: 'Quick Replies',  icon: MessagesSquare },
       { key: 'qr-code',        label: 'QR Code',        icon: Layers },
       { key: 'catalog',        label: 'Product Catalog', icon: ShoppingBag },
+      { key: 'chat-widget',    label: 'Chat Widget',     icon: MessageSquare },
       { key: 'media-library',  label: 'Media Library',  icon: MessagesSquare },
     ],
   },
@@ -112,6 +114,7 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'ai-models':      <LlmSettings />,
   'catalog':        <CatalogSettings />,
   'auto-triggers':  <AutomationTriggersSettings />,
+  'chat-widget':    <ChatWidgetSettings />,
   'media-library':  <MediaLibrary />,
   'audit-logs':     <AuditLogs />,
 };
