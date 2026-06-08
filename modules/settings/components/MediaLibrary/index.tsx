@@ -1,40 +1,77 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
-import { Upload, Copy, Trash2, Image, FileVideo, File, ExternalLink } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Upload, Copy, Trash2, Image, FileVideo, File, ExternalLink, Tag, Sparkles, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 interface MediaItem {
-  url:      string;
-  path:     string;
-  name:     string;
-  size:     number;
-  mimeType: string;
+  id: string;
+  url?: string;
+  path?: string;
+  name: string;
+  size?: number;
+  mimeType?: string;
+  // From media_library table
+  media_id?: string;
+  public_url?: string;
+  filename?: string;
+  media_type?: string;
+  tags?: string[];
+  description?: string;
+  created_at?: string;
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024)         return `${bytes} B`;
+  if (bytes < 1024)        return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function getFileIcon(mimeType: string) {
-  if (mimeType.startsWith('image/')) return Image;
-  if (mimeType.startsWith('video/')) return FileVideo;
+function getFileIcon(mimeType = '') {
+  if (mimeType.startsWith('image/') || mimeType === 'image') return Image;
+  if (mimeType.startsWith('video/') || mimeType === 'video')  return FileVideo;
   return File;
 }
 
 export function MediaLibrary() {
-  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
-  const [items,    setItems]    = useState<MediaItem[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [progress,  setProgress]  = useState(0);
-  const [dragging,  setDragging]  = useState(false);
+  const workspaceId  = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
+  const queryClient  = useQueryClient();
+
+  const [uploading,   setUploading]   = useState(false);
+  const [progress,    setProgress]    = useState(0);
+  const [dragging,    setDragging]    = useState(false);
+  const [tagInput,    setTagInput]    = useState('');
+  const [pendingTags, setPendingTags] = useState<string[]>([]);
+  const [description, setDescription] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch all saved media items from DB
+  const { data: dbItems, isLoading } = useQuery({
+    queryKey: ['media-library', workspaceId],
+    queryFn: async () => {
+      const res  = await fetch(`/api/media-library?workspaceId=${workspaceId}`);
+      if (!res.ok) return [];
+      const data = await res.json() as { items: MediaItem[] };
+      return data.items ?? [];
+    },
+    enabled: !!workspaceId,
+  });
+
+  const addTag = () => {
+    const t = tagInput.trim().toLowerCase();
+    if (t && !pendingTags.includes(t)) {
+      setPendingTags((p) => [...p, t]);
+    }
+    setTagInput('');
+  };
 
   const uploadFile = async (file: File) => {
     setUploading(true);
@@ -46,23 +83,32 @@ export function MediaLibrary() {
 
       setProgress(40);
       const res  = await fetch('/api/media/upload', { method: 'POST', body: form });
-      setProgress(80);
+      setProgress(70);
       const data = await res.json() as { url?: string; path?: string; size?: number; mimeType?: string; error?: string };
 
       if (!res.ok || data.error) { toast.error(data.error ?? 'Upload failed'); return; }
 
-      const newItem: MediaItem = {
-        url:      data.url!,
-        path:     data.path!,
-        name:     file.name,
-        size:     data.size!,
-        mimeType: data.mimeType!,
-      };
+      // Save to media_library with tags
+      const mediaType = data.mimeType?.startsWith('video') ? 'video' : data.mimeType?.startsWith('image') ? 'image' : 'document';
+      await fetch('/api/media-library', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId,
+          url:         data.url,
+          mediaType,
+          filename:    file.name,
+          tags:        pendingTags,
+          description: description.trim() || undefined,
+        }),
+      });
 
-      setItems((prev) => [newItem, ...prev]);
       setProgress(100);
-      toast.success('Uploaded! URL copied to clipboard.');
-      await navigator.clipboard.writeText(data.url!).catch(() => {});
+      toast.success('✅ Uploaded & saved to Media Library!');
+      void navigator.clipboard.writeText(data.url!).catch(() => {});
+      setPendingTags([]);
+      setDescription('');
+      void queryClient.invalidateQueries({ queryKey: ['media-library', workspaceId] });
     } catch {
       toast.error('Upload failed');
     } finally {
@@ -71,92 +117,162 @@ export function MediaLibrary() {
     }
   };
 
-  const handleFiles = (files: FileList | null) => {
-    if (!files?.length) return;
-    void uploadFile(files[0]!);
-  };
-
   const handleDelete = async (item: MediaItem) => {
-    const params = new URLSearchParams({ path: item.path, workspaceId });
+    if (!confirm(`Delete "${item.filename ?? item.name}"?`)) return;
+    const params = new URLSearchParams({ path: item.path ?? '', workspaceId });
     await fetch(`/api/media/upload?${params}`, { method: 'DELETE' });
-    setItems((prev) => prev.filter((i) => i.path !== item.path));
+    await fetch(`/api/media-library`, {
+      method:  'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaceId, id: item.id }),
+    });
+    void queryClient.invalidateQueries({ queryKey: ['media-library', workspaceId] });
     toast.success('Deleted');
   };
 
+  const handleUpdateTags = async (item: MediaItem, newTags: string[]) => {
+    await fetch('/api/media-library', {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ workspaceId, id: item.id, tags: newTags }),
+    });
+    void queryClient.invalidateQueries({ queryKey: ['media-library', workspaceId] });
+    toast.success('Tags updated');
+  };
+
+  const displayItems = dbItems ?? [];
+
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-3xl">
       <div>
         <h2 className="text-base font-semibold text-foreground">Media Library</h2>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Upload photos/videos → get a public URL → use directly in campaign broadcasts.
+          Upload images/videos. Add <strong>tags</strong> so AI automatically sends matching images when customers ask.
         </p>
+      </div>
+
+      {/* AI tip */}
+      <div className="rounded-lg border border-purple-200 bg-purple-50 px-4 py-3 text-xs text-purple-800 flex gap-2">
+        <Sparkles className="h-4 w-4 shrink-0 mt-0.5 text-purple-500" />
+        <div>
+          <p className="font-semibold">AI Image Auto-Send</p>
+          <p>When a customer writes <em>"product photos dikhao"</em> or <em>"show me catalog images"</em>, AI will automatically search by tags and send matching images on WhatsApp.</p>
+          <p className="mt-1"><strong>Tip:</strong> Use tags like <code className="bg-purple-100 px-1 rounded">product</code>, <code className="bg-purple-100 px-1 rounded">catalog</code>, <code className="bg-purple-100 px-1 rounded">price-list</code>, <code className="bg-purple-100 px-1 rounded">logo</code></p>
+        </div>
+      </div>
+
+      {/* Tags + Description for new upload */}
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <p className="text-sm font-medium text-foreground">Add tags before uploading</p>
+
+        <div className="flex gap-2">
+          <Input
+            placeholder="e.g. product, catalog, offer..."
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); }}}
+            className="h-8 text-sm"
+          />
+          <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={addTag}>
+            <Tag className="h-3.5 w-3.5" /> Add Tag
+          </Button>
+        </div>
+
+        {pendingTags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {pendingTags.map((tag) => (
+              <Badge key={tag} variant="secondary" className="gap-1 text-xs">
+                {tag}
+                <button onClick={() => setPendingTags((p) => p.filter((t) => t !== tag))}>
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
+
+        <Input
+          placeholder="Description (optional) — e.g. Summer collection product photos"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          className="h-8 text-sm"
+        />
       </div>
 
       {/* Drop zone */}
       <div
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
-        onDrop={(e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files[0]) void uploadFile(e.dataTransfer.files[0]); }}
         className={cn(
-          'relative rounded-xl border-2 border-dashed p-10 text-center transition-all cursor-pointer',
+          'relative rounded-xl border-2 border-dashed p-8 text-center transition-all cursor-pointer',
           dragging ? 'border-brand-500 bg-brand-50/50' : 'border-border hover:border-brand-400 hover:bg-muted/30',
         )}
         onClick={() => inputRef.current?.click()}
       >
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*,video/*,.pdf"
-          className="hidden"
-          onChange={(e) => handleFiles(e.target.files)}
-        />
-        <Upload className={cn('h-8 w-8 mx-auto mb-3', dragging ? 'text-brand-500' : 'text-muted-foreground')} />
-        <p className="text-sm font-medium text-foreground">Click or drag & drop to upload</p>
-        <p className="text-xs text-muted-foreground mt-1">Images, Videos, PDFs — max 50MB</p>
+        <input ref={inputRef} type="file" accept="image/*,video/*,.pdf" className="hidden"
+          onChange={(e) => { if (e.target.files?.[0]) void uploadFile(e.target.files[0]); }} />
+        <Upload className={cn('h-8 w-8 mx-auto mb-2', dragging ? 'text-brand-500' : 'text-muted-foreground')} />
+        <p className="text-sm font-medium">Click or drag & drop to upload</p>
+        <p className="text-xs text-muted-foreground mt-1">Images, Videos — max 50MB</p>
         {uploading && (
-          <div className="mt-4 space-y-1">
+          <div className="mt-3 space-y-1">
             <Progress value={progress} className="h-1.5 max-w-xs mx-auto" />
             <p className="text-xs text-muted-foreground">Uploading…</p>
           </div>
         )}
       </div>
 
-      {/* Uploaded items */}
-      {items.length > 0 && (
+      {/* All saved items */}
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Loading media…</p>
+      ) : displayItems.length > 0 ? (
         <div className="space-y-2">
-          <p className="text-sm font-medium text-muted-foreground">{items.length} file{items.length !== 1 ? 's' : ''} this session</p>
-          {items.map((item) => {
-            const Icon = getFileIcon(item.mimeType);
+          <p className="text-sm font-medium text-muted-foreground">{displayItems.length} item{displayItems.length !== 1 ? 's' : ''} in library</p>
+          {displayItems.map((item) => {
+            const url      = item.public_url ?? item.media_id ?? item.url ?? '';
+            const name     = item.filename ?? item.name ?? 'media';
+            const type     = item.media_type ?? item.mimeType ?? '';
+            const Icon     = getFileIcon(type);
+            const isImage  = type === 'image' || type.startsWith('image/');
+
             return (
-              <div key={item.path} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
-                {item.mimeType.startsWith('image/') ? (
+              <div key={item.id} className="flex items-start gap-3 rounded-xl border border-border bg-card p-3">
+                {isImage && url.startsWith('http') ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.url} alt={item.name} className="h-12 w-12 rounded-lg object-cover shrink-0 border border-border" />
+                  <img src={url} alt={name} className="h-14 w-14 rounded-lg object-cover shrink-0 border border-border" />
                 ) : (
-                  <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                  <div className="h-14 w-14 rounded-lg bg-muted flex items-center justify-center shrink-0">
                     <Icon className="h-6 w-6 text-muted-foreground" />
                   </div>
                 )}
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate">{item.name}</p>
-                  <p className="text-xs text-muted-foreground">{formatBytes(item.size)}</p>
-                  <p className="text-[11px] text-brand-600 truncate font-mono mt-0.5">{item.url}</p>
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="text-sm font-medium truncate">{name}</p>
+                  {item.description && <p className="text-xs text-muted-foreground">{item.description}</p>}
+                  {/* Tags */}
+                  <div className="flex flex-wrap gap-1">
+                    {(item.tags ?? []).map((tag) => (
+                      <Badge key={tag} variant="outline" className="text-[10px] px-1.5 py-0 gap-1">
+                        <Tag className="h-2.5 w-2.5" /> {tag}
+                        <button className="hover:text-destructive" onClick={() => {
+                          const newTags = (item.tags ?? []).filter((t) => t !== tag);
+                          void handleUpdateTags(item, newTags);
+                        }}><X className="h-2.5 w-2.5" /></button>
+                      </Badge>
+                    ))}
+                    <AddTagInline onAdd={(tag) => void handleUpdateTags(item, [...(item.tags ?? []), tag])} />
+                  </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <Button
-                    size="icon" variant="ghost" className="h-7 w-7"
-                    title="Copy URL"
-                    onClick={() => { void navigator.clipboard.writeText(item.url); toast.success('URL copied!'); }}
-                  >
+                  <Button size="icon" variant="ghost" className="h-7 w-7" title="Copy URL"
+                    onClick={() => { void navigator.clipboard.writeText(url); toast.success('URL copied!'); }}>
                     <Copy className="h-3.5 w-3.5" />
                   </Button>
                   <Button size="icon" variant="ghost" className="h-7 w-7" asChild>
-                    <a href={item.url} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3.5 w-3.5" /></a>
+                    <a href={url} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3.5 w-3.5" /></a>
                   </Button>
-                  <Button
-                    size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                    onClick={() => void handleDelete(item)}
-                  >
+                  <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    onClick={() => void handleDelete(item)}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -164,14 +280,37 @@ export function MediaLibrary() {
             );
           })}
         </div>
+      ) : (
+        <p className="text-sm text-muted-foreground text-center py-4">No media uploaded yet.</p>
       )}
+    </div>
+  );
+}
 
-      <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs text-blue-700 space-y-1">
-        <p className="font-semibold">Campaign mein use kaise karein:</p>
-        <p>1. Yahan se photo upload karo → URL automatically clipboard mein copy ho jaayega</p>
-        <p>2. Campaign wizard → Media step mein URL paste karo (ya direct file upload karo)</p>
-        <p>3. Bulk send mein ye URL image ke saath jaayega har contact ko</p>
-      </div>
+// Inline add tag component
+function AddTagInline({ onAdd }: { onAdd: (tag: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal]         = useState('');
+
+  const submit = () => {
+    const t = val.trim().toLowerCase();
+    if (t) onAdd(t);
+    setVal(''); setEditing(false);
+  };
+
+  if (!editing) return (
+    <button onClick={() => setEditing(true)} className="text-[10px] text-brand-600 hover:underline flex items-center gap-0.5">
+      <Tag className="h-2.5 w-2.5" /> Add tag
+    </button>
+  );
+
+  return (
+    <div className="flex items-center gap-1">
+      <Input autoFocus value={val} onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') setEditing(false); }}
+        className="h-5 text-[10px] px-1 w-20" placeholder="tag..." />
+      <button onClick={submit} className="text-[10px] text-green-600">✓</button>
+      <button onClick={() => setEditing(false)} className="text-[10px] text-muted-foreground">✗</button>
     </div>
   );
 }

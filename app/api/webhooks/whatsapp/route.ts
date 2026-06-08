@@ -1002,6 +1002,36 @@ async function sendAutoReply(
   const kbContext = await fetchKnowledgeBaseContext(supabase, workspaceId, customerMessage);
 
   const wsSettings = (ws?.settings ?? {}) as Record<string, unknown>;
+
+  // \u2500\u2500 Image Intent Detection \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  // If customer asks for photos/images, search media library and send matching images
+  const imageIntent = detectImageIntent(customerMessage);
+  if (!isEscalation && imageIntent) {
+    const mediaItems = await searchMediaLibrary(supabase, workspaceId, imageIntent.keywords);
+    if (mediaItems.length > 0) {
+      await sendMediaImages(ws.phone_number_id, ws.access_token, toPhone, mediaItems.slice(0, 3));
+      // Also send a text message
+      const textMsg = `Here are ${mediaItems.length > 1 ? mediaItems.length + ' images' : 'an image'} for "${imageIntent.query}" \uD83D\uDCF8`;
+      await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, textMsg);
+      // Save to DB
+      if (conversationId && contactId) {
+        await (supabase as any).from('messages').insert({
+          conversation_id: conversationId,
+          workspace_id:    workspaceId,
+          contact_id:      contactId,
+          direction:       'outbound',
+          content:         textMsg,
+          msg_type:        'text',
+          status:          'sent',
+          sender_type:     'bot',
+          created_at:      new Date().toISOString(),
+        });
+      }
+      return;
+    }
+  }
+  // \u2500\u2500 End Image Intent \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
   const message = isEscalation
     ? ESCALATION_REPLY
     : (await getAIReply(customerMessage, name, kbContext, imageUrl, wsSettings, businessName)
@@ -1383,4 +1413,109 @@ interface WAStatus {
   status: string;
   timestamp: string;
   recipient_id: string;
+}
+
+// ── Image Intent Detection ────────────────────────────────────────────────────
+
+const IMAGE_KEYWORDS = [
+  'photo', 'photos', 'image', 'images', 'picture', 'pictures', 'pic', 'pics',
+  'dikhao', 'dikha', 'dekh', 'dekhna', 'dekho', 'show', 'send photo', 'photo bhejo',
+  'image bhejo', 'photo send', 'catalog', 'catalogue', 'gallery', 'brochure',
+];
+
+function detectImageIntent(message: string): { query: string; keywords: string[] } | null {
+  const lower = message.toLowerCase();
+  const hasImageRequest = IMAGE_KEYWORDS.some((kw) => lower.includes(kw));
+  if (!hasImageRequest) return null;
+
+  // Extract what they want (remove image keywords to get the subject)
+  const cleaned = lower
+    .replace(/show me|send|bhejo|dikha|dikhao|dekho|please|hi|hello|the|a |an /g, '')
+    .replace(/photos?|images?|pictures?|pics?|catalog(?:ue)?|gallery/g, '')
+    .trim();
+
+  const words = cleaned.split(/\s+/).filter((w) => w.length > 2);
+  return { query: cleaned || message, keywords: words.length > 0 ? words : ['product'] };
+}
+
+async function searchMediaLibrary(
+  supabase: AdminClient,
+  workspaceId: string,
+  keywords: string[],
+): Promise<Array<{ media_id: string; public_url: string | null; filename: string; media_type: string }>> {
+  try {
+    // Try tag-based search first
+    const { data: tagResults } = await (supabase as any)
+      .from('media_library')
+      .select('media_id, public_url, filename, media_type, tags')
+      .eq('workspace_id', workspaceId)
+      .eq('media_type', 'image')
+      .overlaps('tags', keywords)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (tagResults?.length) return tagResults;
+
+    // Fallback: search by filename
+    const { data: nameResults } = await (supabase as any)
+      .from('media_library')
+      .select('media_id, public_url, filename, media_type')
+      .eq('workspace_id', workspaceId)
+      .eq('media_type', 'image')
+      .ilike('filename', `%${keywords[0] ?? ''}%`)
+      .order('created_at', { ascending: false })
+      .limit(3);
+
+    return nameResults ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function sendMediaImages(
+  phoneNumberId: string,
+  accessToken: string,
+  toPhone: string,
+  items: Array<{ media_id: string; public_url: string | null; filename: string }>,
+): Promise<void> {
+  const token = accessToken.replace(/﻿/g, '').trim();
+  for (const item of items) {
+    const imageUrl = item.public_url ?? item.media_id;
+    if (!imageUrl?.startsWith('http')) continue;
+    try {
+      await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type:    'individual',
+          to:                toPhone,
+          type:              'image',
+          image:             { link: imageUrl, caption: item.filename },
+        }),
+      });
+    } catch (err) {
+      console.error('[sendMediaImages] failed for', item.filename, err);
+    }
+  }
+}
+
+async function sendWhatsAppText(
+  phoneNumberId: string,
+  accessToken: string,
+  toPhone: string,
+  text: string,
+): Promise<void> {
+  const token = accessToken.replace(/﻿/g, '').trim();
+  await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      recipient_type:    'individual',
+      to:                toPhone,
+      type:              'text',
+      text:              { preview_url: false, body: text },
+    }),
+  });
 }
