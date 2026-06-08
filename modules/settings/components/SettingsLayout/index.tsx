@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
   User, Building2, MessageSquare, Shield, Clock,
-  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock,
+  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProfileSettings } from '../ProfileSettings';
@@ -26,12 +26,13 @@ import { LlmSettings } from '../LlmSettings';
 import { BrandingSettings } from '../BrandingSettings';
 import { BillingSettings } from '../BillingSettings';
 import { MediaLibrary } from '../MediaLibrary';
+import { CatalogSettings } from '../CatalogSettings';
 
 type SettingKey =
   | 'profile' | 'workspace' | 'branding' | 'billing'
-  | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code'
+  | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library'
   | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers'
-  | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models' | 'media-library'
+  | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models'
   | 'audit-logs';
 
 interface NavSection {
@@ -56,6 +57,7 @@ const NAV_SECTIONS: NavSection[] = [
       { key: 'business-hours', label: 'Business Hours', icon: Clock },
       { key: 'quick-replies',  label: 'Quick Replies',  icon: MessagesSquare },
       { key: 'qr-code',        label: 'QR Code',        icon: Layers },
+      { key: 'catalog',        label: 'Product Catalog', icon: ShoppingBag },
       { key: 'media-library',  label: 'Media Library',  icon: MessagesSquare },
     ],
   },
@@ -106,6 +108,7 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'webhooks':       <WebhookSettings />,
   'api-keys':       <ApiKeys />,
   'ai-models':      <LlmSettings />,
+  'catalog':        <CatalogSettings />,
   'media-library':  <MediaLibrary />,
   'audit-logs':     <AuditLogs />,
 };

@@ -20,7 +20,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Send, StickyNote, LayoutList, IndianRupee, Sparkles, Loader2, X, ShoppingBag, Paperclip, Image, Smile } from 'lucide-react';
+import { Send, StickyNote, LayoutList, IndianRupee, Sparkles, Loader2, X, ShoppingBag, Paperclip, Image, Smile, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useSendMessage, useSuggestedReplies, useTypingBroadcast } from '../../hooks/useMessages';
@@ -41,11 +41,17 @@ export function MessageInput({ conversationId }: MessageInputProps) {
   const [payDescription, setPayDescription] = useState('');
   const [payCurrency, setPayCurrency] = useState('INR');
   const [isSendingPayment, setIsSendingPayment] = useState(false);
-  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
-  const [catalogId, setCatalogId] = useState('');
-  const [productId, setProductId] = useState('');
-  const [productBodyText, setProductBodyText] = useState('');
+  const [isCatalogOpen, setIsCatalogOpen]       = useState(false);
+  const [catalogId, setCatalogId]               = useState('');
+  const [productId, setProductId]               = useState('');
+  const [productBodyText, setProductBodyText]   = useState('');
   const [isSendingProduct, setIsSendingProduct] = useState(false);
+  const [catalogProducts, setCatalogProducts]   = useState<Array<{ id: string; retailer_id: string; name: string; price?: string; currency?: string; image_url?: string }>>([]);
+  const [catalogLoading, setCatalogLoading]     = useState(false);
+  const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
+  const [productSearch, setProductSearch]       = useState('');
+  const [sendMode, setSendMode]                 = useState<'single' | 'list'>('single');
+  const [productBodyList, setProductBodyList]   = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [quickReplies, setQuickReplies] = useState<Array<{ id: string; shortcut: string; title: string; content: string }>>([]);
   const [showQuickReplies, setShowQuickReplies] = useState(false);
@@ -167,27 +173,51 @@ export function MessageInput({ conversationId }: MessageInputProps) {
     }
   };
 
+  const openCatalogDialog = async () => {
+    setIsCatalogOpen(true);
+    setSelectedProducts([]);
+    setProductSearch('');
+    setSendMode('single');
+    setCatalogLoading(true);
+    try {
+      if (!workspaceId) return;
+      const res = await fetch(`/api/catalog?workspaceId=${workspaceId}`);
+      if (res.ok) {
+        const data = await res.json() as { catalog_id: string | null; products: typeof catalogProducts };
+        if (data.catalog_id) setCatalogId(data.catalog_id);
+        setCatalogProducts(data.products ?? []);
+      }
+    } catch { /* silent */ }
+    finally { setCatalogLoading(false); }
+  };
+
   const handleSendProduct = async () => {
-    if (!catalogId.trim() || !productId.trim()) { toast.error('Catalog ID and Product ID are required'); return; }
+    const isListMode = sendMode === 'list';
+    if (isListMode) {
+      if (!selectedProducts.length) { toast.error('Select at least one product'); return; }
+      if (!catalogId) { toast.error('No catalog connected. Configure in Settings → Product Catalog.'); return; }
+    } else {
+      if (catalogProducts.length > 0 && !selectedProducts[0] && !productId.trim()) {
+        toast.error('Select or enter a product'); return;
+      }
+      if (!catalogId.trim()) { toast.error('Catalog ID required'); return; }
+    }
     setIsSendingProduct(true);
     try {
+      const singleId = selectedProducts[0] ?? productId.trim();
       const res = await fetch('/api/messages/catalog', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationId,
-          catalogId: catalogId.trim(),
-          productId: productId.trim(),
-          bodyText: productBodyText.trim() || undefined,
-        }),
+        body: JSON.stringify(isListMode
+          ? { conversationId, catalogId, productIds: selectedProducts, bodyText: productBodyList.trim() || undefined }
+          : { conversationId, catalogId: catalogId.trim(), productId: singleId, bodyText: productBodyText.trim() || undefined }),
       });
       const data = await res.json() as { error?: string };
       if (!res.ok) throw new Error(data.error ?? 'Failed to send product');
-      toast.success('Product sent!');
+      toast.success(isListMode ? `${selectedProducts.length} products sent!` : 'Product sent!');
       setIsCatalogOpen(false);
-      setCatalogId('');
-      setProductId('');
-      setProductBodyText('');
+      setCatalogId(''); setProductId(''); setProductBodyText('');
+      setSelectedProducts([]); setProductBodyList('');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to send product');
     } finally {
@@ -372,7 +402,7 @@ export function MessageInput({ conversationId }: MessageInputProps) {
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8"
-                  onClick={() => setIsCatalogOpen(true)}
+                  onClick={() => void openCatalogDialog()}
                 >
                   <ShoppingBag className="h-4 w-4" />
                 </Button>
@@ -496,53 +526,139 @@ export function MessageInput({ conversationId }: MessageInputProps) {
         </DialogContent>
       </Dialog>
       <Dialog open={isCatalogOpen} onOpenChange={setIsCatalogOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Send Product from Catalog</DialogTitle>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-5 pt-5 pb-3 border-b border-border shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <ShoppingBag className="h-5 w-5 text-brand-500" />
+              Send Product
+            </DialogTitle>
           </DialogHeader>
-          <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
-            Requires a <strong>Meta Commerce Catalog</strong> connected to your WhatsApp Business account.
-          </div>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="catalog-id">Catalog ID</Label>
-              <Input
-                id="catalog-id"
-                placeholder="e.g. 1234567890"
-                value={catalogId}
-                onChange={(e) => setCatalogId(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="product-id">Product Retailer ID</Label>
-              <Input
-                id="product-id"
-                placeholder="e.g. SKU-001 or product-abc"
-                value={productId}
-                onChange={(e) => setProductId(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="product-body">Message (optional)</Label>
-              <Input
-                id="product-body"
-                placeholder="e.g. Check out this product!"
-                value={productBodyText}
-                onChange={(e) => setProductBodyText(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCatalogOpen(false)} disabled={isSendingProduct}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => void handleSendProduct()}
-              disabled={isSendingProduct || !catalogId || !productId}
+
+          {/* Mode toggle */}
+          <div className="px-5 pt-3 flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => { setSendMode('single'); setSelectedProducts([]); }}
+              className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${sendMode === 'single' ? 'bg-brand-500 text-white' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
             >
-              {isSendingProduct ? 'Sending…' : 'Send Product'}
-            </Button>
-          </DialogFooter>
+              Single Product
+            </button>
+            <button
+              onClick={() => { setSendMode('list'); setSelectedProducts([]); }}
+              className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${sendMode === 'list' ? 'bg-brand-500 text-white' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
+            >
+              Product List (multi)
+            </button>
+            {sendMode === 'list' && selectedProducts.length > 0 && (
+              <span className="text-xs text-muted-foreground">{selectedProducts.length} selected</span>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
+            {catalogLoading ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">Loading products…</div>
+            ) : catalogProducts.length > 0 ? (
+              <>
+                {/* Search */}
+                <Input
+                  placeholder="Search products…"
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  className="h-8 text-sm"
+                />
+                {/* Products grid */}
+                <div className="grid grid-cols-3 gap-2">
+                  {catalogProducts
+                    .filter(p => !productSearch || p.name.toLowerCase().includes(productSearch.toLowerCase()) || p.retailer_id.toLowerCase().includes(productSearch.toLowerCase()))
+                    .map((p) => {
+                      const isSelected = sendMode === 'single'
+                        ? selectedProducts[0] === p.retailer_id
+                        : selectedProducts.includes(p.retailer_id);
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => {
+                            if (sendMode === 'single') {
+                              setSelectedProducts([p.retailer_id]);
+                            } else {
+                              setSelectedProducts(prev =>
+                                prev.includes(p.retailer_id)
+                                  ? prev.filter(id => id !== p.retailer_id)
+                                  : [...prev, p.retailer_id],
+                              );
+                            }
+                          }}
+                          className={`relative rounded-xl border-2 overflow-hidden text-left transition-all ${isSelected ? 'border-brand-500 shadow-md' : 'border-border hover:border-brand-300'}`}
+                        >
+                          {p.image_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={p.image_url} alt={p.name} className="w-full h-20 object-cover bg-muted" loading="lazy" />
+                          ) : (
+                            <div className="w-full h-20 bg-muted flex items-center justify-center">
+                              <ShoppingBag className="h-6 w-6 text-muted-foreground" />
+                            </div>
+                          )}
+                          <div className="p-2">
+                            <p className="text-xs font-semibold truncate leading-tight">{p.name}</p>
+                            {p.price && <p className="text-xs text-brand-600 font-bold mt-0.5">{p.currency ?? ''} {p.price}</p>}
+                          </div>
+                          {isSelected && (
+                            <div className="absolute top-1.5 right-1.5 h-5 w-5 rounded-full bg-brand-500 flex items-center justify-center">
+                              <span className="text-white text-[10px] font-bold">✓</span>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                </div>
+              </>
+            ) : (
+              /* Fallback: manual entry */
+              <div className="space-y-3">
+                <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                  No products synced. Go to <strong>Settings → Product Catalog</strong> to connect your Meta catalog first, or enter IDs manually below.
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Catalog ID</Label>
+                  <Input placeholder="e.g. 1234567890" value={catalogId} onChange={(e) => setCatalogId(e.target.value)} className="h-8 text-sm font-mono" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Product Retailer ID</Label>
+                  <Input placeholder="e.g. SKU-001" value={productId} onChange={(e) => setProductId(e.target.value)} className="h-8 text-sm font-mono" />
+                </div>
+              </div>
+            )}
+
+            {/* Body text */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Message (optional)</Label>
+              <Input
+                placeholder="e.g. Check out this product!"
+                value={sendMode === 'list' ? productBodyList : productBodyText}
+                onChange={(e) => sendMode === 'list' ? setProductBodyList(e.target.value) : setProductBodyText(e.target.value)}
+                className="h-8 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="px-5 py-3 border-t border-border flex items-center justify-between shrink-0">
+            <p className="text-xs text-muted-foreground">
+              {sendMode === 'list'
+                ? selectedProducts.length > 0 ? `${selectedProducts.length} products selected` : 'Tap to select multiple products'
+                : selectedProducts[0] ? `Selected: ${catalogProducts.find(p => p.retailer_id === selectedProducts[0])?.name ?? selectedProducts[0]}` : 'Tap a product to select'}
+            </p>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setIsCatalogOpen(false)} disabled={isSendingProduct}>Cancel</Button>
+              <Button
+                size="sm"
+                className="bg-brand-500 hover:bg-brand-600 gap-1.5"
+                onClick={() => void handleSendProduct()}
+                disabled={isSendingProduct || (catalogProducts.length > 0 ? selectedProducts.length === 0 : (!catalogId || !productId))}
+              >
+                <ShoppingBag className="h-3.5 w-3.5" />
+                {isSendingProduct ? 'Sending…' : sendMode === 'list' ? `Send ${selectedProducts.length || ''} Products` : 'Send Product'}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </TooltipProvider>
