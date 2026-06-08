@@ -13,7 +13,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import {
-  CheckCircle2, MessageSquare, Users, BarChart3, Zap, Bot, Globe, Shield, Clock, Megaphone,
+  CheckCircle2, MessageSquare, Users, BarChart3, Zap, Bot, Globe, Shield,
+  Clock, Megaphone, Plus, Trash2,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -23,7 +24,7 @@ interface Props {
   workspaceName: string;
 }
 
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3 | 4 | 5;
 
 interface FormData {
   businessName: string;
@@ -36,6 +37,11 @@ interface FormData {
   testPhone: string;
   connectionTested: boolean;
   selectedPlan: string;
+}
+
+interface ContactEntry {
+  name: string;
+  phone: string;
 }
 
 const INDUSTRIES = [
@@ -52,12 +58,12 @@ const PLANS = [
     tagline: 'For small businesses just starting out',
     highlight: false,
     features: [
-      { icon: Bot,          text: '3 AI Agents' },
-      { icon: MessageSquare,text: '1,000 messages/month' },
-      { icon: Megaphone,    text: '5 broadcast campaigns/month' },
-      { icon: Users,        text: 'Up to 5 team members' },
-      { icon: Zap,          text: 'Chatbot flow builder' },
-      { icon: BarChart3,    text: 'Basic analytics' },
+      { icon: Bot,           text: '3 AI Agents' },
+      { icon: MessageSquare, text: '1,000 messages/month' },
+      { icon: Megaphone,     text: '5 broadcast campaigns/month' },
+      { icon: Users,         text: 'Up to 5 team members' },
+      { icon: Zap,           text: 'Chatbot flow builder' },
+      { icon: BarChart3,     text: 'Basic analytics' },
     ],
     notIncluded: ['Custom AI models', 'API access', 'White-label'],
   },
@@ -69,14 +75,14 @@ const PLANS = [
     tagline: 'Best for growing teams',
     highlight: true,
     features: [
-      { icon: Bot,          text: '10 AI Agents' },
-      { icon: MessageSquare,text: '25,000 messages/month' },
-      { icon: Megaphone,    text: '50 broadcast campaigns/month' },
-      { icon: Users,        text: 'Unlimited team members' },
-      { icon: Zap,          text: 'Advanced automation + flows' },
-      { icon: BarChart3,    text: 'Full analytics + CSAT' },
-      { icon: Globe,        text: 'Knowledge Base (500 docs)' },
-      { icon: Clock,        text: 'Follow-up sequences' },
+      { icon: Bot,           text: '10 AI Agents' },
+      { icon: MessageSquare, text: '25,000 messages/month' },
+      { icon: Megaphone,     text: '50 broadcast campaigns/month' },
+      { icon: Users,         text: 'Unlimited team members' },
+      { icon: Zap,           text: 'Advanced automation + flows' },
+      { icon: BarChart3,     text: 'Full analytics + CSAT' },
+      { icon: Globe,         text: 'Knowledge Base (500 docs)' },
+      { icon: Clock,         text: 'Follow-up sequences' },
     ],
     notIncluded: ['White-label'],
   },
@@ -88,20 +94,20 @@ const PLANS = [
     tagline: 'Unlimited scale',
     highlight: false,
     features: [
-      { icon: Bot,          text: 'Unlimited AI Agents' },
-      { icon: MessageSquare,text: 'Unlimited messages' },
-      { icon: Megaphone,    text: 'Unlimited campaigns' },
-      { icon: Users,        text: 'Unlimited team members' },
-      { icon: Globe,        text: 'Unlimited Knowledge Base' },
-      { icon: Shield,       text: 'API access + Webhooks' },
-      { icon: Globe,        text: 'Custom domain (White-label)' },
-      { icon: BarChart3,    text: 'Priority support + SLA' },
+      { icon: Bot,           text: 'Unlimited AI Agents' },
+      { icon: MessageSquare, text: 'Unlimited messages' },
+      { icon: Megaphone,     text: 'Unlimited campaigns' },
+      { icon: Users,         text: 'Unlimited team members' },
+      { icon: Globe,         text: 'Unlimited Knowledge Base' },
+      { icon: Shield,        text: 'API access + Webhooks' },
+      { icon: Globe,         text: 'Custom domain (White-label)' },
+      { icon: BarChart3,     text: 'Priority support + SLA' },
     ],
     notIncluded: [],
   },
 ] as const;
 
-const TOTAL_STEPS = 4;
+const TOTAL_STEPS = 5;
 
 // ─── StepHeader ───────────────────────────────────────────────────────────────
 
@@ -118,7 +124,7 @@ function StepHeader({ step, title, subtitle }: { step: Step; title: string; subt
       </div>
       <Progress value={pct} className="mb-6 h-1.5" />
       <div className="mb-6 flex items-center gap-2">
-        {([1, 2, 3, 4] as Step[]).map((s) => (
+        {([1, 2, 3, 4, 5] as Step[]).map((s) => (
           <div key={s} className={cn(
             'flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold transition-all',
             s < step  ? 'bg-brand-500 text-white'
@@ -143,6 +149,7 @@ export function OnboardingWizard({ workspaceId, workspaceName }: Props) {
   const [step, setStep]       = useState<Step>(1);
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [connStatus, setConnStatus] = useState<'idle' | 'ok' | 'fail'>('idle');
 
   const [form, setForm] = useState<FormData>({
@@ -157,6 +164,10 @@ export function OnboardingWizard({ workspaceId, workspaceName }: Props) {
     connectionTested: false,
     selectedPlan:    '',
   });
+
+  const [contacts, setContacts] = useState<ContactEntry[]>([
+    { name: '', phone: '' },
+  ]);
 
   function set<K extends keyof FormData>(key: K, value: FormData[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -215,14 +226,56 @@ export function OnboardingWizard({ workspaceId, workspaceName }: Props) {
     setStep(3);
   }
 
-  // ── Step 3: Plan Selection ────────────────────────────────────────────────
+  // ── Step 3: Import Contacts ────────────────────────────────────────────────
+
+  function addContactRow() {
+    setContacts((prev) => [...prev, { name: '', phone: '' }]);
+  }
+
+  function removeContactRow(idx: number) {
+    setContacts((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function updateContact(idx: number, field: keyof ContactEntry, value: string) {
+    setContacts((prev) => prev.map((c, i) => i === idx ? { ...c, [field]: value } : c));
+  }
+
+  async function handleImportContacts() {
+    const valid = contacts.filter((c) => c.phone.trim());
+    if (valid.length === 0) {
+      // Skip — no contacts entered
+      setStep(4);
+      return;
+    }
+    setImporting(true);
+    try {
+      const res = await fetch('/api/contacts/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId, contacts: valid }),
+      });
+      const data = await res.json() as { total?: number; inserted?: number; failed?: number; error?: string };
+      if (res.ok) {
+        toast.success(`✅ ${data.inserted ?? valid.length} contact(s) imported!`);
+        setStep(4);
+      } else {
+        toast.error(data.error ?? 'Failed to import contacts');
+      }
+    } catch {
+      toast.error('Network error — please try again');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  // ── Step 4: Plan Selection ────────────────────────────────────────────────
 
   function handleSelectPlan(planKey: string) {
     set('selectedPlan', planKey);
-    setStep(4);
+    setStep(5);
   }
 
-  // ── Step 4: Submit for Approval ───────────────────────────────────────────
+  // ── Step 5: Submit for Approval ───────────────────────────────────────────
 
   async function handleSubmit() {
     setLoading(true);
@@ -254,6 +307,10 @@ export function OnboardingWizard({ workspaceId, workspaceName }: Props) {
       setLoading(false);
     }
   }
+
+  const webhookUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/api/webhooks/whatsapp`
+    : '/api/webhooks/whatsapp';
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -311,7 +368,7 @@ export function OnboardingWizard({ workspaceId, workspaceName }: Props) {
               </ul>
               <div className="mt-2 pt-2 border-t border-blue-200 text-xs">
                 <strong>Your Webhook URL:</strong>{' '}
-                <code className="bg-blue-100 px-1 rounded">https://whatsapp-automation-kohl-six.vercel.app/api/webhooks/whatsapp</code><br />
+                <code className="bg-blue-100 px-1 rounded">{webhookUrl}</code><br />
                 <strong>Verify Token:</strong>{' '}
                 <code className="bg-blue-100 px-1 rounded">agentix-webhook-secret-2026</code>
               </div>
@@ -380,10 +437,71 @@ export function OnboardingWizard({ workspaceId, workspaceName }: Props) {
           </div>
         )}
 
-        {/* ── STEP 3: Plan Selection ── */}
+        {/* ── STEP 3: Import Contacts ── */}
         {step === 3 && (
           <div className="rounded-2xl border border-border bg-card p-8 shadow-xl shadow-black/5">
-            <StepHeader step={3} title="Choose your plan"
+            <StepHeader step={3} title="Import your first contacts"
+              subtitle="Add a few contacts to get started — you can import more later." />
+
+            <div className="space-y-3">
+              {contacts.map((c, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <Input
+                    placeholder="Name (optional)"
+                    value={c.name}
+                    onChange={(e) => updateContact(idx, 'name', e.target.value)}
+                    className="flex-1"
+                  />
+                  <Input
+                    placeholder="+91 98765 43210"
+                    value={c.phone}
+                    onChange={(e) => updateContact(idx, 'phone', e.target.value)}
+                    className="flex-1"
+                  />
+                  {contacts.length > 1 && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => removeContactRow(idx)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {contacts.length < 10 && (
+              <Button variant="outline" size="sm" className="mt-3 gap-1.5" onClick={addContactRow}>
+                <Plus className="h-3.5 w-3.5" /> Add another
+              </Button>
+            )}
+
+            <div className="mt-5 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+              <strong>Tip:</strong> You can also bulk-import contacts via CSV from the Contacts page after setup.
+            </div>
+
+            <div className="mt-8 flex items-center justify-between">
+              <Button variant="ghost" onClick={() => setStep(2)}>← Back</Button>
+              <div className="flex items-center gap-3">
+                <Button variant="ghost" onClick={() => setStep(4)} className="text-muted-foreground">
+                  Skip for now
+                </Button>
+                <Button onClick={handleImportContacts} disabled={importing} className="gap-2">
+                  {importing
+                    ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> Importing…</>
+                    : contacts.some((c) => c.phone.trim()) ? 'Import & Continue →' : 'Continue →'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── STEP 4: Plan Selection ── */}
+        {step === 4 && (
+          <div className="rounded-2xl border border-border bg-card p-8 shadow-xl shadow-black/5">
+            <StepHeader step={4} title="Choose your plan"
               subtitle="All plans include WhatsApp CRM, AI automation, and real-time inbox." />
 
             <div className="grid gap-4 sm:grid-cols-3">
@@ -437,16 +555,16 @@ export function OnboardingWizard({ workspaceId, workspaceName }: Props) {
             </div>
 
             <div className="mt-6 flex items-center justify-between">
-              <Button variant="ghost" onClick={() => setStep(2)}>← Back</Button>
+              <Button variant="ghost" onClick={() => setStep(3)}>← Back</Button>
               <p className="text-xs text-muted-foreground">Plans are billed monthly. Cancel anytime.</p>
             </div>
           </div>
         )}
 
-        {/* ── STEP 4: Summary + Submit ── */}
-        {step === 4 && (
+        {/* ── STEP 5: Summary + Submit ── */}
+        {step === 5 && (
           <div className="rounded-2xl border border-border bg-card p-8 shadow-xl shadow-black/5">
-            <StepHeader step={4} title="Ready to submit!"
+            <StepHeader step={5} title="Ready to submit!"
               subtitle="Review your setup and submit for admin approval." />
 
             <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
@@ -474,7 +592,7 @@ export function OnboardingWizard({ workspaceId, workspaceName }: Props) {
             </div>
 
             <div className="flex items-center justify-between">
-              <Button variant="ghost" onClick={() => setStep(3)}>← Back</Button>
+              <Button variant="ghost" onClick={() => setStep(4)}>← Back</Button>
               <Button onClick={handleSubmit} disabled={loading} className="gap-2 bg-green-600 hover:bg-green-700">
                 {loading
                   ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> Submitting…</>

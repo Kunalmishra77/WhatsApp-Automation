@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
     const workspaceId = request.nextUrl.searchParams.get('workspaceId');
     if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
 
-    await requireWorkspacePermission(workspaceId, 'manage_settings');
+    await requireWorkspacePermission(workspaceId, 'manage_workspace');
     const db = createAdminClient() as any;
 
     const { data: ws } = await db
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'workspaceId and catalogId required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(body.workspaceId, 'manage_settings');
+    await requireWorkspacePermission(body.workspaceId, 'manage_workspace');
     const db = createAdminClient() as any;
 
     // Save catalog_id to workspace
@@ -120,7 +120,7 @@ export async function DELETE(request: NextRequest) {
     const body = await request.json() as { workspaceId: string };
     if (!body.workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
 
-    await requireWorkspacePermission(body.workspaceId, 'manage_settings');
+    await requireWorkspacePermission(body.workspaceId, 'manage_workspace');
     const db = createAdminClient() as any;
 
     await db.from('workspaces').update({ catalog_id: null }).eq('id', body.workspaceId);

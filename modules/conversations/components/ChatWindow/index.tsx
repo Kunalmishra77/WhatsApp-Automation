@@ -89,7 +89,7 @@ export function ChatWindow({ conversationId, panelToggle }: ChatWindowProps) {
           <div className="space-y-1">
             {messages.map((msg, idx) => {
               const msgDate = new Date(msg.created_at);
-              const prevDate = idx > 0 ? new Date(messages[idx - 1].created_at) : null;
+              const prevDate = idx > 0 ? new Date(messages[idx - 1]!.created_at) : null;
               const showDate = !prevDate || msgDate.toDateString() !== prevDate.toDateString();
               const dateLabel = isToday(msgDate) ? 'Today' : isYesterday(msgDate) ? 'Yesterday' : format(msgDate, 'd MMM yyyy');
               return (

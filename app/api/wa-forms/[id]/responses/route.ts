@@ -9,7 +9,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const db = createAdminClient() as any;
     const { data: form } = await db.from('wa_forms').select('workspace_id, name, questions').eq('id', id).single();
     if (!form) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    await requireWorkspacePermission(form.workspace_id as string, 'manage_settings');
+    await requireWorkspacePermission(form.workspace_id as string, 'manage_workspace');
     const { data: responses } = await db
       .from('wa_form_responses')
       .select('*')

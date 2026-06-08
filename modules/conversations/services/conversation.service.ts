@@ -14,6 +14,7 @@ export type ConversationWithContact = ConversationRow & {
 export async function fetchConversations(
   workspaceId: string,
   status?: string,
+  channel?: string,
 ): Promise<ConversationWithContact[]> {
   const supabase = createClient();
   let query = supabase
@@ -23,13 +24,16 @@ export async function fetchConversations(
     .order('last_message_at', { ascending: false, nullsFirst: false });
 
   if (status === 'mine') {
-    // Filter by current user's assigned conversations
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       query = (query as any).eq('assigned_agent_id', user.id);
     }
   } else if (status && status !== 'all') {
     query = query.eq('status', status);
+  }
+
+  if (channel && channel !== 'all') {
+    query = (query as any).eq('channel', channel);
   }
 
   const { data, error } = await query;

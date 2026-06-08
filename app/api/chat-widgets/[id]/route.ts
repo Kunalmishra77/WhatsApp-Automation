@@ -10,7 +10,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const db = createAdminClient() as any;
     const { data: existing } = await db.from('chat_widgets').select('workspace_id').eq('id', id).single();
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    await requireWorkspacePermission(existing.workspace_id as string, 'manage_settings');
+    await requireWorkspacePermission(existing.workspace_id as string, 'manage_workspace');
     const { data, error } = await db.from('chat_widgets')
       .update({ ...body, updated_at: new Date().toISOString() })
       .eq('id', id).select().single();
@@ -29,7 +29,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     const db = createAdminClient() as any;
     const { data: existing } = await db.from('chat_widgets').select('workspace_id').eq('id', id).single();
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    await requireWorkspacePermission(existing.workspace_id as string, 'manage_settings');
+    await requireWorkspacePermission(existing.workspace_id as string, 'manage_workspace');
     await db.from('chat_widgets').delete().eq('id', id);
     return NextResponse.json({ success: true });
   } catch (e) {

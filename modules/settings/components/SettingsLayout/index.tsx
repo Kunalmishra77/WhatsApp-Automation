@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
   User, Building2, MessageSquare, Shield, Clock,
-  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText,
+  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText, Camera,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProfileSettings } from '../ProfileSettings';
@@ -30,10 +30,12 @@ import { CatalogSettings } from '../CatalogSettings';
 import { AutomationTriggersSettings } from '../AutomationTriggersSettings';
 import { ChatWidgetSettings } from '../ChatWidgetSettings';
 import { WaFormsSettings } from '../WaFormsSettings';
+import { InstagramSettings } from '../InstagramSettings';
 
 type SettingKey =
   | 'profile' | 'workspace' | 'branding' | 'billing'
   | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library' | 'chat-widget' | 'wa-forms'
+  | 'instagram'
   | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers' | 'auto-triggers'
   | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models'
   | 'audit-logs';
@@ -63,6 +65,7 @@ const NAV_SECTIONS: NavSection[] = [
       { key: 'catalog',        label: 'Product Catalog', icon: ShoppingBag },
       { key: 'chat-widget',    label: 'Chat Widget',     icon: MessageSquare },
       { key: 'media-library',  label: 'Media Library',  icon: MessagesSquare },
+      { key: 'instagram',      label: 'Instagram DM',   icon: Camera },
     ],
   },
   {
@@ -119,6 +122,7 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'chat-widget':    <ChatWidgetSettings />,
   'wa-forms':       <WaFormsSettings />,
   'media-library':  <MediaLibrary />,
+  'instagram':      <InstagramSettings />,
   'audit-logs':     <AuditLogs />,
 };
 

@@ -1468,7 +1468,7 @@ async function checkAndHandleFormSession(
     // Send next question
     const nextQ = questions[nextIdx];
     const { sendFormQuestion } = await import('@/app/api/wa-forms/[id]/send/route');
-    await sendFormQuestion(phoneNumberId, token, contactPhone, nextQ, nextIdx, questions.length);
+    if (nextQ) await sendFormQuestion(phoneNumberId, token, contactPhone, nextQ, nextIdx, questions.length);
   }
 
   return true;

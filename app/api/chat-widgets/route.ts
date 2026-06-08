@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
   try {
     const workspaceId = request.nextUrl.searchParams.get('workspaceId');
     if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
-    await requireWorkspacePermission(workspaceId, 'manage_settings');
+    await requireWorkspacePermission(workspaceId, 'manage_workspace');
     const db = createAdminClient() as any;
     const { data } = await db
       .from('chat_widgets')
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     if (!body.workspaceId || !body.phone_number) {
       return NextResponse.json({ error: 'workspaceId and phone_number required' }, { status: 400 });
     }
-    await requireWorkspacePermission(body.workspaceId as string, 'manage_settings');
+    await requireWorkspacePermission(body.workspaceId as string, 'manage_workspace');
     const db = createAdminClient() as any;
     const { data, error } = await db.from('chat_widgets').insert({
       workspace_id:    body.workspaceId,

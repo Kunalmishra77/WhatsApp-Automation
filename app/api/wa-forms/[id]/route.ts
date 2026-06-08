@@ -9,7 +9,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const db = createAdminClient() as any;
     const { data: ex } = await db.from('wa_forms').select('workspace_id').eq('id', id).single();
     if (!ex) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    await requireWorkspacePermission(ex.workspace_id as string, 'manage_settings');
+    await requireWorkspacePermission(ex.workspace_id as string, 'manage_workspace');
     const { data, error } = await db.from('wa_forms').update({ ...body, updated_at: new Date().toISOString() }).eq('id', id).select().single();
     if (error) throw error;
     return NextResponse.json({ form: data });
@@ -25,7 +25,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     const db = createAdminClient() as any;
     const { data: ex } = await db.from('wa_forms').select('workspace_id').eq('id', id).single();
     if (!ex) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    await requireWorkspacePermission(ex.workspace_id as string, 'manage_settings');
+    await requireWorkspacePermission(ex.workspace_id as string, 'manage_workspace');
     await db.from('wa_forms').delete().eq('id', id);
     return NextResponse.json({ success: true });
   } catch (e) {

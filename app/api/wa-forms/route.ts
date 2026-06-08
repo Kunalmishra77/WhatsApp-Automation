@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
   try {
     const workspaceId = request.nextUrl.searchParams.get('workspaceId');
     if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
-    await requireWorkspacePermission(workspaceId, 'manage_settings');
+    await requireWorkspacePermission(workspaceId, 'manage_workspace');
     const db = createAdminClient() as any;
     const { data } = await db.from('wa_forms').select('*').eq('workspace_id', workspaceId).order('created_at', { ascending: false });
     return NextResponse.json({ forms: data ?? [] });
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
     if (!body.workspaceId || !body.name || !Array.isArray(body.questions)) {
       return NextResponse.json({ error: 'workspaceId, name, questions required' }, { status: 400 });
     }
-    await requireWorkspacePermission(body.workspaceId, 'manage_settings');
+    await requireWorkspacePermission(body.workspaceId, 'manage_workspace');
     const db = createAdminClient() as any;
     const { data, error } = await db.from('wa_forms').insert({
       workspace_id:       body.workspaceId,

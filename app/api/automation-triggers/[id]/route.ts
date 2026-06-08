@@ -10,7 +10,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const db = createAdminClient() as any;
     const { data: existing } = await db.from('automation_triggers').select('workspace_id').eq('id', id).single();
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    await requireWorkspacePermission(existing.workspace_id as string, 'manage_settings');
+    await requireWorkspacePermission(existing.workspace_id as string, 'manage_workspace');
     const { data, error } = await db.from('automation_triggers')
       .update({ ...body, updated_at: new Date().toISOString() })
       .eq('id', id)
@@ -30,7 +30,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
     const db = createAdminClient() as any;
     const { data: existing } = await db.from('automation_triggers').select('workspace_id').eq('id', id).single();
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
-    await requireWorkspacePermission(existing.workspace_id as string, 'manage_settings');
+    await requireWorkspacePermission(existing.workspace_id as string, 'manage_workspace');
     await db.from('automation_triggers').delete().eq('id', id);
     return NextResponse.json({ success: true });
   } catch (error) {

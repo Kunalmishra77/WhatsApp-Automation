@@ -80,7 +80,7 @@ async function processBirthdayTrigger(
       : val.length === 5 && val[2] === '-'
         ? val                      // already MM-DD
         : val.split('/').length === 3
-          ? `${val.split('/')[1].padStart(2,'0')}-${val.split('/')[0].padStart(2,'0')}`  // DD/MM/YYYY
+          ? `${(val.split('/')[1] ?? '').padStart(2,'0')}-${(val.split('/')[0] ?? '').padStart(2,'0')}`  // DD/MM/YYYY
           : null;
     return mmdd === todayMMDD;
   });

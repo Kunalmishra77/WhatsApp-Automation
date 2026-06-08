@@ -5,7 +5,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search } from 'lucide-react';
+import { Search, MessageSquare, Camera } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { ConversationItem } from '../ConversationItem';
 import { useConversations } from '../../hooks/useConversations';
 import { useConversationStore } from '@/store/conversation.store';
@@ -13,13 +14,20 @@ import type { ConversationWithContact } from '../../services/conversation.servic
 
 const STATUS_TABS = ['all', 'mine', 'open', 'assigned', 'pending', 'resolved'] as const;
 
+const CHANNEL_TABS = [
+  { key: 'all',       label: 'All',       icon: null },
+  { key: 'whatsapp',  label: 'WhatsApp',  icon: MessageSquare },
+  { key: 'instagram', label: 'Instagram', icon: Camera },
+] as const;
+
 export function ConversationList() {
-  const [status, setStatus] = useState<string>('all');
-  const [search, setSearch] = useState('');
+  const [status, setStatus]   = useState<string>('all');
+  const [channel, setChannel] = useState<string>('all');
+  const [search, setSearch]   = useState('');
   const activeId = useConversationStore((s) => s.activeConversationId);
   const setActive = useConversationStore((s) => s.setActiveConversation);
 
-  const { data: conversations = [], isLoading } = useConversations(status);
+  const { data: conversations = [], isLoading } = useConversations(status, channel);
 
   const filtered = search.trim()
     ? conversations.filter((c) => {
@@ -54,6 +62,25 @@ export function ConversationList() {
             className="h-8 pl-8 text-sm"
           />
         </div>
+      </div>
+
+      {/* Channel filter */}
+      <div className="shrink-0 border-b border-border px-3 py-1.5 flex items-center gap-1">
+        {CHANNEL_TABS.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setChannel(key)}
+            className={cn(
+              'flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+              channel === key
+                ? 'bg-brand-500/10 text-brand-600'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent',
+            )}
+          >
+            {Icon && <Icon className="h-3 w-3" />}
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Status tabs */}

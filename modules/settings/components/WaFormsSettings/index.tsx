@@ -116,7 +116,8 @@ export function WaFormsSettings() {
     const qs = [...questions];
     const target = idx + dir;
     if (target < 0 || target >= qs.length) return;
-    [qs[idx], qs[target]] = [qs[target], qs[idx]];
+    const a = qs[idx]; const b = qs[target];
+    if (a && b) { qs[idx] = b; qs[target] = a; }
     setQ('questions', qs);
   };
 

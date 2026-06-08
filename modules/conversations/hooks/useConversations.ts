@@ -7,13 +7,13 @@ import { fetchConversations } from '../services/conversation.service';
 import type { ConversationWithContact } from '../services/conversation.service';
 import { useWorkspaceStore } from '@/store/workspace.store';
 
-export function useConversations(status = 'all') {
+export function useConversations(status = 'all', channel = 'all') {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   const queryClient = useQueryClient();
 
   const query = useQuery<ConversationWithContact[]>({
-    queryKey: ['conversations', workspaceId, status],
-    queryFn: () => fetchConversations(workspaceId!, status),
+    queryKey: ['conversations', workspaceId, status, channel],
+    queryFn: () => fetchConversations(workspaceId!, status, channel),
     enabled: !!workspaceId,
     staleTime: 0,
     refetchInterval: 4000,        // Poll every 4s — ensures list always fresh
