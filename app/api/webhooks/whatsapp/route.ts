@@ -360,6 +360,23 @@ async function handleIncomingMessage(
   }
   // ─────────────────────────────────────────────────────────────────────────────
 
+  // ── WA Form session detection (before CSAT/rules/flow/AI) ───────────────────
+  const formHandled = await checkAndHandleFormSession(
+    supabase,
+    conversation.id,
+    workspaceId,
+    contactId,
+    waId,
+    content,
+    phoneNumberId,
+    (workspace as any).access_token as string,
+  );
+  if (formHandled) {
+    console.log(`[Webhook] Form session handled for conversation ${conversation.id}`);
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // ── CSAT reply detection (before rules/flow/AI) ─────────────────────────────
   const csatHandled = await checkAndHandleCsatReply(
     supabase,
@@ -1363,6 +1380,100 @@ function toMessageType(type: string) {
 
   return allowed.includes(type as (typeof allowed)[number]) ? type : 'text';
 }
+
+// ── WA Form session handler ───────────────────────────────────────────────────
+async function checkAndHandleFormSession(
+  supabase: AdminClient,
+  conversationId: string,
+  workspaceId: string,
+  contactId: string,
+  contactPhone: string,
+  answer: string,
+  phoneNumberId: string,
+  accessToken: string,
+): Promise<boolean> {
+  const db = supabase as any;
+
+  // Find active form session for this conversation
+  const { data: session } = await db
+    .from('wa_form_sessions')
+    .select('*, wa_forms(questions, completion_message, workspace_id, name)')
+    .eq('conversation_id', conversationId)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (!session) return false;
+
+  const form = session.wa_forms as { questions: Array<{ id: string; text: string; type: string; options?: string[] }>; completion_message: string; workspace_id: string } | null;
+  if (!form) return false;
+
+  const questions   = form.questions ?? [];
+  const currentIdx  = session.current_question_idx as number;
+  const currentQ    = questions[currentIdx];
+  if (!currentQ) return false;
+
+  // Save answer
+  const updatedAnswers = { ...(session.answers as Record<string, string> ?? {}), [currentQ.id]: answer.trim() };
+  const nextIdx = currentIdx + 1;
+  const token   = accessToken.replace(/﻿/g, '').trim();
+
+  if (nextIdx >= questions.length) {
+    // Form complete — save response + mark session done
+    await db.from('wa_form_sessions').update({
+      current_question_idx: nextIdx,
+      answers:              updatedAnswers,
+      status:               'completed',
+      completed_at:         new Date().toISOString(),
+    }).eq('id', session.id);
+
+    // Get contact info for response record
+    const { data: contact } = await db.from('contacts').select('name, phone').eq('id', contactId).single();
+
+    await db.from('wa_form_responses').insert({
+      form_id:       session.form_id,
+      workspace_id:  workspaceId,
+      contact_id:    contactId,
+      contact_name:  contact?.name ?? null,
+      contact_phone: contact?.phone ?? contactPhone,
+      answers:       updatedAnswers,
+    });
+
+    // Increment form total_responses
+    await db.rpc('increment_form_responses', { form_id_input: session.form_id }).catch(() => {
+      db.from('wa_forms').select('total_responses').eq('id', session.form_id).single()
+        .then(({ data }: any) => {
+          if (data) db.from('wa_forms').update({ total_responses: (data.total_responses ?? 0) + 1 }).eq('id', session.form_id);
+        });
+    });
+
+    // Send completion message
+    await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: contactPhone,
+        type: 'text',
+        text: { preview_url: false, body: form.completion_message },
+      }),
+    });
+  } else {
+    // Advance to next question
+    await db.from('wa_form_sessions').update({
+      current_question_idx: nextIdx,
+      answers:              updatedAnswers,
+    }).eq('id', session.id);
+
+    // Send next question
+    const nextQ = questions[nextIdx];
+    const { sendFormQuestion } = await import('@/app/api/wa-forms/[id]/send/route');
+    await sendFormQuestion(phoneNumberId, token, contactPhone, nextQ, nextIdx, questions.length);
+  }
+
+  return true;
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 function extractMessageContent(msg: WAMessage): string {
   switch (msg.type) {

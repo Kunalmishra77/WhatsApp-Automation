@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
   User, Building2, MessageSquare, Shield, Clock,
-  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag,
+  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProfileSettings } from '../ProfileSettings';
@@ -29,10 +29,11 @@ import { MediaLibrary } from '../MediaLibrary';
 import { CatalogSettings } from '../CatalogSettings';
 import { AutomationTriggersSettings } from '../AutomationTriggersSettings';
 import { ChatWidgetSettings } from '../ChatWidgetSettings';
+import { WaFormsSettings } from '../WaFormsSettings';
 
 type SettingKey =
   | 'profile' | 'workspace' | 'branding' | 'billing'
-  | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library' | 'chat-widget'
+  | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library' | 'chat-widget' | 'wa-forms'
   | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers' | 'auto-triggers'
   | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models'
   | 'audit-logs';
@@ -67,6 +68,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Automation',
     items: [
+      { key: 'wa-forms',        label: 'WA Forms',       icon: FileText },
       { key: 'inbox-rules',    label: 'Inbox Rules',    icon: SlidersHorizontal },
       { key: 'sequences',      label: 'Follow-Up',      icon: Zap },
       { key: 'sla',            label: 'SLA',            icon: Timer },
@@ -115,6 +117,7 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'catalog':        <CatalogSettings />,
   'auto-triggers':  <AutomationTriggersSettings />,
   'chat-widget':    <ChatWidgetSettings />,
+  'wa-forms':       <WaFormsSettings />,
   'media-library':  <MediaLibrary />,
   'audit-logs':     <AuditLogs />,
 };

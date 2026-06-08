@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
-import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown, Bot, BotOff, Sparkles, Wand2, GitMerge, RefreshCw } from 'lucide-react';
+import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown, Bot, BotOff, Sparkles, Wand2, GitMerge, RefreshCw, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { createClient } from '@/services/supabase/client';
@@ -61,6 +61,32 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
   const summarize         = useSummarize();
 
   const isBotPaused = !!(conversation as any).bot_paused;
+  const [showFormPicker, setShowFormPicker] = useState(false);
+
+  const { data: formsData } = useQuery({
+    queryKey: ['wa-forms', workspaceId],
+    queryFn: async () => {
+      if (!workspaceId) return { forms: [] };
+      const r = await fetch(`/api/wa-forms?workspaceId=${workspaceId}`);
+      return r.ok ? r.json() as Promise<{ forms: Array<{ id: string; name: string; is_active: boolean }> }> : { forms: [] };
+    },
+    enabled: !!workspaceId,
+  });
+  const activeForms = (formsData?.forms ?? []).filter(f => f.is_active);
+
+  const handleSendForm = async (formId: string) => {
+    setShowFormPicker(false);
+    try {
+      const r = await fetch(`/api/wa-forms/${formId}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId: conversation.id }),
+      });
+      const d = await r.json() as { error?: string };
+      if (!r.ok) { toast.error(d.error ?? 'Failed to send form'); return; }
+      toast.success('Form started! First question sent.');
+    } catch { toast.error('Network error'); }
+  };
 
   const contact = conversation.contacts;
   const name = contact?.name ?? contact?.phone ?? 'Unknown';
@@ -351,6 +377,17 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
             <DropdownMenuItem className="gap-2 text-xs">
               <PhoneCall className="h-3.5 w-3.5" /> Call
             </DropdownMenuItem>
+            {activeForms.length > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-[10px] text-muted-foreground px-2 py-1">Send Form</DropdownMenuLabel>
+                {activeForms.map(f => (
+                  <DropdownMenuItem key={f.id} className="gap-2 text-xs" onClick={() => void handleSendForm(f.id)}>
+                    <FileText className="h-3.5 w-3.5 text-brand-500" /> {f.name}
+                  </DropdownMenuItem>
+                ))}
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 
