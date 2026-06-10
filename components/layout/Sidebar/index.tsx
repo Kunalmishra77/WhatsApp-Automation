@@ -1,10 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import {
   MessageSquare, Users, Kanban, Megaphone, FileText,
   BarChart3, Settings, UserCircle, ChevronLeft, ChevronRight,
-  Users2, GitBranch, BookOpen, TrendingUp,
+  Users2, GitBranch, BookOpen, TrendingUp, LifeBuoy,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,7 @@ import { useWorkspaceStore } from '@/store/workspace.store';
 import { signOutAction } from '@/app/actions/auth.actions';
 import { hasFeature } from '@/lib/plan-features';
 import { cn } from '@/lib/utils';
+import { SupportModal } from '@/modules/support/components/SupportModal';
 import type { LucideIcon } from 'lucide-react';
 
 const NAV_ITEMS: Array<{
@@ -48,6 +50,7 @@ export function Sidebar() {
   const user           = useAuthStore((s) => s.user);
   const workspace      = useWorkspaceStore((s) => s.activeWorkspace);
   const plan           = workspace?.plan ?? 'free';
+  const [supportOpen, setSupportOpen] = useState(false);
 
   const initials = user?.full_name
     ? user.full_name.split(' ').map((n) => n[0] ?? '').join('').slice(0, 2).toUpperCase()
@@ -96,6 +99,19 @@ export function Sidebar() {
           })}
           <Separator className="my-2" />
           <NavItem href="/settings" icon={Settings} label="Settings" collapsed={collapsed} />
+          {/* Support / Contact Us */}
+          <button
+            onClick={() => setSupportOpen(true)}
+            className={cn(
+              'flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors',
+              'text-muted-foreground hover:bg-accent hover:text-foreground',
+              collapsed && 'justify-center px-2',
+            )}
+            title={collapsed ? 'Contact Support' : undefined}
+          >
+            <LifeBuoy className="h-4 w-4 shrink-0" />
+            {!collapsed && 'Contact Support'}
+          </button>
         </nav>
 
         {/* User section */}
@@ -150,6 +166,8 @@ export function Sidebar() {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+
+        {supportOpen && <SupportModal open={supportOpen} onClose={() => setSupportOpen(false)} />}
 
         {/* Collapse toggle */}
         <Button

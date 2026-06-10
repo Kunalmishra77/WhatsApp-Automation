@@ -79,9 +79,12 @@ export async function updateContact(id: string, payload: ContactUpdate): Promise
 }
 
 export async function deleteContact(id: string): Promise<void> {
-  const supabase = createClient();
-  const { error } = await supabase.from('contacts').delete().eq('id', id);
-  if (error) throw error;
+  // Use API route (admin client) to bypass RLS restrictions on delete
+  const res = await fetch(`/api/contacts/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const data = await res.json() as { error?: string };
+    throw new Error(data.error ?? 'Failed to delete contact');
+  }
 }
 
 export async function bulkImportContacts(

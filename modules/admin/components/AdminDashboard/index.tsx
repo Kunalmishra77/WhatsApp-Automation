@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Building2, CheckCircle2, TrendingUp, AlertCircle, Plus, Trash2 } from 'lucide-react';
+import { AdminNotificationBell } from '../AdminNotificationBell';
+import { HealthMonitor } from '../HealthMonitor';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -136,6 +138,7 @@ export function AdminDashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <AdminNotificationBell />
           <Button
             variant="outline"
             size="sm"
@@ -208,6 +211,11 @@ export function AdminDashboard() {
           loading={workspacesLoading}
           onRefetch={handleRefetch}
         />
+      </div>
+
+      {/* Platform Health Monitor */}
+      <div className="rounded-lg border bg-card p-5">
+        <HealthMonitor />
       </div>
 
       {/* Create client modal */}
