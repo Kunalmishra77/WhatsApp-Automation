@@ -27,22 +27,27 @@ export function useMessages(conversationId: string) {
     const supabase = createClient();
     const channel = supabase
       .channel(`messages:${conversationId}`)
+      // New inbound/outbound message
       .on(
         'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`,
-        },
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
         (payload) => {
           const newMsg = payload.new as MessageRow;
           queryClient.setQueryData<MessageRow[]>(
             ['messages', conversationId],
-            (old = []) => {
-              if (old.some((m) => m.id === newMsg.id)) return old;
-              return [...old, newMsg];
-            },
+            (old = []) => old.some((m) => m.id === newMsg.id) ? old : [...old, newMsg],
+          );
+        },
+      )
+      // Status updates: queued → sent → delivered → read
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
+        (payload) => {
+          const updated = payload.new as MessageRow;
+          queryClient.setQueryData<MessageRow[]>(
+            ['messages', conversationId],
+            (old = []) => old.map((m) => m.id === updated.id ? { ...m, ...updated } : m),
           );
         },
       )
