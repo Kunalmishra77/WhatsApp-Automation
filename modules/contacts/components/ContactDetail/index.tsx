@@ -109,9 +109,13 @@ export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
 
   const handleDelete = async () => {
     if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
-    await remove.mutateAsync(contact.id);
-    toast.success('Contact deleted');
-    onClose();
+    try {
+      await remove.mutateAsync(contact.id);
+      toast.success('Contact deleted');
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete contact');
+    }
   };
 
   return (
