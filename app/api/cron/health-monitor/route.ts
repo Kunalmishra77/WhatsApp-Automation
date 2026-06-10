@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
+import { createClient } from '@/services/supabase/server';
 
 export const maxDuration = 60;
 
@@ -9,16 +10,30 @@ interface CheckResult {
   value?: number | string;
 }
 
-// POST /api/cron/health-monitor
-// Called by Coolify cron every 30 minutes.
-// Auth: Bearer token from CRON_SECRET env var.
-export async function POST(request: NextRequest) {
+async function isAuthorized(request: NextRequest): Promise<boolean> {
+  // Allow external cron calls via CRON_SECRET bearer token
   const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = request.headers.get('authorization');
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+  const auth   = request.headers.get('authorization');
+  if (secret && auth === `Bearer ${secret}`) return true;
+
+  // Allow logged-in platform admins (admin UI "Run Check" button)
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+    const db = createAdminClient() as any;
+    const { data: profile } = await db.from('profiles').select('is_platform_admin').eq('id', user.id).single();
+    return !!profile?.is_platform_admin;
+  } catch {
+    return false;
+  }
+}
+
+// POST /api/cron/health-monitor — external cron (Bearer CRON_SECRET)
+// GET  /api/cron/health-monitor — admin UI "Run Check" button (session auth)
+export async function POST(request: NextRequest) {
+  if (!(await isAuthorized(request))) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const db = createAdminClient() as any;
