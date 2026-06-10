@@ -120,12 +120,12 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
       const form = new FormData();
       form.append('file', file);
       form.append('workspaceId', workspaceId);
-      const res  = await fetch('/api/campaigns/upload-media', { method: 'POST', body: form });
-      const data = await res.json() as { mediaId?: string; error?: string };
+      const res  = await fetch('/api/templates/upload-media', { method: 'POST', body: form });
+      const data = await res.json() as { handle?: string; fileName?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? 'Upload failed');
-      setMediaHandle(data.mediaId ?? '');
-      setMediaFileName(file.name);
-      toast.success('Media uploaded');
+      setMediaHandle(data.handle ?? '');
+      setMediaFileName(data.fileName ?? file.name);
+      toast.success('Media uploaded — ready for template submission');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Upload failed');
     } finally {
