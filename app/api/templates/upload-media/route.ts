@@ -43,21 +43,24 @@ export async function POST(request: NextRequest) {
     const db = createAdminClient() as any;
     const { data: ws } = await db
       .from('workspaces')
-      .select('access_token')
+      .select('access_token, settings')
       .eq('id', workspaceId)
       .single();
 
     const accessToken = (ws?.access_token as string | undefined)?.replace(/﻿/g, '').trim()
       ?? process.env.WHATSAPP_ACCESS_TOKEN?.replace(/﻿/g, '').trim();
 
-    const appId = process.env.WHATSAPP_APP_ID;
+    // app_id is stored per-workspace in settings.app_id (configurable in WhatsApp Settings)
+    const appId: string | undefined =
+      (ws?.settings as Record<string, unknown> | null)?.app_id as string | undefined
+      ?? process.env.WHATSAPP_APP_ID;
 
     if (!accessToken) {
       return NextResponse.json({ error: 'WhatsApp access token not configured' }, { status: 400 });
     }
     if (!appId) {
       return NextResponse.json(
-        { error: 'WHATSAPP_APP_ID env variable is not set. Add your Facebook App ID to environment variables.' },
+        { error: 'Facebook App ID is not configured. Go to Settings → WhatsApp Configuration → save your App ID.' },
         { status: 400 },
       );
     }
