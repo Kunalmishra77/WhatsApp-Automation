@@ -81,6 +81,8 @@ export async function PATCH(
       access_token?: string | null;
       waba_id?: string | null;
       onboarding_complete?: boolean;
+      // Partial settings JSONB merge (e.g. agent_persona, app_id)
+      settings?: Record<string, unknown>;
     };
 
     const updateData: Record<string, unknown> = {};
@@ -102,6 +104,12 @@ export async function PATCH(
     if ('access_token' in body)    updateData.access_token    = body.access_token    ?? null;
     if ('waba_id' in body)         updateData.waba_id         = body.waba_id         ?? null;
     if (body.onboarding_complete !== undefined) updateData.onboarding_complete = body.onboarding_complete;
+    // Merge settings JSONB — never wipes existing keys
+    if (body.settings && typeof body.settings === 'object') {
+      const { data: existing } = await db.from('workspaces').select('settings').eq('id', id).single();
+      const existingSettings = (existing?.settings ?? {}) as Record<string, unknown>;
+      updateData.settings = { ...existingSettings, ...body.settings };
+    }
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });

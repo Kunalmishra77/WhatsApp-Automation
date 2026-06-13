@@ -81,6 +81,8 @@ export function ClientDetail({ workspace: w, onClose, onRefetch }: {
   const [waPhone, setWaPhone] = useState((w as any).phone_number_id ?? '');
   const [waToken, setWaToken] = useState('');
   const [waWaba,  setWaWaba]  = useState((w as any).waba_id ?? '');
+  const [persona,        setPersona]        = useState('');
+  const [personaLoading, setPersonaLoading] = useState(false);
 
   // Members tab
   const [members,  setMembers]  = useState<Member[]>([]);
@@ -118,6 +120,12 @@ export function ClientDetail({ workspace: w, onClose, onRefetch }: {
 
   // ── Tab loaders ─────────────────────────────────────────────────────────────
   useEffect(() => {
+    if (tab === 'whatsapp') {
+      fetch(`/api/admin/workspaces/${w.id}/settings`)
+        .then(r => r.ok ? r.json() as Promise<{ settings?: { agent_persona?: string } }> : null)
+        .then(d => { if (d?.settings?.agent_persona) setPersona(d.settings.agent_persona); })
+        .catch(() => {});
+    }
     if (tab === 'members' && members.length === 0) {
       setMembersLoading(true);
       fetch(`/api/admin/workspaces/${w.id}/members`)
@@ -142,6 +150,14 @@ export function ClientDetail({ workspace: w, onClose, onRefetch }: {
   };
 
   // ── Actions ─────────────────────────────────────────────────────────────────
+  const handleSavePersona = async () => {
+    setPersonaLoading(true);
+    try {
+      await patchWorkspace({ settings: { agent_persona: persona.trim() } }, 'AI persona saved');
+    } catch { toast.error('Failed to save persona'); }
+    finally { setPersonaLoading(false); }
+  };
+
   const handleSaveWhatsApp = async () => {
     if (!waPhone.trim() || !waToken.trim()) { toast.error('Phone ID and Token required'); return; }
     setPending('wa');
@@ -391,6 +407,30 @@ export function ClientDetail({ workspace: w, onClose, onRefetch }: {
                       : <><AlertTriangle className="h-4 w-4 text-amber-500" /> Credentials not set — webhook inactive</>}
                   </div>
                 </div>
+              </div>
+
+              <Separator />
+              <div className="space-y-2">
+                <div>
+                  <h3 className="text-sm font-semibold mb-0.5">AI Agent Persona</h3>
+                  <p className="text-xs text-muted-foreground">
+                    System prompt for this client's WhatsApp AI bot. Describe the business, tone, and how to handle common button clicks.
+                  </p>
+                </div>
+                <Textarea
+                  rows={8}
+                  value={persona}
+                  onChange={(e) => setPersona(e.target.value)}
+                  placeholder={`Example:\nYou are Riya, a consultant for PagarBook.\nPagarBook helps businesses with attendance and payroll automation.\nWhen customer taps "Book Demo", ask for preferred date/time.\nAlways reply in Hinglish. Keep replies to 2-3 sentences.`}
+                  className="text-xs font-mono resize-y"
+                />
+                <Button
+                  size="sm" className="h-8 text-xs gap-1.5"
+                  onClick={() => void handleSavePersona()}
+                  disabled={personaLoading}
+                >
+                  {personaLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save Persona'}
+                </Button>
               </div>
             </div>
           )}
