@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { Button } from '@/components/ui/button';
@@ -17,8 +17,9 @@ import {
   FileText, Trash2, Upload, Search, Database,
   Loader2, CheckCircle2, AlertCircle, Wand2,
   Sparkles, RefreshCw, Check, ChevronRight,
-  FileCheck, X,
+  FileCheck, X, Bot,
 } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 
 type Tab = 'documents' | 'sandbox' | 'ai-generate';
@@ -97,6 +98,38 @@ export default function KnowledgeBasePage() {
 
   // Delete
   const [deleting, setDeleting]         = useState<string | null>(null);
+
+  // AI Agent Persona
+  const [persona,      setPersona]      = useState('');
+  const [personaSaving, setPersonaSaving] = useState(false);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    fetch(`/api/settings/workspace?workspaceId=${workspaceId}`)
+      .then((r) => r.json())
+      .then((d: { workspace?: { settings?: { agent_persona?: string } } }) => {
+        setPersona(d.workspace?.settings?.agent_persona ?? '');
+      })
+      .catch(() => {});
+  }, [workspaceId]);
+
+  const handleSavePersona = async () => {
+    if (!workspaceId) return;
+    setPersonaSaving(true);
+    try {
+      const res = await fetch('/api/settings/workspace', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId, settings: { agent_persona: persona.trim() } }),
+      });
+      if (!res.ok) throw new Error('Save failed');
+      toast.success('AI persona saved');
+    } catch {
+      toast.error('Failed to save persona');
+    } finally {
+      setPersonaSaving(false);
+    }
+  };
 
   // AI Generator state
   const [aiStep, setAiStep]             = useState<'form' | 'preview'>('form');
@@ -331,6 +364,35 @@ export default function KnowledgeBasePage() {
       />
 
       <div className="flex-1 overflow-y-auto p-6">
+
+        {/* ══ AI AGENT PERSONA ════════════════════════════════════════════ */}
+        <div className="max-w-3xl mb-6 rounded-xl border border-border bg-card p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <Bot className="h-4 w-4 text-brand-500" />
+            <p className="text-sm font-semibold text-foreground">AI Agent Persona</p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Describe your business, the bot's name, tone, and how to handle common button clicks. This is injected as the AI's system prompt for every WhatsApp reply.
+          </p>
+          <Textarea
+            rows={6}
+            value={persona}
+            onChange={(e) => setPersona(e.target.value)}
+            placeholder={`Example:\nYou are Riya, a helpful assistant for [Company Name].\n[Company] helps businesses with [product/service].\n\nWhen customer taps "Book Demo" → ask for preferred date and time.\nWhen asked about pricing → mention [plan] at [price].\nAlways reply in Hinglish. Keep replies to 2-3 sentences.`}
+            className="text-xs font-mono resize-y"
+          />
+          <Button
+            size="sm"
+            onClick={() => void handleSavePersona()}
+            disabled={personaSaving}
+            className="gap-1.5"
+          >
+            {personaSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            Save Persona
+          </Button>
+        </div>
+
+        <Separator className="mb-6 max-w-3xl" />
 
         {/* ══ DOCUMENTS TAB ═══════════════════════════════════════════════ */}
         {tab === 'documents' && (
