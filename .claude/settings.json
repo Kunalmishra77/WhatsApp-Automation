@@ -70,13 +70,29 @@
       "WebFetch(domain:app.getgabs.com)",
       "WebFetch(domain:www.getgabs.com)",
       "Bash(grep -E \"\\\\.\\(tsx|ts|jsx|js\\)$\")",
-      "Bash(supabase --version)"
+      "Bash(supabase --version)",
+      "Bash(xargs grep -l \"contact.*import\\\\|import.*contact\")",
+      "Bash(xargs grep -l \"OnboardingWizard\")",
+      "Bash(xargs grep -l \"contacts.*import\\\\|bulkImport\\\\|csv.*import\\\\|import.*contacts\")",
+      "Bash(xargs grep -l \"campaigns.*count\\\\|contacts.*count\\\\|count.*contacts\")",
+      "Bash(psql \"postgresql://postgres.yvqaproltcskufufmomi:Indresh%40626162@aws-1-ap-south-1.pooler.supabase.com:6543/postgres\" -f \"d:\\\\WhatsApp-Automation\\\\database\\\\migrations\\\\029_instagram_inbox.sql\")",
+      "Bash(xargs grep -l \"CREATE TABLE.*contacts\")",
+      "Bash(awk -F\"from '\" '{print $2}')",
+      "Bash(grep -rn \"'/automations'\\\\|href.*['\\\\\"]\\\\/automations['\\\\\"]\" app/ modules/ --include=\"*.tsx\" --include=\"*.ts\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\templates\\\\upload-media\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"d:\\\\WhatsApp-Automation\\\\modules\\\\support\\\\components\\\\SupportModal\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\cron\\\\health-monitor\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\admin\\\\health-reports\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"d:\\\\WhatsApp-Automation\\\\modules\\\\admin\\\\components\\\\HealthMonitor\")",
+      "PowerShell(node -e $script)",
+      "PowerShell(node \"d:\\\\tmp\\\\check_fk.js\")"
     ],
     "additionalDirectories": [
       "d:\\WhatsApp-Automation\\app\\api\\contacts\\[id]",
       "d:\\WhatsApp-Automation\\app\\api\\conversations\\[id]",
       "D:\\WhatsApp-Automation\\app\\api\\admin\\workspaces",
-      "\\tmp"
+      "\\tmp",
+      "d:\\WhatsApp-Automation\\app\\api\\admin\\workspaces\\[id]"
     ]
   }
 }

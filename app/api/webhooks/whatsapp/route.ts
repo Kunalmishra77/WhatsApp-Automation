@@ -795,21 +795,33 @@ async function getAIReply(
   imageUrl?: string,
   wsSettings?: Record<string, unknown>,
   businessName = 'our team',
+  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [],
 ): Promise<string | null> {
   const { getModel } = await import('@/lib/ai-router');
   const model = imageUrl
     ? getModel(wsSettings ?? null, 'vision_model')
     : getModel(wsSettings ?? null, 'auto_reply_model');
 
-  const kbSection = kbContext
-    ? `\n\nKNOWLEDGE BASE \u2014 use this to answer accurately:\n${kbContext}\n\nIf the answer is in the knowledge base, use it. If not, give a helpful general response.`
-    : '';
+  // Per-workspace agent persona overrides the generic prompt when set
+  const agentPersona = (wsSettings?.agent_persona as string | undefined)?.trim() ?? '';
 
-  const systemPrompt = `You are a helpful WhatsApp customer support assistant for ${businessName}.
-Reply in the same language the customer uses (Hindi, English, Hinglish, etc.).
-Be friendly, professional, and concise \u2014 max 2-3 sentences.
-Customer name: ${customerName}
-${kbSection ? kbSection : 'If you do not know the answer, politely say you will have a team member follow up.'}`;
+  const kbSection = kbContext
+    ? `\n\nKNOWLEDGE BASE \u2014 use this to answer accurately:\n${kbContext}\n\nAlways answer from the knowledge base. If the topic is not covered, say a team member will follow up.`
+    : '\nIf you do not know the answer, politely say a team member will follow up \u2014 do NOT guess or invent information.';
+
+  const basePersona = agentPersona
+    ? agentPersona
+    : `You are a helpful WhatsApp customer support assistant for ${businessName}.`;
+
+  const systemPrompt = `${basePersona}
+
+RULES (follow strictly):
+- The customer's name is ${customerName}. Do NOT start every reply with "Hello ${customerName}!" \u2014 greet once at most, then continue naturally.
+- Reply in the same language the customer uses (Hindi, English, Hinglish, etc.).
+- Keep replies to 2-3 sentences max. Be warm, direct, and professional.
+- When the message starts with "[Tapped button:" or "[Selected:", understand the customer's intent from the button label and respond to THAT intent \u2014 do NOT say "you clicked a button" or "it seems like you tapped something".
+- Never invent product names, prices, or company information not in the knowledge base.
+${kbSection}`;
 
   // Vision path: multimodal content (image URL array) requires direct OpenRouter fetch
   if (imageUrl) {
@@ -858,15 +870,14 @@ ${kbSection ? kbSection : 'If you do not know the answer, politely say you will 
     }
   }
 
-  // Text path: use the central AI client
+  // Text path: use the central AI client with conversation history for context
   try {
-    const reply = await callAI(
-      [
-        { role: 'system', content: systemPrompt },
-        { role: 'user',   content: customerMessage },
-      ],
-      { model, maxTokens: 300, temperature: 0.7 },
-    );
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: systemPrompt },
+      ...conversationHistory,
+      { role: 'user', content: customerMessage },
+    ];
+    const reply = await callAI(messages, { model, maxTokens: 300, temperature: 0.7 });
     if (!reply) console.warn('[AI] Empty response from AI client');
     return reply;
   } catch (error) {
@@ -1029,6 +1040,31 @@ async function sendAutoReply(
 
   const wsSettings = (ws?.settings ?? {}) as Record<string, unknown>;
 
+  // Fetch last 6 messages for conversation history context (skip current = last inserted)
+  let conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  if (conversationId) {
+    try {
+      const { data: recentMsgs } = await (supabase as any)
+        .from('messages')
+        .select('content, sender_type, direction')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: false })
+        .limit(7);
+      if (recentMsgs && recentMsgs.length > 1) {
+        conversationHistory = (recentMsgs as Array<{ content: string; sender_type: string }>)
+          .slice(1)        // skip the just-inserted current message
+          .reverse()
+          .map((m) => ({
+            role: m.sender_type === 'contact' ? ('user' as const) : ('assistant' as const),
+            content: m.content ?? '',
+          }))
+          .filter((m) => m.content.length > 0);
+      }
+    } catch {
+      // non-blocking — proceed without history
+    }
+  }
+
   // \u2500\u2500 Image Intent Detection \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   // If customer asks for photos/images, search media library and send matching images
   const imageIntent = detectImageIntent(customerMessage);
@@ -1060,8 +1096,8 @@ async function sendAutoReply(
 
   const message = isEscalation
     ? ESCALATION_REPLY
-    : (await getAIReply(customerMessage, name, kbContext, imageUrl, wsSettings, businessName)
-      ?? `Hello ${name}, thanks for reaching out to ${businessName}. Our team received your message and will get back to you shortly.`);
+    : (await getAIReply(customerMessage, name, kbContext, imageUrl, wsSettings, businessName, conversationHistory)
+      ?? `Thanks for reaching out to ${businessName}! Our team received your message and will get back to you shortly.`);
 
   try {
     const response = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
@@ -1486,8 +1522,8 @@ function extractMessageContent(msg: WAMessage): string {
     case 'sticker': return '[Sticker]';
     case 'interactive': {
       const ir = msg.interactive;
-      if (ir?.type === 'button_reply') return ir.button_reply?.title ?? '[Button Reply]';
-      if (ir?.type === 'list_reply')   return ir.list_reply?.title   ?? '[List Reply]';
+      if (ir?.type === 'button_reply') return `[Tapped button: "${ir.button_reply?.title ?? 'button'}"]`;
+      if (ir?.type === 'list_reply')   return `[Selected: "${ir.list_reply?.title ?? 'option'}"]`;
       return '[Interactive]';
     }
     default: return `[${msg.type}]`;
