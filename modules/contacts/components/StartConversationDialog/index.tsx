@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MessageSquare, CheckCircle2, ImageIcon, Video, FileText, Link, Clock, RotateCcw } from 'lucide-react';
+import { MessageSquare, CheckCircle2, ImageIcon, Video, FileText, Link, Clock, RotateCcw, Upload, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTemplates } from '@/modules/templates/hooks/useTemplates';
 import { useWorkspaceStore } from '@/store/workspace.store';
@@ -44,6 +44,8 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
   const [mediaUrl, setMediaUrl] = useState('');
   const [recentMedia, setRecentMedia] = useState<MediaLibraryItem[]>([]);
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
 
@@ -72,6 +74,24 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
         .replace(/\{\{1\}\}/g, contact?.name ?? contact?.phone ?? 'Customer')
         .replace(/\{\{2\}\}/g, contact?.phone ?? '')
     : '';
+
+  const handleFileUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('workspaceId', workspaceId);
+      const res = await fetch('/api/templates/upload-media', { method: 'POST', body: form });
+      const data = await res.json() as { handle?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
+      setMediaUrl(data.handle!);
+      toast.success('File uploaded to WhatsApp — handle ready');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleSend = async () => {
     if (!contact || !selectedTemplateId) return;
@@ -102,6 +122,7 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
     setSelectedTemplateId('');
     setMediaUrl('');
     setRecentMedia([]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
     onClose();
   };
 
@@ -158,40 +179,72 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
                 </div>
               </div>
 
-              {/* Media URL input — shown only when template has IMAGE/VIDEO/DOCUMENT header */}
+              {/* Media input — shown only when template has IMAGE/VIDEO/DOCUMENT header */}
               {needsMedia && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-2.5">
                   <div className="flex items-center gap-1.5">
                     {mediaIcon(headerType)}
                     <Label className="text-xs font-medium text-amber-800">
-                      {headerType} URL <span className="text-red-500">*</span>
+                      {headerType} Required <span className="text-red-500">*</span>
                     </Label>
                   </div>
-                  <p className="text-[11px] text-amber-700">
-                    Is template ka {headerType.toLowerCase()} header hai — public URL paste karo jo WhatsApp fetch kar sake.
-                  </p>
-                  <div className="flex gap-2">
-                    <Input
-                      value={mediaUrl}
-                      onChange={(e) => setMediaUrl(e.target.value)}
-                      placeholder={`https://example.com/file.${headerType === 'IMAGE' ? 'jpg' : headerType === 'VIDEO' ? 'mp4' : 'pdf'}`}
-                      className={cn('text-xs', mediaUrl && 'border-green-400 bg-green-50/50')}
+
+                  {/* Upload button — recommended */}
+                  <div>
+                    <p className="text-[11px] text-amber-700 mb-1.5">
+                      File upload karo (recommended) — directly WhatsApp pe upload hoga:
+                    </p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      accept={headerType === 'IMAGE' ? 'image/jpeg,image/png,image/webp' : headerType === 'VIDEO' ? 'video/mp4' : 'application/pdf'}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFileUpload(f); }}
                     />
-                    <div className="flex items-center">
-                      <Link className="h-4 w-4 text-muted-foreground" />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs gap-1.5 border-amber-300 bg-white"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                    >
+                      {uploading
+                        ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Uploading to WhatsApp…</>
+                        : <><Upload className="h-3.5 w-3.5" /> Upload {headerType === 'IMAGE' ? 'Image' : headerType === 'VIDEO' ? 'Video' : 'PDF'}</>}
+                    </Button>
+                  </div>
+
+                  {/* OR: paste public URL */}
+                  <div>
+                    <p className="text-[11px] text-amber-700 mb-1">Ya public URL paste karo (Supabase/Media Library links kaam nahi karenge):</p>
+                    <div className="flex gap-2">
+                      <Input
+                        value={mediaUrl}
+                        onChange={(e) => setMediaUrl(e.target.value)}
+                        placeholder={`https://cdn.example.com/file.${headerType === 'IMAGE' ? 'jpg' : headerType === 'VIDEO' ? 'mp4' : 'pdf'}`}
+                        className={cn('text-xs', mediaUrl && !mediaUrl.startsWith('http') && 'border-green-400 bg-green-50/50', mediaUrl.startsWith('http') && 'border-green-400 bg-green-50/50')}
+                      />
+                      <div className="flex items-center">
+                        <Link className="h-4 w-4 text-muted-foreground" />
+                      </div>
                     </div>
                   </div>
+
                   {mediaUrl && (
-                    <p className="text-[11px] text-green-700">✓ URL / ID set</p>
+                    <p className="text-[11px] text-green-700 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" />
+                      {mediaUrl.startsWith('http') ? 'Public URL set' : 'WhatsApp handle set (uploaded)'}
+                    </p>
                   )}
 
-                  {/* Recent from Media Library */}
+                  {/* Recent from Media Library (WhatsApp IDs only) */}
                   {recentMedia.length > 0 && (
                     <div className="space-y-1.5">
                       <p className="text-[11px] text-muted-foreground font-medium flex items-center gap-1">
-                        <Clock className="h-3 w-3" /> Media Library se recent:
+                        <Clock className="h-3 w-3" /> Previously uploaded:
                       </p>
-                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                      <div className="space-y-1 max-h-28 overflow-y-auto">
                         {recentMedia.map((item) => (
                           <button
                             key={item.id}
