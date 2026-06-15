@@ -707,18 +707,24 @@ async function fetchKnowledgeBaseContext(
       if (queryEmbedding) {
         const formattedEmbedding = formatEmbedding(queryEmbedding);
 
+        // Search both knowledge_base entries AND uploaded file chunks (vector_documents)
+        // Always combine both — never early-return on just one source
+        const contextParts: string[] = [];
+
         const { data: vecResults } = await db.rpc('match_knowledge_base', {
           query_embedding: formattedEmbedding,
           workspace_id_param: workspaceId,
           match_count: 5,
         });
         if (vecResults?.length > 0) {
-          return (vecResults as Array<{ title: string; content: string }>)
-            .map((e) => `## ${e.title}\n${e.content}`)
-            .join('\n\n');
+          contextParts.push(
+            (vecResults as Array<{ title: string; content: string }>)
+              .map((e) => `## ${e.title}\n${e.content}`)
+              .join('\n\n')
+          );
         }
 
-        // Also search vector_documents table (uploaded file chunks)
+        // Always also check uploaded file chunks
         const { data: vecDocResults } = await (db.rpc('match_vector_documents', {
           query_embedding: formattedEmbedding,
           workspace_id_param: workspaceId,
@@ -727,10 +733,15 @@ async function fetchKnowledgeBaseContext(
         }) as Promise<{ data: Array<{ filename: string; content: string }> | null }>).catch(() => ({ data: null }));
 
         if (vecDocResults?.length) {
-          const vecDocContext = (vecDocResults as Array<{ filename: string; content: string }>)
-            .map((r) => `[${r.filename}] ${r.content}`)
-            .join('\n\n');
-          return vecDocContext;
+          contextParts.push(
+            (vecDocResults as Array<{ filename: string; content: string }>)
+              .map((r) => `[${r.filename}] ${r.content}`)
+              .join('\n\n')
+          );
+        }
+
+        if (contextParts.length > 0) {
+          return contextParts.join('\n\n');
         }
       }
     } catch {
