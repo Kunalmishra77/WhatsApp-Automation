@@ -115,6 +115,9 @@ export function KanbanBoard() {
         </div>
 
         <div className="flex-1 overflow-x-auto">
+          <p className="sm:hidden text-[10px] text-muted-foreground px-4 pt-2 pb-0 flex items-center gap-1">
+            ← Swipe to see all pipeline stages
+          </p>
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}

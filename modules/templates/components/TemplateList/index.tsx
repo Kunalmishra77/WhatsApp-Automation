@@ -1,13 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { Plus, Pencil, Trash2, Send, RefreshCw, FileText } from 'lucide-react';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+} from '@/components/ui/dialog';
+import { Plus, Pencil, Trash2, Send, RefreshCw, FileText, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useTemplates, useDeleteTemplate, useSubmitTemplate, useSyncTemplates } from '../../hooks/useTemplates';
@@ -17,17 +19,28 @@ import type { TemplateRow } from '../../services/template.service';
 import { toast } from 'sonner';
 
 export function TemplateList() {
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<TemplateRow | undefined>();
+  const [formOpen,       setFormOpen]       = useState(false);
+  const [editing,        setEditing]        = useState<TemplateRow | undefined>();
+  const [pendingDelete,  setPendingDelete]  = useState<TemplateRow | null>(null);
+  const [deleting,       setDeleting]       = useState(false);
+
   const { data: templates = [], isLoading } = useTemplates();
   const remove = useDeleteTemplate();
   const submit = useSubmitTemplate();
   const sync   = useSyncTemplates();
 
-  const handleDelete = async (t: TemplateRow) => {
-    if (!confirm(`Delete template "${t.name}"?`)) return;
-    await remove.mutateAsync(t.id);
-    toast.success('Template deleted');
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      await remove.mutateAsync(pendingDelete.id);
+      toast.success('Template deleted');
+      setPendingDelete(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete template');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleSubmit = async (t: TemplateRow) => {
@@ -121,7 +134,7 @@ export function TemplateList() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 text-brand-600 hover:text-brand-700"
+                            className="h-8 w-8 text-brand-600 hover:text-brand-700"
                             title="Submit to Meta for approval"
                             disabled={submit.isPending}
                             onClick={() => void handleSubmit(t)}
@@ -129,12 +142,20 @@ export function TemplateList() {
                             <Send className="h-3.5 w-3.5" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="icon" className="h-7 w-7"
-                          onClick={() => { setEditing(t); setFormOpen(true); }}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => { setEditing(t); setFormOpen(true); }}
+                        >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => void handleDelete(t)}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => setPendingDelete(t)}
+                        >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -158,6 +179,35 @@ export function TemplateList() {
           </div>
         )}
       </div>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={!!pendingDelete} onOpenChange={(o) => { if (!o) setPendingDelete(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/10 mb-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+            </div>
+            <DialogTitle>Delete template?</DialogTitle>
+            <DialogDescription>
+              <span className="font-mono font-semibold text-foreground">{pendingDelete?.name}</span> will be permanently deleted.
+              This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPendingDelete(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => void confirmDelete()}
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting…' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <TemplateForm open={formOpen} onClose={() => setFormOpen(false)} template={editing} />
     </div>

@@ -147,3 +147,15 @@
     100% { background-position: -200% 0; }
   }
 }
+
+/* Mobile touch optimizations */
+button, [role="button"], a {
+  touch-action: manipulation; /* eliminates 300ms tap delay on mobile */
+}
+
+@media (max-width: 640px) {
+  /* Ensure small buttons are still tappable on mobile */
+  button.h-9, .h-9[role="button"] {
+    min-height: 40px;
+  }
+}

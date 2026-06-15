@@ -114,7 +114,10 @@ function HourlyHeatmap({ data, loading }: { data: number[][]; loading: boolean }
   if (loading) return <ChartSkeleton />;
   const max = Math.max(1, ...data.flatMap((r) => r));
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto -mx-1 px-1">
+      <p className="sm:hidden text-[10px] text-muted-foreground mb-1.5 flex items-center gap-1">
+        <span>← Scroll to see full heatmap</span>
+      </p>
       <div className="min-w-[500px]">
         <div className="flex ml-10 mb-1">
           {Array.from({ length: 24 }, (_, i) => (
