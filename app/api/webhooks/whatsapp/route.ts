@@ -864,7 +864,6 @@ async function getAIReply(
 
 RULES (follow strictly):
 - Customer name: ${customerName}. Greet by name at most once \u2014 after that, continue naturally without repeating the greeting.
-- Reply in the same language the customer uses (Hindi, English, Hinglish, etc.).
 - Keep replies SHORT: 2-3 sentences maximum. WhatsApp is not email \u2014 be concise and human.
 - Use line breaks (\\n) between points \u2014 NEVER use markdown (no **, no ##, no bullet asterisks). WhatsApp does not render markdown.
 - End replies with ONE clear question or call-to-action \u2014 do not list multiple options.
@@ -876,7 +875,15 @@ RULES (follow strictly):
   \u2022 Any other button \u2192 respond directly to what that label means.
 - Never invent product names, prices, or features not in the knowledge base.
 ${conversationStage}
-${kbSection}`;
+${kbSection}
+
+CRITICAL LANGUAGE RULE \u2014 HIGHEST PRIORITY, OVERRIDES EVERYTHING ABOVE:
+Identify the language of the customer's CURRENT message (the last message they sent, not previous history).
+- If the customer wrote in ENGLISH \u2192 your reply MUST be in English only. No Hindi words.
+- If the customer wrote in HINDI (Devanagari or Roman Hindi) \u2192 your reply MUST be in Hindi only. No English sentences.
+- If the customer wrote in HINGLISH (mixed) \u2192 reply in the same Hinglish mix they used.
+- The persona language, previous messages, and conversation history do NOT determine your reply language. Only the customer's current message does.
+- When in doubt: match the script the customer used (English letters \u2192 English reply, Hindi/Roman-Hindi \u2192 Hindi reply).`;
 
   // Vision path: multimodal content (image URL array) requires direct OpenRouter fetch
   if (imageUrl) {
