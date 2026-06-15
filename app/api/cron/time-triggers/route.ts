@@ -1,13 +1,14 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 
-// GET /api/cron/time-triggers?secret=agentix2026cron
+// GET /api/cron/time-triggers?secret=<CRON_SECRET>
 // Processes two kinds of triggers:
 //   1. time_trigger_queue rows due for execution (send_message, auto_close, etc.)
 //   2. workspace idle-close config — find conversations idle > N hours and queue auto-close
 export async function GET(request: NextRequest) {
   const secret  = request.nextUrl.searchParams.get('secret') ?? '';
-  const allowed = secret === (process.env.CRON_SECRET ?? 'agentix2026cron') || request.headers.get('x-vercel-cron') === '1';
+  const cronSecret = process.env.CRON_SECRET;
+  const allowed    = !!cronSecret && secret === cronSecret;
   if (!allowed) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const db  = createAdminClient() as any;

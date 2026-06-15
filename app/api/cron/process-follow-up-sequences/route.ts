@@ -9,10 +9,8 @@ interface SequenceStep {
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const secret = url.searchParams.get('secret') ?? '';
-  const allowed =
-    secret === (process.env.CRON_SECRET ?? 'agentix2026cron') ||
-    request.headers.get('x-vercel-cron') === '1';
-
+  const cronSecret = process.env.CRON_SECRET;
+  const allowed    = !!cronSecret && secret === cronSecret;
   if (!allowed) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

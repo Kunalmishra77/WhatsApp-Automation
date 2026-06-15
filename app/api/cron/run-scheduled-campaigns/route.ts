@@ -3,15 +3,11 @@ import { createAdminClient } from '@/services/supabase/admin';
 import { executeCampaign } from '@/lib/campaign-executor';
 
 export async function GET(request: NextRequest) {
-  // Simple secret check — URL must contain ?secret=agentix2026cron
-  // OR request comes from Vercel internal cron (x-vercel-cron header)
-  const url = new URL(request.url);
-  const secret = url.searchParams.get('secret') ?? '';
-  const allowed = secret === (process.env.CRON_SECRET ?? 'agentix2026cron') ||
-    request.headers.get('x-vercel-cron') === '1';
-
+  const url        = new URL(request.url);
+  const secret     = url.searchParams.get('secret') ?? '';
+  const cronSecret = process.env.CRON_SECRET;
+  const allowed    = !!cronSecret && secret === cronSecret;
   if (!allowed) {
-    console.log('[Cron] Rejected — secret:', JSON.stringify(secret));
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

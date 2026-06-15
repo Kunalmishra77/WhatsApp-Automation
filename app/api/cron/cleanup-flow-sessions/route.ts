@@ -5,10 +5,9 @@ import { createAdminClient } from '@/services/supabase/admin';
 // Marks flow_sessions that have been "active" for > 48 hours as "expired"
 // Prevents stuck sessions from blocking new flows for a contact
 export async function GET(request: NextRequest) {
-  const secret = request.nextUrl.searchParams.get('secret');
-  const cronHeader = request.headers.get('x-vercel-cron');
-
-  if (!cronHeader && secret !== (process.env.CRON_SECRET ?? 'agentix2026cron')) {
+  const secret     = request.nextUrl.searchParams.get('secret') ?? '';
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret || secret !== cronSecret) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

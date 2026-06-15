@@ -58,7 +58,7 @@ export function ImportWizard({ open, onClose }: ImportWizardProps) {
         parsed = await parseCSV(file);
         // If CSV parse gives no results, try AI
         if (parsed.length === 0) {
-          parsed = await parseWithAI(file);
+          parsed = await parseWithAI(file, workspaceId ?? '');
           setAiUsed(true);
         }
       } else if (ext === 'xlsx' || ext === 'xls') {
@@ -69,7 +69,7 @@ export function ImportWizard({ open, onClose }: ImportWizardProps) {
         parsed = await parseJSON(file);
       } else {
         // PDF or any unknown — use AI
-        parsed = await parseWithAI(file);
+        parsed = await parseWithAI(file, workspaceId ?? '');
         setAiUsed(true);
       }
 
@@ -308,10 +308,10 @@ async function parseJSON(file: File): Promise<ParsedRow[]> {
   })).filter((r) => r.phone.length > 5);
 }
 
-async function parseWithAI(file: File): Promise<ParsedRow[]> {
-  // Read file text (works for PDF via server, or text files)
+async function parseWithAI(file: File, workspaceId: string): Promise<ParsedRow[]> {
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('workspaceId', workspaceId);
 
   const res  = await fetch('/api/contacts/parse-ai', { method: 'POST', body: formData });
   if (!res.ok) throw new Error('AI parsing failed');

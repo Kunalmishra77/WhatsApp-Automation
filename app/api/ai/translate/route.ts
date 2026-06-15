@@ -1,10 +1,15 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { callAI } from '@/lib/ai-client';
+import { createClient } from '@/services/supabase/server';
 
 export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+
     const { text, conversationId } = await request.json() as {
       text?: string;
       conversationId?: string;

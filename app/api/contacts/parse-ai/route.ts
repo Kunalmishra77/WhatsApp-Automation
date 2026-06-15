@@ -1,11 +1,15 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { callAI } from '@/lib/ai-client';
+import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 
 // POST /api/contacts/parse-ai
 // Accepts a file upload, extracts contact information using AI
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
+    const workspaceId = formData.get('workspaceId') as string | null;
+    if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
+    await requireWorkspacePermission(workspaceId, 'manage_contacts');
     const file     = formData.get('file') as File | null;
     if (!file) return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
 
@@ -69,6 +73,7 @@ JSON array:`;
 
     return NextResponse.json({ contacts: valid, ai_used: true, source: file.name });
   } catch (err) {
+    if (err instanceof AuthzError) return authzResponse(err);
     console.error('[contacts/parse-ai]', err);
     return NextResponse.json({ error: 'AI parsing failed', contacts: [] }, { status: 500 });
   }
