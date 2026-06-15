@@ -11,14 +11,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
-import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown, Bot, BotOff, Sparkles, Wand2, GitMerge, RefreshCw, FileText } from 'lucide-react';
+import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown, Bot, BotOff, Sparkles, Wand2, GitMerge, RefreshCw, FileText, Tag } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { createClient } from '@/services/supabase/client';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { useAssignAgent, useChangeStatus, useResolveConversation, useBotPause, useSummarize } from '../../hooks/useConversationActions';
 import type { ConversationWithContact } from '../../services/conversation.service';
-import { LabelPicker } from '../LabelPicker';
+import { LabelBadge, LabelPicker } from '../LabelPicker';
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from '@/components/ui/popover';
@@ -62,6 +62,8 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
 
   const isBotPaused = !!(conversation as any).bot_paused;
   const [showFormPicker, setShowFormPicker] = useState(false);
+  const [labelPickerOpen, setLabelPickerOpen] = useState(false);
+  const currentLabels = Array.isArray((conversation as any).labels) ? (conversation as any).labels as string[] : [];
 
   const { data: formsData } = useQuery({
     queryKey: ['wa-forms', workspaceId],
@@ -188,12 +190,14 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
         </Avatar>
         <div className="min-w-0">
           <p className="text-sm font-semibold text-foreground leading-none truncate">{name}</p>
-          <div className="flex items-center gap-2 mt-0.5 overflow-hidden">
-            <p className="text-xs text-muted-foreground truncate">{contact?.phone}</p>
-            <LabelPicker
-              conversationId={conversation.id}
-              currentLabels={Array.isArray((conversation as any).labels) ? (conversation as any).labels as string[] : []}
-            />
+          <div className="flex items-center gap-1.5 mt-0.5 overflow-hidden">
+            <p className="text-xs text-muted-foreground shrink-0">{contact?.phone}</p>
+            {currentLabels.slice(0, 2).map((lbl) => (
+              <LabelBadge key={lbl} label={lbl} />
+            ))}
+            {currentLabels.length > 2 && (
+              <span className="text-[10px] text-muted-foreground shrink-0">+{currentLabels.length - 2}</span>
+            )}
           </div>
         </div>
         <span
@@ -319,7 +323,14 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
           </Button>
         )}
 
-        {/* More options — Summary, Pending, Merge, etc. */}
+        {/* More options — Summary, Labels, Pending, Merge, etc. */}
+        <Popover open={labelPickerOpen} onOpenChange={setLabelPickerOpen}>
+          <PopoverTrigger className="hidden" />
+          <PopoverContent className="w-52 p-2" align="end" side="bottom">
+            <LabelPicker conversationId={conversation.id} currentLabels={currentLabels} />
+          </PopoverContent>
+        </Popover>
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -327,6 +338,16 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
+            {/* Labels */}
+            <DropdownMenuItem
+              className="gap-2 text-xs"
+              onSelect={(e) => { e.preventDefault(); setLabelPickerOpen(true); }}
+            >
+              <Tag className="h-3.5 w-3.5 text-brand-500" /> Manage Labels
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+
             {/* AI Summary */}
             <DropdownMenuItem
               className="gap-2 text-xs"
