@@ -724,7 +724,7 @@ async function fetchKnowledgeBaseContext(
           );
         }
 
-        // Always also check uploaded file chunks
+        // Semantic search in uploaded file chunks (requires embeddings)
         const { data: vecDocResults } = await (db.rpc('match_vector_documents', {
           query_embedding: formattedEmbedding,
           workspace_id_param: workspaceId,
@@ -748,7 +748,32 @@ async function fetchKnowledgeBaseContext(
       // pgvector function not yet created — fall through to keyword search
     }
 
-    // Fallback: keyword scoring
+    // Direct scan of vector_documents — guarantees uploaded files are included even if
+    // embeddings are null (silent embedding failure during upload). Always runs as safety net.
+    try {
+      const { data: directDocs } = await (db
+        .from('vector_documents')
+        .select('filename, content, chunk_index')
+        .eq('workspace_id', workspaceId)
+        .order('filename')
+        .order('chunk_index')
+        .limit(40) as Promise<{ data: Array<{ filename: string; content: string; chunk_index: number }> | null }>);
+
+      if (directDocs?.length) {
+        const byFile = new Map<string, string[]>();
+        for (const row of directDocs) {
+          const arr = byFile.get(row.filename) ?? [];
+          arr.push(row.content);
+          byFile.set(row.filename, arr);
+        }
+        const directContext = Array.from(byFile.entries())
+          .map(([fn, chunks]) => `[${fn}]\n${chunks.join(' ')}`)
+          .join('\n\n');
+        return directContext;
+      }
+    } catch { /* table may not exist yet */ }
+
+    // Fallback: keyword scoring on knowledge_base table entries
     const { data: entries } = await db
       .from('knowledge_base')
       .select('title, content, tags, priority')
