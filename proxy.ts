@@ -21,7 +21,7 @@ const ROLE_PROTECTED: Array<{ path: string; roles: string[] }> = [
   { path: '/team', roles: ['super_admin', 'admin', 'manager'] },
 ];
 
-export async function proxy(request: NextRequest): Promise<NextResponse> {
+export default async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
   if (
