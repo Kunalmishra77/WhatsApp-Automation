@@ -372,13 +372,15 @@ export default function KnowledgeBasePage() {
             <p className="text-sm font-semibold text-foreground">AI Agent Persona</p>
           </div>
           <p className="text-xs text-muted-foreground">
-            Describe your business, the bot's name, tone, and how to handle common button clicks. This is injected as the AI's system prompt for every WhatsApp reply.
+            Define your bot's identity, tone, and language. Use{' '}
+            <code className="bg-muted px-1 py-0.5 rounded text-[11px] font-mono">BUTTON "Label" → response</code>{' '}
+            lines to set 100% exact responses for button taps — no AI, instant reply.
           </p>
           <Textarea
             rows={6}
             value={persona}
             onChange={(e) => setPersona(e.target.value)}
-            placeholder={`Example:\nYou are Riya, a helpful assistant for [Company Name].\n[Company] helps businesses with [product/service].\n\nWhen customer taps "Book Demo" → ask for preferred date and time.\nWhen asked about pricing → mention [plan] at [price].\nAlways reply in Hinglish. Keep replies to 2-3 sentences.`}
+            placeholder={`You are [Name], consultant for [Company].\n[Company] helps [audience] with [core benefit].\nAlways reply in [language]. Be warm and concise (2-3 sentences max).\n\nBUTTON "Know more" → [Exact response — sent directly, no AI]\nBUTTON "Book Demo" → [Exact response — sent directly, no AI]\nBUTTON "Not Interested" → [Graceful exit message — sent directly, no AI]\n\nTip: BUTTON lines are 100% deterministic — define them for every button in your template.`}
             className="text-xs font-mono resize-y"
           />
           <Button

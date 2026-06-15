@@ -637,7 +637,7 @@ async function detectNegativeSentiment(message: string): Promise<boolean> {
         {
           role: 'system',
           content:
-            'Analyze if this customer message shows strong negative sentiment, frustration, anger, or urgent need for human help. Reply with ONLY "true" or "false".',
+            'Analyze if this customer message shows GENUINE anger, frustration, a complaint, or an urgent demand for human help (e.g. "this is fraud", "I want a refund", "you cheated me", "this is urgent"). Simple disinterest like "not interested", "nahi chahiye", "no thanks", or "mujhe interest nhi" should return false. Reply with ONLY "true" or "false".',
         },
         { role: 'user', content: message },
       ],
@@ -788,6 +788,24 @@ async function getWhatsAppMediaUrl(mediaId: string, accessToken: string): Promis
   }
 }
 
+// \u2500\u2500 Parse BUTTON "Label" \u2192 response definitions from persona text \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+function parseButtonResponses(persona: string): Map<string, string> {
+  const map = new Map<string, string>();
+  // Matches: BUTTON "Label" \u2192 response  OR  BUTTON "Label": response
+  const regex = /^BUTTON\s+"([^"]+)"\s*[\u2192:]\s*(.+)$/gim;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(persona)) !== null) {
+    map.set(m[1].trim().toLowerCase(), m[2].trim());
+  }
+  return map;
+}
+
+// \u2500\u2500 Extract button label from [Tapped button: "X"] or [Selected: "X"] \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+function extractButtonLabel(message: string): string | null {
+  const m = /^\[(?:Tapped button|Selected):\s*"([^"]+)"\]$/i.exec(message.trim());
+  return m ? m[1].trim() : null;
+}
+
 async function getAIReply(
   customerMessage: string,
   customerName: string,
@@ -805,9 +823,33 @@ async function getAIReply(
   // Per-workspace agent persona overrides the generic prompt when set
   const agentPersona = (wsSettings?.agent_persona as string | undefined)?.trim() ?? '';
 
+  // \u2500\u2500 Deterministic button responses (defined in persona, no AI needed) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  if (!imageUrl) {
+    const buttonLabel = extractButtonLabel(customerMessage);
+    if (buttonLabel) {
+      const buttonMap = parseButtonResponses(agentPersona);
+      const exactResponse = buttonMap.get(buttonLabel.toLowerCase());
+      if (exactResponse) {
+        console.log(`[AI] Deterministic button response for "${buttonLabel}"`);
+        return exactResponse;
+      }
+    }
+  }
+
+  // \u2500\u2500 Conversation stage \u2014 adjusts AI behavior based on how far along we are \u2500\u2500\u2500
+  const historyLen = conversationHistory.length;
+  const conversationStage =
+    historyLen === 0
+      ? 'CONVERSATION STAGE: First message. If the customer tapped a button or sent a first message, respond naturally \u2014 do NOT re-introduce the whole product unless they asked. Ask ONE question to understand what they need.'
+      : historyLen <= 3
+      ? 'CONVERSATION STAGE: Early. You know a little about them. Ask one qualifying question (e.g. team size, current process, main problem) if not yet asked.'
+      : historyLen <= 7
+      ? 'CONVERSATION STAGE: Mid. You understand their situation. Provide specific value, address their concern, and offer a clear next step (demo / pricing / trial).'
+      : 'CONVERSATION STAGE: Extended. Focus on resolving any remaining objection and confirming the next step. If they seem stuck, offer to connect them with a team member.';
+
   const kbSection = kbContext
-    ? `\n\nKNOWLEDGE BASE \u2014 use this to answer accurately:\n${kbContext}\n\nAlways answer from the knowledge base. If the topic is not covered, say a team member will follow up.`
-    : '\nIf you do not know the answer, politely say a team member will follow up \u2014 do NOT guess or invent information.';
+    ? `\n\nKNOWLEDGE BASE \u2014 answer from this accurately:\n${kbContext}\n\nOnly use information from the knowledge base. If a topic is not covered, say a team member will follow up \u2014 do NOT guess or invent.`
+    : '\nIf you do not know the answer, say a team member will follow up \u2014 do NOT guess or invent information.';
 
   const basePersona = agentPersona
     ? agentPersona
@@ -816,11 +858,19 @@ async function getAIReply(
   const systemPrompt = `${basePersona}
 
 RULES (follow strictly):
-- The customer's name is ${customerName}. Do NOT start every reply with "Hello ${customerName}!" \u2014 greet once at most, then continue naturally.
+- Customer name: ${customerName}. Greet by name at most once \u2014 after that, continue naturally without repeating the greeting.
 - Reply in the same language the customer uses (Hindi, English, Hinglish, etc.).
-- Keep replies to 2-3 sentences max. Be warm, direct, and professional.
-- When the message starts with "[Tapped button:" or "[Selected:", understand the customer's intent from the button label and respond to THAT intent \u2014 do NOT say "you clicked a button" or "it seems like you tapped something".
-- Never invent product names, prices, or company information not in the knowledge base.
+- Keep replies SHORT: 2-3 sentences maximum. WhatsApp is not email \u2014 be concise and human.
+- Use line breaks (\\n) between points \u2014 NEVER use markdown (no **, no ##, no bullet asterisks). WhatsApp does not render markdown.
+- End replies with ONE clear question or call-to-action \u2014 do not list multiple options.
+- BUTTON HANDLING: When message starts with "[Tapped button:" or "[Selected:", respond ONLY to that button's intent. Never say "you tapped" or "you clicked". Use persona-defined responses if available (BUTTON definitions above). Otherwise:
+  \u2022 "Know more" / "Learn more" \u2192 explain the core value/benefit of your product. Do NOT jump to demo.
+  \u2022 "Not Interested" / "No thanks" \u2192 acknowledge warmly, close gracefully. Do NOT pitch or continue selling.
+  \u2022 "Book Demo" / "Schedule Demo" \u2192 confirm interest, ask for preferred day/time.
+  \u2022 "Contact Us" / "Talk to Agent" \u2192 say a team member will reach out soon.
+  \u2022 Any other button \u2192 respond directly to what that label means.
+- Never invent product names, prices, or features not in the knowledge base.
+${conversationStage}
 ${kbSection}`;
 
   // Vision path: multimodal content (image URL array) requires direct OpenRouter fetch
@@ -877,7 +927,7 @@ ${kbSection}`;
       ...conversationHistory,
       { role: 'user', content: customerMessage },
     ];
-    const reply = await callAI(messages, { model, maxTokens: 300, temperature: 0.7 });
+    const reply = await callAI(messages, { model, maxTokens: 350, temperature: 0.4 });
     if (!reply) console.warn('[AI] Empty response from AI client');
     return reply;
   } catch (error) {
@@ -1140,10 +1190,15 @@ async function sendAutoReply(
         created_at:      now,
       });
 
-      await (supabase as any).from('conversations').update({
+      const updatePayload: Record<string, unknown> = {
         last_message:    message,
         last_message_at: now,
-      }).eq('id', conversationId);
+      };
+      // Stop bot from looping after escalation — human agent takes over
+      if (isEscalation) {
+        updatePayload.bot_paused = true;
+      }
+      await (supabase as any).from('conversations').update(updatePayload).eq('id', conversationId);
     }
   } catch (error) {
     console.error('[AutoReply] Failed:', error);

@@ -19,8 +19,17 @@ export async function GET(
   if (!db) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { id } = await params;
-  const { data, error } = await db.from('workspaces').select('settings').eq('id', id).single();
+  const { data, error } = await db
+    .from('workspaces')
+    .select('settings, phone_number_id, waba_id, access_token')
+    .eq('id', id)
+    .single();
   if (error) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  return NextResponse.json({ settings: data?.settings ?? {} });
+  return NextResponse.json({
+    settings:        data?.settings ?? {},
+    phone_number_id: data?.phone_number_id ?? '',
+    waba_id:         data?.waba_id ?? '',
+    has_token:       !!(data?.access_token),
+  });
 }

@@ -75,12 +75,13 @@ export function ClientDetail({ workspace: w, onClose, onRefetch }: {
 }) {
   const [tab, setTab]               = useState<Tab>('overview');
   const [pendingAction, setPending] = useState<string | null>(null);
-  const [localPhoneId, setLocalPhoneId] = useState<string>((w as any).phone_number_id ?? '');
+  const [localPhoneId, setLocalPhoneId] = useState<string>('');
 
   // WhatsApp form
-  const [waPhone, setWaPhone] = useState((w as any).phone_number_id ?? '');
+  const [waPhone, setWaPhone] = useState('');
   const [waToken, setWaToken] = useState('');
-  const [waWaba,  setWaWaba]  = useState((w as any).waba_id ?? '');
+  const [waWaba,  setWaWaba]  = useState('');
+  const [hasToken, setHasToken] = useState(false);
   const [persona,        setPersona]        = useState('');
   const [personaLoading, setPersonaLoading] = useState(false);
 
@@ -118,13 +119,25 @@ export function ClientDetail({ workspace: w, onClose, onRefetch }: {
     onRefetch();
   };
 
+  // Fetch WA credentials + persona on mount so Overview tab status is correct too
+  useEffect(() => {
+    fetch(`/api/admin/workspaces/${w.id}/settings`)
+      .then(r => r.ok ? r.json() as Promise<{ settings?: { agent_persona?: string }; phone_number_id?: string; waba_id?: string; has_token?: boolean }> : null)
+      .then(d => {
+        if (!d) return;
+        if (d.phone_number_id) { setWaPhone(d.phone_number_id); setLocalPhoneId(d.phone_number_id); }
+        if (d.waba_id)         setWaWaba(d.waba_id);
+        if (d.has_token)       setHasToken(true);
+        if (d.settings?.agent_persona) setPersona(d.settings.agent_persona);
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [w.id]);
+
   // ── Tab loaders ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (tab === 'whatsapp') {
-      fetch(`/api/admin/workspaces/${w.id}/settings`)
-        .then(r => r.ok ? r.json() as Promise<{ settings?: { agent_persona?: string } }> : null)
-        .then(d => { if (d?.settings?.agent_persona) setPersona(d.settings.agent_persona); })
-        .catch(() => {});
+      // already loaded on mount — no extra fetch needed
     }
     if (tab === 'members' && members.length === 0) {
       setMembersLoading(true);
@@ -159,15 +172,20 @@ export function ClientDetail({ workspace: w, onClose, onRefetch }: {
   };
 
   const handleSaveWhatsApp = async () => {
-    if (!waPhone.trim() || !waToken.trim()) { toast.error('Phone ID and Token required'); return; }
+    if (!waPhone.trim()) { toast.error('Phone Number ID required'); return; }
+    if (!waToken.trim() && !hasToken) { toast.error('Access Token required'); return; }
     setPending('wa');
     try {
-      await patchWorkspace({
-        phone_number_id: waPhone.trim(), access_token: waToken.trim(),
-        waba_id: waWaba.trim() || null, onboarding_complete: true,
-      }, `WhatsApp credentials saved for ${w.name}`);
+      const body: Record<string, unknown> = {
+        phone_number_id: waPhone.trim(),
+        waba_id: waWaba.trim() || null,
+        onboarding_complete: true,
+      };
+      if (waToken.trim()) body.access_token = waToken.trim();
+      await patchWorkspace(body, `WhatsApp credentials saved for ${w.name}`);
       setLocalPhoneId(waPhone.trim());
       setWaToken('');
+      setHasToken(true);
       toast.success('WhatsApp connected ✓');
     } catch { toast.error('Failed to save credentials'); }
     finally { setPending(null); }
@@ -379,7 +397,10 @@ export function ClientDetail({ workspace: w, onClose, onRefetch }: {
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Permanent Access Token *</Label>
-                    <Input value={waToken} onChange={(e) => setWaToken(e.target.value)} placeholder="EAAVyl..." type="password" className="text-xs h-8 font-mono" />
+                    <Input value={waToken} onChange={(e) => setWaToken(e.target.value)} placeholder={hasToken ? '••••••• (token saved — enter new to replace)' : 'EAAVyl...'} type="password" className="text-xs h-8 font-mono" />
+                    {hasToken && !waToken && (
+                      <p className="text-[11px] text-green-700 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Token already saved. Leave blank to keep it.</p>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">WhatsApp Business Account ID (WABA ID)</Label>
@@ -421,7 +442,7 @@ export function ClientDetail({ workspace: w, onClose, onRefetch }: {
                   rows={8}
                   value={persona}
                   onChange={(e) => setPersona(e.target.value)}
-                  placeholder={`Example:\nYou are Riya, a consultant for PagarBook.\nPagarBook helps businesses with attendance and payroll automation.\nWhen customer taps "Book Demo", ask for preferred date/time.\nAlways reply in Hinglish. Keep replies to 2-3 sentences.`}
+                  placeholder={`You are Riya, sales consultant for PagarBook — attendance & payroll automation for 1 lakh+ businesses.\nAlways reply in Hinglish. Be warm, concise (2-3 sentences max).\n\nBUTTON "Know more" → PagarBook se attendance aur salary automatically calculate hote hain. Koi manual work nahi. Aapki company mein kitne employees hain?\nBUTTON "Book Demo" → Bilkul! Hamare expert 20-30 minute mein sab dikhayenge — free mein. Is hafte kab acha rahega?\nBUTTON "Not Interested" → Koi baat nahi! Kabhi zarurat ho toh hum yahan hain. Aapka din shubh ho! 🙏`}
                   className="text-xs font-mono resize-y"
                 />
                 <Button
