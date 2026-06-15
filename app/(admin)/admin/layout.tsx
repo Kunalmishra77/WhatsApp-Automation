@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { Brain, LayoutDashboard, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { Brain, LayoutDashboard, ShieldCheck } from 'lucide-react';
 import { getUser } from '@/modules/auth/services/auth.service';
 import { createAdminClient } from '@/services/supabase/admin';
 
@@ -49,16 +49,8 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
             </div>
           </div>
 
-          {/* Right: nav links + user */}
+          {/* Right: user */}
           <div className="flex items-center gap-4">
-            <Link
-              href="/dashboard"
-              className="flex items-center gap-1.5 text-xs font-medium text-white/50 hover:text-white/90 transition-colors"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Client Dashboard
-            </Link>
-            <div className="h-5 w-px bg-white/10" />
             <div className="flex items-center gap-2">
               <div className="h-7 w-7 rounded-full bg-brand-500/30 border border-brand-500/40 flex items-center justify-center">
                 <span className="text-[11px] font-bold text-brand-300">
