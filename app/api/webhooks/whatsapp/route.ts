@@ -791,13 +791,16 @@ async function getWhatsAppMediaUrl(mediaId: string, accessToken: string): Promis
 // \u2500\u2500 Parse BUTTON "Label" \u2192 response definitions from persona text \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function parseButtonResponses(persona: string): Map<string, string> {
   const map = new Map<string, string>();
-  // Matches: BUTTON "Label" \u2192 response  OR  BUTTON "Label": response
-  const regex = /^BUTTON\s+"([^"]+)"\s*[\u2192:]\s*(.+)$/gim;
-  let m: RegExpExecArray | null;
-  while ((m = regex.exec(persona)) !== null) {
-    if (m[1] !== undefined && m[2] !== undefined) {
-      map.set(m[1].trim().toLowerCase(), m[2].trim());
-    }
+  for (const line of persona.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!/^BUTTON\s+"/i.test(trimmed)) continue;
+    const labelMatch = /^BUTTON\s+"([^"]+)"/i.exec(trimmed);
+    if (!labelMatch?.[1]) continue;
+    const label = labelMatch[1].trim().toLowerCase();
+    // Strip separator after closing quote: any arrows (\u2192 \u27a1 \u279c \u21d2 etc), dashes, colons, spaces
+    const rest = trimmed.slice(labelMatch[0].length);
+    const response = rest.replace(/^[\s\u2192\u27a1\u279c\u21d2\u2794\-=>:]+/, '').trim();
+    if (response) map.set(label, response);
   }
   return map;
 }
