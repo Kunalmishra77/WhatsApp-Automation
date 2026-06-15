@@ -795,7 +795,9 @@ function parseButtonResponses(persona: string): Map<string, string> {
   const regex = /^BUTTON\s+"([^"]+)"\s*[\u2192:]\s*(.+)$/gim;
   let m: RegExpExecArray | null;
   while ((m = regex.exec(persona)) !== null) {
-    map.set(m[1].trim().toLowerCase(), m[2].trim());
+    if (m[1] !== undefined && m[2] !== undefined) {
+      map.set(m[1].trim().toLowerCase(), m[2].trim());
+    }
   }
   return map;
 }
