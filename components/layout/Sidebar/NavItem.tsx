@@ -21,23 +21,23 @@ export function NavItem({ href, icon: Icon, label, collapsed, badge, locked, req
   const pathname = usePathname();
   const isActive = !locked && (pathname === href || (href !== '/' && pathname.startsWith(href)));
 
-  /* Locked */
+  /* ── Locked ──────────────────────────────────────────────────────────────── */
   if (locked) {
     const lockedContent = (
       <div
         className={cn(
-          'group flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm',
-          'text-muted-foreground/40 cursor-not-allowed select-none',
+          'flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm',
+          'text-white/20 cursor-not-allowed select-none',
           collapsed && 'justify-center px-2',
         )}
       >
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
-          <Icon className="h-4 w-4 text-muted-foreground/30" />
+          <Icon className="h-4 w-4 text-white/15" />
         </div>
         {!collapsed && (
           <>
             <span className="flex-1 truncate">{label}</span>
-            <Lock className="ml-auto h-3 w-3 text-muted-foreground/30" />
+            <Lock className="ml-auto h-3 w-3 text-white/15" />
           </>
         )}
       </div>
@@ -55,30 +55,31 @@ export function NavItem({ href, icon: Icon, label, collapsed, badge, locked, req
     );
   }
 
+  /* ── Active / Inactive ───────────────────────────────────────────────────── */
   const content = (
     <Link
       href={href}
       className={cn(
-        'group relative flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-medium transition-all duration-150',
+        'group flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-medium transition-all duration-150',
         isActive
-          ? 'bg-brand-500/10 text-brand-700'
-          : 'text-muted-foreground hover:bg-black/[0.04] hover:text-foreground',
+          ? 'bg-white/[0.12] text-white'
+          : 'text-white/50 hover:bg-white/[0.07] hover:text-white/90',
         collapsed && 'justify-center px-2',
       )}
     >
-      {/* Icon — colored square when active */}
+      {/* Icon square */}
       <div
         className={cn(
           'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-150',
           isActive
-            ? 'bg-brand-500 shadow-sm shadow-brand-500/40'
-            : 'group-hover:bg-black/[0.05]',
+            ? 'bg-brand-500 shadow-sm shadow-black/30'
+            : 'group-hover:bg-white/[0.08]',
         )}
       >
         <Icon
           className={cn(
             'h-4 w-4 shrink-0 transition-colors',
-            isActive ? 'text-white' : 'text-muted-foreground group-hover:text-foreground',
+            isActive ? 'text-white' : 'text-white/40 group-hover:text-white/70',
           )}
         />
       </div>
@@ -86,7 +87,7 @@ export function NavItem({ href, icon: Icon, label, collapsed, badge, locked, req
       {!collapsed && <span className="flex-1 truncate">{label}</span>}
 
       {!collapsed && badge !== undefined && badge > 0 && (
-        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-500 px-1.5 text-[10px] font-bold text-white">
+        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-500 px-1.5 text-[10px] font-bold text-white shadow-sm">
           {badge > 99 ? '99+' : badge}
         </span>
       )}

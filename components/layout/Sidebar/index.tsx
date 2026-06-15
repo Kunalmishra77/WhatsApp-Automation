@@ -5,8 +5,8 @@ import Link from 'next/link';
 import {
   MessageSquare, Users, Kanban, Megaphone, FileText,
   BarChart3, Settings, UserCircle, ChevronLeft, ChevronRight,
-  Users2, GitBranch, BookOpen, TrendingUp, LifeBuoy, CalendarCheck, LayoutDashboard,
-  LogOut,
+  Users2, GitBranch, BookOpen, TrendingUp, LifeBuoy, CalendarCheck,
+  LayoutDashboard, LogOut, Brain,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -45,6 +45,12 @@ const NAV_ITEMS: Array<{
   { href: '/knowledge-base',icon: BookOpen,        label: 'Knowledge Base'   },
 ];
 
+const PLAN_BADGE: Record<string, { cls: string; label: string }> = {
+  free:        { cls: 'bg-white/10 text-white/50',      label: 'Free'       },
+  pro:         { cls: 'bg-brand-500/30 text-brand-300', label: 'Pro'        },
+  enterprise:  { cls: 'bg-amber-500/30 text-amber-300', label: 'Enterprise' },
+};
+
 export function Sidebar() {
   const collapsed      = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar  = useUIStore((s) => s.toggleSidebar);
@@ -57,54 +63,62 @@ export function Sidebar() {
     ? user.full_name.split(' ').map((n) => n[0] ?? '').join('').slice(0, 2).toUpperCase()
     : '??';
 
-  const planColors: Record<string, string> = {
-    free:       'bg-slate-100 text-slate-500',
-    pro:        'bg-brand-100 text-brand-600',
-    enterprise: 'bg-violet-100 text-violet-600',
-  };
+  const planBadge = PLAN_BADGE[plan] ?? PLAN_BADGE.free!;
 
   return (
     <TooltipProvider>
       <aside
         className={cn(
-          'relative flex h-full flex-col border-r border-border bg-[hsl(220,14%,97%)] transition-all duration-200',
+          'relative flex h-full flex-col border-r border-white/[0.07] bg-navy-900 transition-all duration-200',
           collapsed ? 'w-16' : 'w-64',
         )}
       >
-        {/* ── Logo / Workspace ──────────────────────────────────────────── */}
+        {/* ── Brand mark ────────────────────────────────────────────────── */}
         <div className={cn(
-          'flex h-14 shrink-0 items-center border-b border-border px-3',
+          'flex h-14 shrink-0 items-center border-b border-white/[0.07] px-3',
           collapsed && 'justify-center px-2',
         )}>
           <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
-            {/* Brand mark */}
+            {/* Brain logo mark */}
             <div className={cn(
-              'flex shrink-0 items-center justify-center rounded-xl font-bold text-white',
-              'bg-gradient-to-br from-brand-500 to-indigo-600',
-              'shadow-md shadow-brand-500/30',
-              collapsed ? 'h-8 w-8 text-sm' : 'h-8 w-8 text-sm',
+              'flex shrink-0 items-center justify-center rounded-xl',
+              'bg-gradient-to-br from-brand-500 to-brand-600',
+              'shadow-lg shadow-brand-900/40',
+              'h-8 w-8',
             )}>
-              A
+              <Brain className="h-5 w-5 text-white" strokeWidth={1.8} />
             </div>
 
             {!collapsed && (
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold leading-none text-foreground">
-                  {workspace?.name ?? 'Agentix'}
+                {/* AGENTiX wordmark */}
+                <p className="text-sm font-bold leading-none tracking-wide text-white">
+                  <span className="text-brand-400">A</span>GENT
+                  <span className="text-white/80">i</span>
+                  <span className="text-brand-400">X</span>
                 </p>
                 <span className={cn(
-                  'mt-1 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-semibold capitalize leading-none',
-                  planColors[plan] ?? planColors.free,
+                  'mt-1 inline-block rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider leading-none',
+                  planBadge.cls,
                 )}>
-                  {plan}
+                  {planBadge.label}
                 </span>
               </div>
             )}
           </Link>
         </div>
 
+        {/* ── Workspace name strip ──────────────────────────────────────── */}
+        {!collapsed && workspace?.name && (
+          <div className="px-3 pt-3 pb-1">
+            <p className="truncate text-[11px] font-semibold uppercase tracking-widest text-white/30">
+              {workspace.name}
+            </p>
+          </div>
+        )}
+
         {/* ── Navigation ────────────────────────────────────────────────── */}
-        <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+        <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
           {NAV_ITEMS.map((item) => {
             const locked = item.requiredFeature ? !hasFeature(plan, item.requiredFeature) : false;
             return (
@@ -121,7 +135,7 @@ export function Sidebar() {
           })}
 
           {/* Divider */}
-          <div className="mx-2 my-2 h-px bg-border" />
+          <div className="mx-2 my-2 h-px bg-white/[0.07]" />
 
           <NavItem href="/settings" icon={Settings} label="Settings" collapsed={collapsed} />
 
@@ -129,12 +143,12 @@ export function Sidebar() {
             onClick={() => setSupportOpen(true)}
             className={cn(
               'flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-medium transition-all duration-150',
-              'text-muted-foreground hover:bg-black/[0.04] hover:text-foreground',
+              'text-white/50 hover:bg-white/[0.07] hover:text-white/90',
               collapsed && 'justify-center px-2',
             )}
             title={collapsed ? 'Contact Support' : undefined}
           >
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg group-hover:bg-black/[0.05]">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg group-hover:bg-white/[0.08]">
               <LifeBuoy className="h-4 w-4" />
             </div>
             {!collapsed && 'Contact Support'}
@@ -143,29 +157,29 @@ export function Sidebar() {
 
         {/* ── User section ──────────────────────────────────────────────── */}
         <div className={cn(
-          'shrink-0 border-t border-border p-2',
+          'shrink-0 border-t border-white/[0.07] p-2',
           collapsed && 'flex justify-center',
         )}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 className={cn(
-                  'flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-all hover:bg-black/[0.04]',
+                  'flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-all hover:bg-white/[0.07]',
                   collapsed && 'w-auto justify-center px-2',
                 )}
               >
-                <Avatar className="h-8 w-8 shrink-0 ring-2 ring-border ring-offset-1 ring-offset-transparent">
+                <Avatar className="h-8 w-8 shrink-0 ring-2 ring-white/10">
                   <AvatarImage src={user?.avatar_url ?? undefined} alt={user?.full_name ?? ''} />
-                  <AvatarFallback className="bg-gradient-to-br from-brand-400 to-indigo-500 text-white text-xs font-bold">
+                  <AvatarFallback className="bg-gradient-to-br from-brand-500 to-brand-600 text-white text-xs font-bold">
                     {initials}
                   </AvatarFallback>
                 </Avatar>
                 {!collapsed && (
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold leading-none text-foreground">
+                    <p className="truncate text-sm font-semibold leading-none text-white/90">
                       {user?.full_name ?? 'User'}
                     </p>
-                    <p className="truncate text-[11px] text-muted-foreground mt-0.5">{user?.email ?? ''}</p>
+                    <p className="truncate text-[11px] text-white/40 mt-0.5">{user?.email ?? ''}</p>
                   </div>
                 )}
               </button>
@@ -199,8 +213,8 @@ export function Sidebar() {
           onClick={toggleSidebar}
           className={cn(
             'absolute -right-3.5 top-16 z-10 flex h-7 w-7 items-center justify-center',
-            'rounded-full border border-border bg-card shadow-sm',
-            'hover:bg-accent transition-colors',
+            'rounded-full border border-border bg-card shadow-md',
+            'hover:bg-muted transition-colors',
           )}
         >
           {collapsed

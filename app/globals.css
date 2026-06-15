@@ -14,8 +14,11 @@
     --card-foreground:    222 47% 8%;
     --popover:            0 0% 100%;
     --popover-foreground: 222 47% 8%;
-    --primary:            199 89% 48%;
-    --primary-foreground: 210 40% 98%;
+
+    /* AGENTiX orange as primary */
+    --primary:            18 82% 54%;   /* #e8622a */
+    --primary-foreground: 0 0% 100%;
+
     --secondary:          220 14% 96%;
     --secondary-foreground: 222 47% 11%;
     --muted:              220 14% 95%;
@@ -23,10 +26,10 @@
     --accent:             220 14% 95%;
     --accent-foreground:  222 47% 11%;
     --destructive:        0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 0 0% 100%;
     --border:             220 13% 91%;
     --input:              220 13% 91%;
-    --ring:               199 89% 48%;
+    --ring:               18 82% 54%;
     --radius:             0.625rem;
     --chat-bg:            #f0f2f5;
 
@@ -50,8 +53,8 @@
     --card-foreground:    210 40% 98%;
     --popover:            222 47% 8%;
     --popover-foreground: 210 40% 98%;
-    --primary:            199 89% 48%;
-    --primary-foreground: 222 47% 11%;
+    --primary:            18 82% 54%;
+    --primary-foreground: 0 0% 100%;
     --secondary:          217 32% 15%;
     --secondary-foreground: 210 40% 98%;
     --muted:              217 32% 15%;
@@ -62,7 +65,7 @@
     --destructive-foreground: 210 40% 98%;
     --border:             217 32% 17%;
     --input:              217 32% 17%;
-    --ring:               199 89% 48%;
+    --ring:               18 82% 54%;
   }
 }
 
@@ -108,7 +111,7 @@
 
   /* Gradient text utility */
   .text-gradient-brand {
-    background: linear-gradient(135deg, #0ea5e9, #6366f1);
+    background: linear-gradient(135deg, #e8622a, #ff9a5c);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;

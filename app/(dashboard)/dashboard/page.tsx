@@ -198,7 +198,7 @@ export default function DashboardPage() {
       <div className="max-w-screen-xl mx-auto w-full px-4 sm:px-6 py-6 space-y-8">
 
         {/* ── Hero banner ─────────────────────────────────────────────────── */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-brand-700 to-brand-500 px-6 sm:px-8 py-6 sm:py-8 text-white shadow-xl shadow-brand-900/20">
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-navy-900 via-navy-800 to-brand-700 px-6 sm:px-8 py-6 sm:py-8 text-white shadow-xl shadow-navy-900/30">
           {/* Decorative orb */}
           <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/5 blur-3xl" />
           <div className="pointer-events-none absolute right-32 bottom-0 h-48 w-48 rounded-full bg-brand-400/20 blur-2xl" />
@@ -237,9 +237,9 @@ export default function DashboardPage() {
           {stats && (
             <div className="relative mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: 'Open Conversations', value: stats.conversations.open,  accent: 'border-brand-400/40' },
+                { label: 'Open Conversations', value: stats.conversations.open,  accent: 'border-brand-400/50' },
                 { label: 'Messages Today',      value: stats.messages.today,      accent: 'border-emerald-400/40' },
-                { label: 'Total Contacts',       value: stats.contacts.total.toLocaleString(), accent: 'border-sky-400/40' },
+                { label: 'Total Contacts',       value: stats.contacts.total.toLocaleString(), accent: 'border-amber-400/40' },
                 { label: 'Bot Reply Rate',        value: `${stats.messages.botRate}%`, accent: 'border-violet-400/40' },
               ].map((s) => (
                 <div key={s.label} className={cn(

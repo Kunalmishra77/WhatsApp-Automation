@@ -11,18 +11,33 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        /* ── AGENTiX brand orange ──────────────────────── */
         brand: {
-          50:  '#f0f9ff',
-          100: '#e0f2fe',
-          200: '#bae6fd',
-          300: '#7dd3fc',
-          400: '#38bdf8',
-          500: '#0ea5e9',
-          600: '#0284c7',
-          700: '#0369a1',
-          800: '#075985',
-          900: '#0c4a6e',
-          950: '#082f49',
+          50:  '#fff6f2',
+          100: '#ffe8db',
+          200: '#ffd0b7',
+          300: '#ffaf8a',
+          400: '#ff7f4d',
+          500: '#e8622a',   /* primary orange from logo */
+          600: '#cc4a14',
+          700: '#a33a0e',
+          800: '#852f0f',
+          900: '#6e2810',
+          950: '#3b1206',
+        },
+        /* ── AGENTiX dark navy ─────────────────────────── */
+        navy: {
+          50:  '#f0f4f9',
+          100: '#d9e2f0',
+          200: '#b3c5e0',
+          300: '#7d9dc8',
+          400: '#4a76af',
+          500: '#2d5896',
+          600: '#1f4279',
+          700: '#163261',
+          800: '#1a2b4a',   /* navy from logo */
+          900: '#0f1e38',
+          950: '#08111f',
         },
         surface: {
           primary:   'hsl(var(--surface-primary))',
