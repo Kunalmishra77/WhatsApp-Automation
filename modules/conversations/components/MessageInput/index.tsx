@@ -20,7 +20,14 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Send, StickyNote, LayoutList, IndianRupee, Sparkles, Loader2, X, ShoppingBag, Paperclip, Image, Smile, CheckCircle2 } from 'lucide-react';
+import { Send, StickyNote, LayoutList, IndianRupee, Sparkles, Loader2, X, ShoppingBag, Paperclip, Smile, ChevronUp } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useSendMessage, useSuggestedReplies, useTypingBroadcast } from '../../hooks/useMessages';
@@ -302,7 +309,7 @@ export function MessageInput({ conversationId }: MessageInputProps) {
             )}
             rows={1}
           />
-          <div className="flex items-center gap-1.5 pb-0.5">
+          <div className="flex items-center gap-1 shrink-0 pb-0.5">
             {/* Emoji picker */}
             <div className="relative">
               <Tooltip delayDuration={0}>
@@ -320,7 +327,7 @@ export function MessageInput({ conversationId }: MessageInputProps) {
                 <TooltipContent side="top">Emoji</TooltipContent>
               </Tooltip>
               {showEmojiPicker && (
-                <div className="absolute bottom-10 left-0 z-50 w-64 rounded-xl border border-border bg-card shadow-xl p-2">
+                <div className="absolute bottom-10 right-0 z-50 w-64 rounded-xl border border-border bg-card shadow-xl p-2">
                   <div className="grid grid-cols-8 gap-0.5 max-h-44 overflow-y-auto">
                     {['😀','😂','🥰','😍','🤩','😎','🥳','😊','👍','👎','👏','🙏','❤️','💪','🔥','✅','⭐','💡','📞','💬','📢','🎉','🎁','💰','🛒','📦','⚡','🚀','😅','😭','🤔','😬','🙄','😤','😡','🥺','😢','😱','🤗','🫡','💯','🆕','📝','✉️','📅','⏰','💎','🏆','👋','🤝'].map(emoji => (
                       <button
@@ -351,6 +358,7 @@ export function MessageInput({ conversationId }: MessageInputProps) {
               )}
             </div>
 
+            {/* AI Suggest */}
             <Tooltip delayDuration={0}>
               <TooltipTrigger asChild>
                 <Button
@@ -368,62 +376,7 @@ export function MessageInput({ conversationId }: MessageInputProps) {
               <TooltipContent side="top">Suggest replies</TooltipContent>
             </Tooltip>
 
-            <Tooltip delayDuration={0}>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn('h-8 w-8', isNote && 'text-amber-600')}
-                  onClick={() => setIsNote((n) => !n)}
-                >
-                  <StickyNote className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">Toggle internal note</TooltipContent>
-            </Tooltip>
-
-            <Tooltip delayDuration={0}>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setIsInteractiveOpen(true)}
-                >
-                  <LayoutList className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">Send interactive message</TooltipContent>
-            </Tooltip>
-
-            <Tooltip delayDuration={0}>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => void openCatalogDialog()}
-                >
-                  <ShoppingBag className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">Send product from catalog</TooltipContent>
-            </Tooltip>
-
-            <Tooltip delayDuration={0}>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setIsPaymentOpen(true)}
-                >
-                  <IndianRupee className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">Send payment link</TooltipContent>
-            </Tooltip>
-
+            {/* Attach file */}
             <Tooltip delayDuration={0}>
               <TooltipTrigger asChild>
                 <Button
@@ -448,13 +401,39 @@ export function MessageInput({ conversationId }: MessageInputProps) {
               onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleMediaUpload(f); }}
             />
 
+            {/* More actions dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <ChevronUp className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" side="top" className="w-52">
+                <DropdownMenuItem className="gap-2 text-xs" onClick={() => setIsNote((n) => !n)}>
+                  <StickyNote className={cn('h-3.5 w-3.5', isNote ? 'text-amber-500' : '')} />
+                  {isNote ? 'Exit internal note' : 'Internal note'}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="gap-2 text-xs" onClick={() => setIsInteractiveOpen(true)}>
+                  <LayoutList className="h-3.5 w-3.5" /> Interactive message
+                </DropdownMenuItem>
+                <DropdownMenuItem className="gap-2 text-xs" onClick={() => void openCatalogDialog()}>
+                  <ShoppingBag className="h-3.5 w-3.5" /> Send product
+                </DropdownMenuItem>
+                <DropdownMenuItem className="gap-2 text-xs" onClick={() => setIsPaymentOpen(true)}>
+                  <IndianRupee className="h-3.5 w-3.5" /> Payment link
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Send */}
             <Button
               size="icon"
-              className="h-8 w-8 bg-brand-500 hover:bg-brand-600"
+              className="h-8 w-8 bg-brand-500 hover:bg-brand-600 shrink-0"
               onClick={() => void handleSend()}
               disabled={!text.trim() || isSending}
             >
-              <Send className="h-4 w-4 text-white" />
+              {isSending ? <Loader2 className="h-4 w-4 text-white animate-spin" /> : <Send className="h-4 w-4 text-white" />}
             </Button>
           </div>
         </div>

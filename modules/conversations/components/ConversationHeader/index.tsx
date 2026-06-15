@@ -177,19 +177,19 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
   };
 
   return (
-    <div className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-card px-4">
+    <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-4 overflow-hidden">
       {/* Left: contact info + status badge */}
-      <div className="flex items-center gap-3">
-        <Avatar className="h-8 w-8">
+      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+        <Avatar className="h-8 w-8 shrink-0">
           <AvatarImage src={contact?.avatar_url ?? undefined} />
           <AvatarFallback className="bg-brand-100 text-brand-700 text-xs font-semibold">
             {initials}
           </AvatarFallback>
         </Avatar>
-        <div>
-          <p className="text-sm font-semibold text-foreground leading-none">{name}</p>
-          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            <p className="text-xs text-muted-foreground">{contact?.phone}</p>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground leading-none truncate">{name}</p>
+          <div className="flex items-center gap-2 mt-0.5 overflow-hidden">
+            <p className="text-xs text-muted-foreground truncate">{contact?.phone}</p>
             <LabelPicker
               conversationId={conversation.id}
               currentLabels={Array.isArray((conversation as any).labels) ? (conversation as any).labels as string[] : []}
@@ -198,7 +198,7 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
         </div>
         <span
           className={cn(
-            'ml-1 rounded-full px-2 py-0.5 text-[11px] font-medium capitalize',
+            'shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium capitalize',
             STATUS_BADGE[conversation.status] ?? 'bg-gray-100 text-gray-500',
           )}
         >
@@ -206,7 +206,7 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
         </span>
       </div>
 
-      {/* Right: action controls — keep compact, extras in (...) */}
+      {/* Right: action controls */}
       <div className="flex items-center gap-1.5 shrink-0">
         {/* Bot Pause Toggle */}
         <Button

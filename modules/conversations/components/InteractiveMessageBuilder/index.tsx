@@ -123,7 +123,7 @@ export function InteractiveMessageBuilder({
             <MessageSquare className="h-5 w-5 text-brand-500" />
           </div>
           <div>
-            <h2 className="text-base font-semibold">Interactive Message</h2>
+            <DialogTitle className="text-base font-semibold">Interactive Message</DialogTitle>
             <p className="text-xs text-muted-foreground">Send buttons or a list — customer taps to reply</p>
           </div>
         </div>
