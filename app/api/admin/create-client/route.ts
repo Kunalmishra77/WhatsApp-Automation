@@ -49,7 +49,14 @@ export async function POST(request: NextRequest) {
       industry?: string;
     };
 
-    const { business_name, owner_email, owner_phone, plan, industry } = body;
+    const { business_name, owner_email, owner_phone, plan, industry, custom_password } = body as {
+      business_name: string;
+      owner_email: string;
+      owner_phone?: string;
+      plan: string;
+      industry?: string;
+      custom_password?: string;
+    };
 
     if (!business_name?.trim()) {
       return NextResponse.json({ error: 'business_name is required' }, { status: 400 });
@@ -63,9 +70,12 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+    if (custom_password && custom_password.length < 8) {
+      return NextResponse.json({ error: 'Custom password must be at least 8 characters' }, { status: 400 });
+    }
 
     // 4. Create Supabase auth user
-    const password = generatePassword();
+    const password = custom_password?.trim() || generatePassword();
     const { data: authData, error: authError } = await db.auth.admin.createUser({
       email: owner_email,
       password,
