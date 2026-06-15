@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Building2, CheckCircle2, TrendingUp, AlertCircle, Plus, Trash2,
+  Building2, CheckCircle2, TrendingUp, AlertCircle, Plus,
   RefreshCw, MessageSquare, IndianRupee, Activity, Users, Search,
-  Shield, Zap,
+  Shield, Zap, Trash2,
 } from 'lucide-react';
 import { AdminNotificationBell } from '../AdminNotificationBell';
 import { HealthMonitor } from '../HealthMonitor';
@@ -100,9 +100,6 @@ function SectionHeader({ icon: Icon, title, sub, iconBg, action, onAction }: {
 export function AdminDashboard() {
   const [search,      setSearch]      = useState('');
   const [createOpen,  setCreateOpen]  = useState(false);
-  const [resetting,      setResetting]      = useState(false);
-  const [confirmReset,   setConfirmReset]   = useState(false);
-
   const handleAuthError = (status: number) => {
     if (status === 403 || status === 401) window.location.href = '/login?reason=session_expired';
   };
@@ -127,22 +124,6 @@ export function AdminDashboard() {
   });
 
   const handleRefetch = () => { void refetchWorkspaces(); void refetchStats(); };
-
-  const handleResetAll = async () => {
-    setConfirmReset(false);
-    setResetting(true);
-    try {
-      const res = await fetch('/api/admin/workspaces', { method: 'DELETE' });
-      const data = await res.json() as { success?: boolean; error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Reset failed');
-      toast.success('Platform reset — all workspaces deleted.');
-      void refetchWorkspaces();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Reset failed');
-    } finally {
-      setResetting(false);
-    }
-  };
 
   const filteredWorkspaces = (workspacesData?.workspaces ?? []).filter((w) => {
     if (!search.trim()) return true;
@@ -188,18 +169,6 @@ export function AdminDashboard() {
           <Button onClick={() => setCreateOpen(true)} className="gap-2 bg-brand-500 hover:bg-brand-600">
             <Plus className="h-4 w-4" />
             Add New Client
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
-            onClick={() => setConfirmReset(true)}
-            disabled={resetting}
-          >
-            {resetting
-              ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Resetting…</>
-              : <><Trash2 className="h-3.5 w-3.5" /> Reset Platform</>
-            }
           </Button>
         </div>
       </div>
@@ -363,15 +332,6 @@ export function AdminDashboard() {
 
       <CreateClientModal open={createOpen} onOpenChange={setCreateOpen} onSuccess={handleRefetch} />
 
-      <ConfirmDialog
-        open={confirmReset}
-        title="Reset entire platform?"
-        description="This permanently deletes ALL workspaces and client data. This action cannot be undone."
-        confirmLabel="Reset Platform"
-        loading={resetting}
-        onConfirm={() => void handleResetAll()}
-        onCancel={() => setConfirmReset(false)}
-      />
     </div>
   );
 }
