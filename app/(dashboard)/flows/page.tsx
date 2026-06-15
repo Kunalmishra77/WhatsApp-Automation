@@ -131,34 +131,35 @@ export default function FlowsPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+      <div className="flex items-center justify-between flex-wrap gap-3 px-4 sm:px-6 py-4 border-b border-border bg-card shrink-0">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-100">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-100 shrink-0">
             <GitBranch className="h-5 w-5 text-indigo-600" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold">Chatbot Flows</h1>
-            <p className="text-xs text-muted-foreground">Automate conversations with visual flow builder</p>
+            <h1 className="text-base font-semibold text-foreground">Chatbot Flows</h1>
+            <p className="text-xs text-muted-foreground">Automate conversations with a visual flow builder</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant="outline"
-            className="gap-2 border-purple-200 text-purple-700 hover:bg-purple-50 hover:border-purple-300"
+            size="sm"
+            className="gap-1.5 border-purple-200 text-purple-700 hover:bg-purple-50 hover:border-purple-300"
             onClick={() => setShowAIAssistant(true)}
           >
-            <Wand2 className="h-4 w-4" />
+            <Wand2 className="h-3.5 w-3.5" />
             Generate with AI
           </Button>
-          <Button onClick={() => setShowTemplatePicker(true)} className="gap-2">
-            <Plus className="h-4 w-4" />
+          <Button size="sm" onClick={() => setShowTemplatePicker(true)} className="gap-1.5">
+            <Plus className="h-3.5 w-3.5" />
             New Flow
           </Button>
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-4 sm:p-6">
         {isLoading ? (
           <div className="flex items-center justify-center h-40">
             <p className="text-muted-foreground text-sm">Loading flows...</p>
@@ -186,10 +187,10 @@ export default function FlowsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
-                <TableHead>Trigger</TableHead>
+                <TableHead className="hidden sm:table-cell">Trigger</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Nodes</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead className="hidden md:table-cell">Nodes</TableHead>
+                <TableHead className="hidden lg:table-cell">Created</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -206,7 +207,7 @@ export default function FlowsPage() {
                       )}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden sm:table-cell">
                     <span className="text-xs capitalize bg-muted px-2 py-0.5 rounded">
                       {flow.trigger_type === 'keyword'
                         ? `Keyword: ${flow.trigger_value ?? '—'}`
@@ -232,8 +233,8 @@ export default function FlowsPage() {
                       </Badge>
                     </div>
                   </TableCell>
-                  <TableCell>{(flow.nodes ?? []).length}</TableCell>
-                  <TableCell className="text-muted-foreground text-xs">
+                  <TableCell className="hidden md:table-cell">{(flow.nodes ?? []).length}</TableCell>
+                  <TableCell className="hidden lg:table-cell text-muted-foreground text-xs">
                     {new Date(flow.created_at).toLocaleDateString()}
                   </TableCell>
                   <TableCell className="text-right">

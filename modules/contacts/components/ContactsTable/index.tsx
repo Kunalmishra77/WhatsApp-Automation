@@ -44,8 +44,8 @@ export function ContactsTable({ selectedId, onSelect }: ContactsTableProps) {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-4 py-3">
-        <div className="relative w-72">
+      <div className="flex shrink-0 items-center justify-between flex-wrap gap-2 border-b border-border bg-card px-4 py-3">
+        <div className="relative w-full sm:w-72">
           <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={searchInput}
@@ -54,7 +54,7 @@ export function ContactsTable({ selectedId, onSelect }: ContactsTableProps) {
             className="h-8 pl-8 text-sm"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 shrink-0">
           <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setImportOpen(true)}>
             <Upload className="h-3.5 w-3.5" /> Import CSV
           </Button>
@@ -68,12 +68,12 @@ export function ContactsTable({ selectedId, onSelect }: ContactsTableProps) {
         <Table>
           <TableHeader className="sticky top-0 bg-card z-10">
             <TableRow>
-              <TableHead className="w-64">Contact</TableHead>
+              <TableHead className="w-48 sm:w-64">Contact</TableHead>
               <TableHead>Phone</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Company</TableHead>
-              <TableHead>Tags</TableHead>
-              <TableHead>Added</TableHead>
+              <TableHead className="hidden md:table-cell">Email</TableHead>
+              <TableHead className="hidden lg:table-cell">Company</TableHead>
+              <TableHead className="hidden sm:table-cell">Tags</TableHead>
+              <TableHead className="hidden md:table-cell">Added</TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
@@ -111,9 +111,9 @@ export function ContactsTable({ selectedId, onSelect }: ContactsTableProps) {
                         </div>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{contact.phone}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{contact.email ?? '—'}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{contact.company ?? '—'}</TableCell>
-                      <TableCell>
+                      <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{contact.email ?? '—'}</TableCell>
+                      <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">{contact.company ?? '—'}</TableCell>
+                      <TableCell className="hidden sm:table-cell">
                         <div className="flex flex-wrap gap-1">
                           {contact.tags.slice(0, 2).map((tag) => (
                             <Badge key={tag} variant="outline" className="text-[10px] h-4 px-1">{tag}</Badge>
@@ -123,7 +123,7 @@ export function ContactsTable({ selectedId, onSelect }: ContactsTableProps) {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
+                      <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
                         {format(new Date(contact.created_at), 'MMM d, yyyy')}
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>

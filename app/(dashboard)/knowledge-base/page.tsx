@@ -316,7 +316,7 @@ export default function KnowledgeBasePage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
-      <div className="border-b border-border bg-card px-6 py-3 flex items-center justify-between shrink-0">
+      <div className="border-b border-border bg-card px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div>
           <h1 className="text-base font-semibold text-foreground flex items-center gap-2">
             <Database className="h-5 w-5 text-brand-500" />
@@ -324,19 +324,19 @@ export default function KnowledgeBasePage() {
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">Vector-indexed documents for AI replies</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Tabs */}
           <div className="flex rounded-lg border border-border overflow-hidden">
             {([
               { id: 'documents',   label: 'Documents' },
-              { id: 'ai-generate', label: '✨ AI Generate' },
-              { id: 'sandbox',     label: 'Vector Sandbox' },
+              { id: 'ai-generate', label: 'AI Generate' },
+              { id: 'sandbox',     label: 'Sandbox' },
             ] as { id: Tab; label: string }[]).map((t) => (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 className={cn(
-                  'px-3 py-1.5 text-xs font-medium transition-colors',
+                  'px-2.5 sm:px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap',
                   tab === t.id ? 'bg-brand-500 text-white' : 'bg-card text-muted-foreground hover:text-foreground',
                 )}
               >
@@ -347,7 +347,7 @@ export default function KnowledgeBasePage() {
           {tab === 'documents' && (
             <Button size="sm" className="gap-1.5 h-8" onClick={() => fileInputRef.current?.click()} disabled={isProcessing}>
               {isProcessing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-              Upload Files
+              Upload
             </Button>
           )}
         </div>
@@ -363,7 +363,7 @@ export default function KnowledgeBasePage() {
         onChange={(e) => handleFilesSelected(e.target.files)}
       />
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
 
         {/* ══ AI AGENT PERSONA ════════════════════════════════════════════ */}
         <div className="max-w-3xl mb-6 rounded-xl border border-border bg-card p-5 space-y-3">
@@ -405,7 +405,7 @@ export default function KnowledgeBasePage() {
               onDragOver={(e) => e.preventDefault()}
               onClick={() => !isProcessing && fileInputRef.current?.click()}
               className={cn(
-                'rounded-xl border-2 border-dashed transition-colors p-8 text-center cursor-pointer',
+                'rounded-xl border-2 border-dashed transition-colors p-5 sm:p-8 text-center cursor-pointer',
                 isProcessing ? 'border-brand-300 bg-brand-50/50 cursor-default' : 'border-border hover:border-brand-300',
               )}
             >
