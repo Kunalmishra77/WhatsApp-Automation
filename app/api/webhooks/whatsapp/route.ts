@@ -811,6 +811,25 @@ function extractButtonLabel(message: string): string | null {
   return m?.[1]?.trim() ?? null;
 }
 
+// \u2500\u2500 Programmatic language detection \u2014 injected into user message so AI cannot ignore \u2500\u2500
+function detectReplyLanguage(text: string): 'english' | 'hindi' | null {
+  // Strip button/system tags before checking
+  const clean = text.replace(/\[.*?\]/g, '').trim();
+  if (!clean) return null;
+
+  // Devanagari Unicode block \u2192 definitely Hindi script
+  const devanagariChars = (clean.match(/[\u0900-\u097f]/g) ?? []).length;
+  if (devanagariChars > 1) return 'hindi';
+
+  // English indicator: common English-only words not found in Roman Hindi
+  const hasEnglishWords = /\b(the|is|are|was|were|your|you\b|tell|about|first|what|how|when|where|why|please|thank|thanks|hello|hi\b|because|with|for\b|and\b|but\b|business|product|feature|price|demo|information|help|support|company|office|work|i am|i want|i need|can you|do you|are you|this is|that is)\b/i.test(clean);
+  const latinLetters = (clean.match(/[a-zA-Z]/g) ?? []).length;
+
+  if (latinLetters > 3 && hasEnglishWords) return 'english';
+
+  return null; // Hinglish / ambiguous \u2014 let AI decide
+}
+
 async function getAIReply(
   customerMessage: string,
   customerName: string,
@@ -934,10 +953,19 @@ Identify the language of the customer's CURRENT message (the last message they s
 
   // Text path: use the central AI client with conversation history for context
   try {
+    // Programmatically detect language and append an instruction the AI cannot ignore
+    const detectedLang = detectReplyLanguage(customerMessage);
+    const langInstruction = detectedLang === 'english'
+      ? '\n\n[SYSTEM OVERRIDE: Customer wrote in English. You MUST reply in English only. No Hindi.]'
+      : detectedLang === 'hindi'
+      ? '\n\n[SYSTEM OVERRIDE: Customer wrote in Hindi. You MUST reply in Hindi only. No English sentences.]'
+      : '';
+    const userContent = customerMessage + langInstruction;
+
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
       { role: 'system', content: systemPrompt },
       ...conversationHistory,
-      { role: 'user', content: customerMessage },
+      { role: 'user', content: userContent },
     ];
     const reply = await callAI(messages, { model, maxTokens: 350, temperature: 0.4 });
     if (!reply) console.warn('[AI] Empty response from AI client');
