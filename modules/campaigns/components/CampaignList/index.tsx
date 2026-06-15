@@ -16,6 +16,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Plus, Play, Loader2, MoreVertical, Trash2, FlaskConical, Trophy, TrendingUp, Megaphone } from 'lucide-react';
+import { EmptyIllustration } from '@/components/ui/empty-illustration';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -394,18 +395,16 @@ export function CampaignList() {
           </TableBody>
         </Table>
         {!isLoading && campaigns.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-64 gap-3 text-center px-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-50 border border-orange-100">
-              <Megaphone className="h-7 w-7 text-orange-500" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-foreground">No campaigns yet</p>
-              <p className="text-xs text-muted-foreground mt-1 max-w-xs">Launch a bulk WhatsApp broadcast to reach all your contacts at once.</p>
-            </div>
-            <Button size="sm" className="gap-1.5 mt-1" onClick={() => setWizardOpen(true)}>
-              <Plus className="h-3.5 w-3.5" /> New Campaign
-            </Button>
-          </div>
+          <EmptyIllustration
+            type="campaigns"
+            title="No campaigns yet"
+            description="Launch a bulk WhatsApp broadcast to reach all your contacts at once."
+            action={
+              <Button size="sm" className="gap-1.5" onClick={() => setWizardOpen(true)}>
+                <Plus className="h-3.5 w-3.5" /> New Campaign
+              </Button>
+            }
+          />
         )}
       </div>
 

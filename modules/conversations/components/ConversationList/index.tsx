@@ -5,7 +5,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, MessageSquare, Camera } from 'lucide-react';
+import { Search, Camera, MessageSquare } from 'lucide-react';
+import { EmptyIllustration } from '@/components/ui/empty-illustration';
 import { cn } from '@/lib/utils';
 import { ConversationItem } from '../ConversationItem';
 import { useConversations } from '../../hooks/useConversations';
@@ -114,10 +115,12 @@ export function ConversationList() {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 py-16 px-4 text-center">
-          <MessageSquare className="h-8 w-8 text-muted-foreground/40" />
-          <p className="text-sm font-medium text-foreground">No conversations found</p>
-          <p className="text-xs text-muted-foreground">Try adjusting your filter or search term.</p>
+        <div className="flex flex-1 flex-col items-center justify-center">
+          <EmptyIllustration
+            type={search.trim() ? 'search' : 'chat'}
+            title="No conversations found"
+            description={search.trim() ? 'Try a different search term.' : 'Conversations will appear here once customers message you.'}
+          />
         </div>
       ) : (
         <div ref={parentRef} className="flex-1 overflow-y-auto">

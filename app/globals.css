@@ -150,12 +150,72 @@
 
 /* Mobile touch optimizations */
 button, [role="button"], a {
-  touch-action: manipulation; /* eliminates 300ms tap delay on mobile */
+  touch-action: manipulation;
 }
 
 @media (max-width: 640px) {
-  /* Ensure small buttons are still tappable on mobile */
   button.h-9, .h-9[role="button"] {
     min-height: 40px;
   }
+}
+
+/* ── Animation keyframes ──────────────────────────────────────────────────── */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-10px); }
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  33%       { transform: translateY(-6px) rotate(1deg); }
+  66%       { transform: translateY(-3px) rotate(-1deg); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.85); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse-ring {
+  0%   { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(232,98,42,0.5); }
+  70%  { transform: scale(1);    box-shadow: 0 0 0 8px rgba(232,98,42,0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(232,98,42,0); }
+}
+
+@keyframes gradient-x {
+  0%, 100% { background-position: 0% 50%;   }
+  50%       { background-position: 100% 50%; }
+}
+
+@keyframes orbit {
+  from { transform: rotate(0deg) translateX(28px) rotate(0deg); }
+  to   { transform: rotate(360deg) translateX(28px) rotate(-360deg); }
+}
+
+@layer utilities {
+  .animate-float        { animation: float 3s ease-in-out infinite; }
+  .animate-float-slow   { animation: float-slow 5s ease-in-out infinite; }
+  .animate-scale-in     { animation: scale-in 0.35s cubic-bezier(0.34,1.56,0.64,1) both; }
+  .animate-slide-up     { animation: slide-up 0.4s ease-out both; }
+  .animate-slide-right  { animation: slide-in-right 0.35s ease-out both; }
+  .animate-pulse-ring   { animation: pulse-ring 2s cubic-bezier(0.455,0.03,0.515,0.955) infinite; }
+  .animate-gradient-x   { animation: gradient-x 4s ease infinite; background-size: 200% 200%; }
+  .animate-orbit        { animation: orbit 4s linear infinite; }
+
+  /* Stagger delays for list items */
+  .stagger-1 { animation-delay: 60ms; }
+  .stagger-2 { animation-delay: 120ms; }
+  .stagger-3 { animation-delay: 180ms; }
+  .stagger-4 { animation-delay: 240ms; }
+  .stagger-5 { animation-delay: 300ms; }
 }

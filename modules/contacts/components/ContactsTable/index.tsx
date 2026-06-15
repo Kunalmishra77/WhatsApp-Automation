@@ -10,6 +10,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Search, UserPlus, Upload, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react';
+import { EmptyIllustration } from '@/components/ui/empty-illustration';
 import { format } from 'date-fns';
 import { useContacts } from '../../hooks/useContacts';
 import { ContactForm } from '../ContactForm';
@@ -143,9 +144,11 @@ export function ContactsTable({ selectedId, onSelect }: ContactsTableProps) {
           </TableBody>
         </Table>
         {!isLoading && contacts.length === 0 && (
-          <div className="flex h-48 items-center justify-center">
-            <p className="text-sm text-muted-foreground">No contacts found.</p>
-          </div>
+          <EmptyIllustration
+            type="contacts"
+            title="No contacts yet"
+            description="Import contacts or add them manually to get started."
+          />
         )}
       </div>
 

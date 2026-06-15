@@ -5,6 +5,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { TopBar } from '@/components/layout/TopBar';
 import { MobileNav } from '@/components/layout/MobileNav';
 import { CommandPalette } from '@/components/layout/CommandPalette';
+import { PageTransition } from '@/components/layout/PageTransition';
 import { cn } from '@/lib/utils';
 
 interface AppShellProps {
@@ -25,7 +26,7 @@ export function AppShell({ children }: AppShellProps) {
       <div className="flex flex-1 flex-col overflow-hidden">
         <TopBar />
         <main className={cn('flex-1 overflow-auto', 'pb-16 md:pb-0')}>
-          {children}
+          <PageTransition>{children}</PageTransition>
         </main>
       </div>
 

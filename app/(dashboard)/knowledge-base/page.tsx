@@ -19,6 +19,7 @@ import {
   Sparkles, RefreshCw, Check, ChevronRight,
   FileCheck, X, Bot,
 } from 'lucide-react';
+import { EmptyIllustration } from '@/components/ui/empty-illustration';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 
@@ -466,10 +467,12 @@ export default function KnowledgeBasePage() {
                 {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
               </div>
             ) : docs.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border p-8 text-center">
-                <FileText className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground">No documents yet.</p>
-                <p className="text-xs text-muted-foreground mt-1">Upload files above or use <strong>✨ AI Generate</strong> to create one.</p>
+              <div className="rounded-xl border border-dashed border-border overflow-hidden">
+                <EmptyIllustration
+                  type="knowledge"
+                  title="No documents yet"
+                  description='Upload files above or use "✨ AI Generate" to create one instantly.'
+                />
               </div>
             ) : (
               <div className="space-y-2">

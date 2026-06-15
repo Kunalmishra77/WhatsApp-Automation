@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
+import CountUp from 'react-countup';
 import {
   MessageSquare, Users, Bot, CalendarCheck, TrendingUp,
   Clock, RefreshCw, ArrowRight, CheckCircle2, ArrowUpRight,
@@ -12,6 +14,12 @@ import { useWorkspaceStore } from '@/store/workspace.store';
 import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 16 },
+  show:   { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] } },
+};
+const stagger = { hidden: {}, show: { transition: { staggerChildren: 0.07 } } };
 
 interface DashboardStats {
   conversations: {
@@ -84,14 +92,17 @@ function MetricCard({
   label: string; value: number | string; sub?: string; icon: React.ElementType;
   iconBg: string; delta?: number; onClick?: () => void; badge?: string;
 }) {
+  const isNum = typeof value === 'number';
   return (
-    <div
+    <motion.div
+      variants={fadeUp}
       onClick={onClick}
+      whileHover={onClick ? { y: -2, transition: { duration: 0.15 } } : undefined}
       className={cn(
         'group relative rounded-2xl border border-border bg-card p-5 flex flex-col gap-3',
         'shadow-[0_1px_3px_0_rgb(0_0_0/0.06),0_1px_2px_-1px_rgb(0_0_0/0.06)]',
-        'transition-all duration-200',
-        onClick && 'cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_4px_12px_0_rgb(0_0_0/0.09),0_2px_4px_-2px_rgb(0_0_0/0.06)] hover:border-brand-200/70',
+        'transition-shadow duration-200',
+        onClick && 'cursor-pointer hover:shadow-[0_4px_12px_0_rgb(0_0_0/0.09),0_2px_4px_-2px_rgb(0_0_0/0.06)] hover:border-brand-200/70',
       )}
     >
       <div className="flex items-start justify-between">
@@ -109,7 +120,11 @@ function MetricCard({
         )}
       </div>
       <div>
-        <p className="text-[28px] font-bold text-foreground tabular-nums leading-none tracking-tight">{value}</p>
+        <p className="text-[28px] font-bold text-foreground tabular-nums leading-none tracking-tight">
+          {isNum
+            ? <CountUp end={value as number} duration={1.4} separator="," preserveValue useEasing />
+            : value}
+        </p>
         <p className="text-xs font-medium text-muted-foreground mt-1.5">{label}</p>
         {sub && <p className="text-[11px] text-muted-foreground/60 mt-0.5">{sub}</p>}
       </div>
@@ -117,7 +132,7 @@ function MetricCard({
       {onClick && (
         <ArrowRight className="absolute right-4 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/20 group-hover:text-brand-400 group-hover:translate-x-0.5 transition-all" />
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -266,10 +281,10 @@ export default function DashboardPage() {
         {stats && (
           <>
             {/* ── Conversations ─────────────────────────────────────────────── */}
-            <section>
+            <motion.section variants={stagger} initial="hidden" animate="show">
               <SectionHeader icon={MessageSquare} label="Conversations" iconColor="bg-brand-100 text-brand-600"
                 action="View all" onAction={() => router.push('/conversations')} />
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <motion.div variants={stagger} className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <MetricCard label="Open Now" value={stats.conversations.open} icon={MessageSquare}
                   iconBg="bg-gradient-to-br from-brand-500 to-brand-600"
                   sub={`${stats.conversations.today} opened today`}
@@ -285,13 +300,13 @@ export default function DashboardPage() {
                 <MetricCard label="Resolved" value={stats.conversations.resolved} icon={CheckCircle2}
                   iconBg="bg-gradient-to-br from-teal-500 to-cyan-600"
                   sub={`${stats.conversations.total.toLocaleString()} all time`} />
-              </div>
-            </section>
+              </motion.div>
+            </motion.section>
 
             {/* ── Message Activity ──────────────────────────────────────────── */}
-            <section>
+            <motion.section variants={stagger} initial="hidden" animate="show">
               <SectionHeader icon={Activity} label="Message Activity" iconColor="bg-violet-100 text-violet-600" />
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <motion.div variants={stagger} className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <MetricCard label="Messages Today" value={stats.messages.today} icon={TrendingUp}
                   iconBg="bg-gradient-to-br from-violet-500 to-purple-600"
                   sub={`${stats.messages.thisWeek.toLocaleString()} this week`}
@@ -305,14 +320,14 @@ export default function DashboardPage() {
                 <MetricCard label="Bot Replies" value={stats.messages.botToday} icon={Zap}
                   iconBg="bg-gradient-to-br from-emerald-500 to-green-600"
                   sub={`${stats.messages.botRate}% of all outbound`} badge="AI" />
-              </div>
-            </section>
+              </motion.div>
+            </motion.section>
 
             {/* ── Contacts ──────────────────────────────────────────────────── */}
-            <section>
+            <motion.section variants={stagger} initial="hidden" animate="show">
               <SectionHeader icon={Users} label="Contacts" iconColor="bg-orange-100 text-orange-600"
                 action="View all" onAction={() => router.push('/contacts')} />
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <motion.div variants={stagger} className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <MetricCard label="Total Contacts" value={stats.contacts.total.toLocaleString()} icon={Users}
                   iconBg="bg-gradient-to-br from-orange-500 to-amber-600"
                   sub={`+${stats.contacts.newMonth} this month`}
@@ -328,11 +343,11 @@ export default function DashboardPage() {
                 <MetricCard label="Opted Out" value={stats.contacts.optedOut} icon={UserX}
                   iconBg="bg-gradient-to-br from-rose-500 to-red-600"
                   sub="Unsubscribed" />
-              </div>
-            </section>
+              </motion.div>
+            </motion.section>
 
             {/* ── Bookings & Events ─────────────────────────────────────────── */}
-            <section>
+            <motion.section initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.35 }}>
               <SectionHeader icon={CalendarCheck} label="Bookings & Events — last 30 days"
                 iconColor="bg-emerald-100 text-emerald-600"
                 action="Manage" onAction={() => router.push('/bookings')} />
@@ -343,8 +358,11 @@ export default function DashboardPage() {
                   { label: 'Appointments',    value: stats.events.appointmentSet,    iconBg: 'bg-gradient-to-br from-violet-500 to-purple-600' },
                   { label: 'Follow Ups',      value: stats.events.followUp,          iconBg: 'bg-gradient-to-br from-amber-500 to-orange-600'  },
                   { label: 'Not Interested',  value: stats.events.notInterested,     iconBg: 'bg-gradient-to-br from-rose-500 to-red-600'     },
-                ].map((s) => (
-                  <button
+                ].map((s, i) => (
+                  <motion.button
+                    initial={{ opacity: 0, y: 14 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.06, duration: 0.3 }}
                     key={s.label}
                     onClick={() => router.push('/bookings')}
                     className={cn(
@@ -356,15 +374,22 @@ export default function DashboardPage() {
                     <div className={cn('h-9 w-9 rounded-xl flex items-center justify-center mb-3 shadow-sm', s.iconBg)}>
                       <CalendarCheck className="h-4 w-4 text-white" />
                     </div>
-                    <p className="text-[28px] font-bold tabular-nums leading-none tracking-tight text-foreground">{s.value}</p>
+                    <p className="text-[28px] font-bold tabular-nums leading-none tracking-tight text-foreground">
+                      <CountUp end={s.value} duration={1.2} preserveValue useEasing />
+                    </p>
                     <p className="text-xs font-medium text-muted-foreground mt-1.5">{s.label}</p>
-                  </button>
+                  </motion.button>
                 ))}
               </div>
-            </section>
+            </motion.section>
 
             {/* ── Three-panel row ───────────────────────────────────────────── */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: 0.4 }}
+              className="grid grid-cols-1 lg:grid-cols-3 gap-4"
+            >
 
               {/* Pending Actions */}
               <Panel>
@@ -566,7 +591,7 @@ export default function DashboardPage() {
                 </Panel>
 
               </div>
-            </div>
+            </motion.div>
           </>
         )}
 
