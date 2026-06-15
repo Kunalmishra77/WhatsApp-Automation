@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, Zap, Loader2, Search } from 'lucide-react';
 import { useWorkspaceStore } from '@/store/workspace.store';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 interface QuickReply {
   id: string;
@@ -39,8 +40,9 @@ export function QuickReplies() {
   const [formShortcut, setFormShortcut] = useState('');
   const [formTitle, setFormTitle] = useState('');
   const [formContent, setFormContent] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [isLoadingSamples, setIsLoadingSamples] = useState(false);
+  const [isSaving,           setIsSaving]           = useState(false);
+  const [isLoadingSamples,   setIsLoadingSamples]   = useState(false);
+  const [pendingDeleteId,    setPendingDeleteId]    = useState<string | null>(null);
 
   const fetch_ = useCallback(async () => {
     if (!workspaceId) return;
@@ -82,10 +84,11 @@ export function QuickReplies() {
     finally { setIsSaving(false); }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!workspaceId || !confirm('Delete this quick reply?')) return;
-    await fetch(`/api/quick-replies?id=${id}&workspaceId=${workspaceId}`, { method: 'DELETE' });
-    setReplies((p) => p.filter((r) => r.id !== id));
+  const handleDelete = async () => {
+    if (!workspaceId || !pendingDeleteId) return;
+    await fetch(`/api/quick-replies?id=${pendingDeleteId}&workspaceId=${workspaceId}`, { method: 'DELETE' });
+    setReplies((p) => p.filter((r) => r.id !== pendingDeleteId));
+    setPendingDeleteId(null);
     toast.success('Deleted');
   };
 
@@ -169,7 +172,7 @@ export function QuickReplies() {
               </div>
               <div className="flex gap-1 shrink-0">
                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(r)}><Pencil className="h-3.5 w-3.5" /></Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/60 hover:text-destructive" onClick={() => void handleDelete(r.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/60 hover:text-destructive" onClick={() => setPendingDeleteId(r.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
               </div>
             </div>
           ))}
@@ -205,6 +208,15 @@ export function QuickReplies() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!pendingDeleteId}
+        title="Delete quick reply?"
+        description="This quick reply shortcut will be permanently removed."
+        confirmLabel="Delete"
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

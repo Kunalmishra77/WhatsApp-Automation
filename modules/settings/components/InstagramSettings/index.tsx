@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { CheckCircle2, AlertCircle, Camera, Trash2 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useWorkspaceStore } from '@/store/workspace.store';
 
 interface IgAccount {
@@ -29,8 +30,9 @@ interface FormState {
 export function InstagramSettings() {
   const workspace = useWorkspaceStore((s) => s.activeWorkspace);
   const [account, setAccount] = useState<IgAccount | null>(null);
-  const [loading, setLoading]   = useState(false);
-  const [saving, setSaving]     = useState(false);
+  const [loading, setLoading]             = useState(false);
+  const [saving, setSaving]               = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   const [form, setForm] = useState<FormState>({
     igUserId:    '',
@@ -90,7 +92,7 @@ export function InstagramSettings() {
   }
 
   async function handleDisconnect() {
-    if (!confirm('Disconnect Instagram? Existing Instagram conversations will remain but no new DMs will arrive.')) return;
+    setConfirmDisconnect(false);
     setSaving(true);
     try {
       await fetch('/api/instagram/disconnect', {
@@ -159,7 +161,7 @@ export function InstagramSettings() {
             variant="outline"
             size="sm"
             className="gap-2 text-destructive border-destructive/40 hover:bg-destructive/5"
-            onClick={handleDisconnect}
+            onClick={() => setConfirmDisconnect(true)}
             disabled={saving}
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -235,6 +237,15 @@ export function InstagramSettings() {
           </Button>
         </div>
       )}
+    <ConfirmDialog
+      open={confirmDisconnect}
+      title="Disconnect Instagram?"
+      description="Existing Instagram conversations will remain but no new DMs will arrive."
+      confirmLabel="Disconnect"
+      variant="warning"
+      onConfirm={() => void handleDisconnect()}
+      onCancel={() => setConfirmDisconnect(false)}
+    />
     </div>
   );
 }

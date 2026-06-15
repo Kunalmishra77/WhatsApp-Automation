@@ -16,6 +16,7 @@ import { ClientList } from '../ClientList';
 import { CreateClientModal } from '../CreateClientModal';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import type { WorkspaceRow } from '@/app/api/admin/workspaces/route';
 
 interface AdminStats {
@@ -99,7 +100,8 @@ function SectionHeader({ icon: Icon, title, sub, iconBg, action, onAction }: {
 export function AdminDashboard() {
   const [search,      setSearch]      = useState('');
   const [createOpen,  setCreateOpen]  = useState(false);
-  const [resetting,   setResetting]   = useState(false);
+  const [resetting,      setResetting]      = useState(false);
+  const [confirmReset,   setConfirmReset]   = useState(false);
 
   const handleAuthError = (status: number) => {
     if (status === 403 || status === 401) window.location.href = '/login?reason=session_expired';
@@ -127,7 +129,7 @@ export function AdminDashboard() {
   const handleRefetch = () => { void refetchWorkspaces(); void refetchStats(); };
 
   const handleResetAll = async () => {
-    if (!confirm('⚠️ DELETE ALL workspaces? This permanently wipes all client data and cannot be undone.')) return;
+    setConfirmReset(false);
     setResetting(true);
     try {
       const res = await fetch('/api/admin/workspaces', { method: 'DELETE' });
@@ -191,7 +193,7 @@ export function AdminDashboard() {
             variant="outline"
             size="sm"
             className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
-            onClick={() => void handleResetAll()}
+            onClick={() => setConfirmReset(true)}
             disabled={resetting}
           >
             {resetting
@@ -360,6 +362,16 @@ export function AdminDashboard() {
       </div>
 
       <CreateClientModal open={createOpen} onOpenChange={setCreateOpen} onSuccess={handleRefetch} />
+
+      <ConfirmDialog
+        open={confirmReset}
+        title="Reset entire platform?"
+        description="This permanently deletes ALL workspaces and client data. This action cannot be undone."
+        confirmLabel="Reset Platform"
+        loading={resetting}
+        onConfirm={() => void handleResetAll()}
+        onCancel={() => setConfirmReset(false)}
+      />
     </div>
   );
 }

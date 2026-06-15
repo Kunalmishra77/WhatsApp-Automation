@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Pencil, Trash2, DollarSign, User, Tag, Sparkles } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { format } from 'date-fns';
 import { useDeleteLead } from '../../hooks/useLeads';
 import { LeadForm } from '../LeadForm';
@@ -36,7 +37,9 @@ interface LeadDetailProps {
 }
 
 export function LeadDetail({ leadId, onClose }: LeadDetailProps) {
-  const [editOpen, setEditOpen] = useState(false);
+  const [editOpen,       setEditOpen]       = useState(false);
+  const [confirmDelete,  setConfirmDelete]  = useState(false);
+  const [deleting,       setDeleting]       = useState(false);
   const remove      = useDeleteLead();
   const queryClient = useQueryClient();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
@@ -63,10 +66,18 @@ export function LeadDetail({ leadId, onClose }: LeadDetailProps) {
   });
 
   const handleDelete = async () => {
-    if (!lead || !confirm(`Delete "${lead.title}"?`)) return;
-    await remove.mutateAsync(lead.id);
-    toast.success('Lead deleted');
-    onClose();
+    if (!lead) return;
+    setDeleting(true);
+    try {
+      await remove.mutateAsync(lead.id);
+      toast.success('Lead deleted');
+      setConfirmDelete(false);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete lead');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -191,13 +202,27 @@ export function LeadDetail({ leadId, onClose }: LeadDetailProps) {
                 <Button variant="outline" size="sm" className="flex-1 gap-1.5 text-xs" onClick={() => setEditOpen(true)}>
                   <Pencil className="h-3.5 w-3.5" /> Edit
                 </Button>
-                <Button variant="ghost" size="sm" className="gap-1.5 text-xs text-destructive hover:text-destructive" onClick={() => void handleDelete()}>
+                <Button
+                  variant="ghost" size="sm"
+                  className="gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => setConfirmDelete(true)}
+                >
                   <Trash2 className="h-3.5 w-3.5" /> Delete
                 </Button>
               </div>
             </div>
 
             <LeadForm open={editOpen} onClose={() => setEditOpen(false)} lead={lead} />
+
+            <ConfirmDialog
+              open={confirmDelete}
+              title="Delete lead?"
+              description={`"${lead.title}" will be permanently removed from the pipeline. This cannot be undone.`}
+              confirmLabel="Delete Lead"
+              loading={deleting}
+              onConfirm={() => void handleDelete()}
+              onCancel={() => setConfirmDelete(false)}
+            />
           </>
         ) : (
           <div className="flex h-full items-center justify-center">

@@ -9,6 +9,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from 'sonner';
 import {
   useInboxRules,
@@ -40,8 +41,9 @@ function summariseActions(actions: InboxRule['actions']): string {
 }
 
 export function InboxRules() {
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing]   = useState<InboxRule | undefined>();
+  const [formOpen,       setFormOpen]       = useState(false);
+  const [editing,        setEditing]        = useState<InboxRule | undefined>();
+  const [pendingDelete,  setPendingDelete]  = useState<InboxRule | null>(null);
 
   const { data: rules = [], isLoading } = useInboxRules();
   const update = useUpdateInboxRule();
@@ -55,11 +57,12 @@ export function InboxRules() {
     }
   };
 
-  const handleDelete = async (rule: InboxRule) => {
-    if (!confirm(`Delete rule "${rule.name}"?`)) return;
+  const handleDelete = async () => {
+    if (!pendingDelete) return;
     try {
-      await remove.mutateAsync(rule.id);
+      await remove.mutateAsync(pendingDelete.id);
       toast.success('Rule deleted');
+      setPendingDelete(null);
     } catch {
       toast.error('Failed to delete rule');
     }
@@ -142,7 +145,7 @@ export function InboxRules() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => void handleDelete(rule)}
+                          onClick={() => setPendingDelete(rule)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -166,6 +169,16 @@ export function InboxRules() {
         open={formOpen}
         onClose={() => setFormOpen(false)}
         rule={editing}
+      />
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Delete rule?"
+        description={`"${pendingDelete?.name}" will be permanently deleted and will no longer run.`}
+        confirmLabel="Delete Rule"
+        loading={remove.isPending}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setPendingDelete(null)}
       />
     </div>
   );

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ShoppingBag, RefreshCw, Trash2, CheckCircle2, ExternalLink, Package, AlertCircle } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -25,9 +26,10 @@ export function CatalogSettings() {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
   const queryClient = useQueryClient();
   const [catalogIdInput, setCatalogIdInput] = useState('');
-  const [connecting, setConnecting] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [connecting, setConnecting]             = useState(false);
+  const [disconnecting, setDisconnecting]       = useState(false);
+  const [syncing, setSyncing]                   = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['catalog', workspaceId],
@@ -79,7 +81,7 @@ export function CatalogSettings() {
   };
 
   const handleDisconnect = async () => {
-    if (!confirm('Disconnect catalog? All synced products will be removed.')) return;
+    setConfirmDisconnect(false);
     setDisconnecting(true);
     try {
       await fetch('/api/catalog', {
@@ -142,7 +144,7 @@ export function CatalogSettings() {
                 size="sm"
                 variant="ghost"
                 className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
-                onClick={() => void handleDisconnect()}
+                onClick={() => setConfirmDisconnect(true)}
                 disabled={disconnecting}
               >
                 <Trash2 className="h-3 w-3 mr-1" />
@@ -235,6 +237,17 @@ export function CatalogSettings() {
           <p className="text-xs mt-1">Click "Sync Products" to fetch products from Meta.</p>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDisconnect}
+        title="Disconnect catalog?"
+        description="All synced products will be removed. You can reconnect anytime."
+        confirmLabel="Disconnect"
+        variant="warning"
+        loading={disconnecting}
+        onConfirm={() => void handleDisconnect()}
+        onCancel={() => setConfirmDisconnect(false)}
+      />
     </div>
   );
 }

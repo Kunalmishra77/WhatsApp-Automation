@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import {
   Plus, Pencil, Trash2, Cake, RefreshCw, ShoppingCart, Zap, Copy, CheckCircle2,
 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -76,7 +77,8 @@ export function AutomationTriggersSettings() {
   const [formOpen,   setFormOpen]   = useState(false);
   const [editing,    setEditing]    = useState<AutomationTrigger | null>(null);
   const [saving,     setSaving]     = useState(false);
-  const [copiedId,   setCopiedId]   = useState<string | null>(null);
+  const [copiedId,       setCopiedId]       = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   // Form state
   const [formType,    setFormType]    = useState<TriggerType>('birthday');
@@ -139,10 +141,11 @@ export function AutomationTriggersSettings() {
     finally { setSaving(false); }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Delete this trigger?')) return;
-    await fetch(`/api/automation-triggers/${id}`, { method: 'DELETE' });
+  async function handleDelete() {
+    if (!pendingDeleteId) return;
+    await fetch(`/api/automation-triggers/${pendingDeleteId}`, { method: 'DELETE' });
     toast.success('Deleted');
+    setPendingDeleteId(null);
     void queryClient.invalidateQueries({ queryKey: ['automation-triggers', workspaceId] });
   }
 
@@ -248,7 +251,7 @@ export function AutomationTriggersSettings() {
                     <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(t)}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7 hover:text-destructive" onClick={() => void handleDelete(t.id)}>
+                    <Button size="icon" variant="ghost" className="h-7 w-7 hover:text-destructive" onClick={() => setPendingDeleteId(t.id)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>
@@ -321,6 +324,15 @@ export function AutomationTriggersSettings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!pendingDeleteId}
+        title="Delete trigger?"
+        description="This automation trigger will be permanently deleted."
+        confirmLabel="Delete"
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

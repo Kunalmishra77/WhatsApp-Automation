@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { ShieldOff, ShieldCheck, Loader2, Globe, Trash2 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -89,8 +90,9 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
   const [editingDomain, setEditingDomain] = useState<string | null>(null);
   const [domainValue, setDomainValue] = useState<string>('');
   const [savingDomain, setSavingDomain] = useState<string | null>(null);
-  const [pendingApproval, setPendingApproval] = useState<string | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [pendingApproval, setPendingApproval]         = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete]               = useState<string | null>(null);
+  const [confirmDeleteWorkspace, setConfirmDeleteWorkspace] = useState<WorkspaceRow | null>(null);
   const [detailWorkspace, setDetailWorkspace] = useState<WorkspaceRow | null>(null);
 
   const handleAuthError = (status: number) => {
@@ -184,7 +186,7 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
   };
 
   const handleDelete = async (workspace: WorkspaceRow) => {
-    if (!confirm(`Delete "${workspace.name}"? This will permanently delete the workspace and its auth user. This cannot be undone.`)) return;
+    setConfirmDeleteWorkspace(null);
     setPendingDelete(workspace.id);
     try {
       const res = await fetch(`/api/admin/workspaces/${workspace.id}`, { method: 'DELETE' });
@@ -449,7 +451,7 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
                       variant="outline"
                       size="sm"
                       className="h-8 text-xs gap-1 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
-                      onClick={() => handleDelete(w)}
+                      onClick={() => setConfirmDeleteWorkspace(w)}
                       disabled={pendingDelete === w.id}
                     >
                       {pendingDelete === w.id
@@ -472,6 +474,16 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
           onRefetch={onRefetch}
         />
       )}
+
+      <ConfirmDialog
+        open={!!confirmDeleteWorkspace}
+        title={`Delete "${confirmDeleteWorkspace?.name}"?`}
+        description="This will permanently delete the workspace and its auth user. This cannot be undone."
+        confirmLabel="Delete Workspace"
+        loading={pendingDelete === confirmDeleteWorkspace?.id}
+        onConfirm={() => confirmDeleteWorkspace && void handleDelete(confirmDeleteWorkspace)}
+        onCancel={() => setConfirmDeleteWorkspace(null)}
+      />
     </div>
   );
 }

@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Phone, Mail, Building2, Globe, Tag, Pencil, Trash2, Ban, X, ListChecks, Star, TrendingUp } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { format } from 'date-fns';
 import { useContact, useUpdateContact, useDeleteContact } from '../../hooks/useContacts';
 import { ContactForm } from '../ContactForm';
@@ -40,9 +41,11 @@ function Row({ icon: Icon, label, value }: { icon: React.ElementType; label: str
 }
 
 export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
-  const [editOpen, setEditOpen] = useState(false);
-  const [selectedSeqId, setSelectedSeqId] = useState('');
-  const [enrolling, setEnrolling] = useState(false);
+  const [editOpen,       setEditOpen]       = useState(false);
+  const [selectedSeqId,  setSelectedSeqId]  = useState('');
+  const [enrolling,      setEnrolling]      = useState(false);
+  const [confirmDelete,  setConfirmDelete]  = useState(false);
+  const [deleting,       setDeleting]       = useState(false);
   const { data: contact, isLoading } = useContact(contactId);
   const update = useUpdateContact();
   const remove = useDeleteContact();
@@ -108,13 +111,16 @@ export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
+    setDeleting(true);
     try {
       await remove.mutateAsync(contact.id);
       toast.success('Contact deleted');
+      setConfirmDelete(false);
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete contact');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -266,8 +272,8 @@ export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
           <Separator />
           <Button
             variant="ghost" size="sm"
-            className="w-full gap-1.5 text-xs text-destructive hover:text-destructive"
-            onClick={() => void handleDelete()}
+            className="w-full gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+            onClick={() => setConfirmDelete(true)}
           >
             <Trash2 className="h-3.5 w-3.5" /> Delete Contact
           </Button>
@@ -275,6 +281,16 @@ export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
       </ScrollArea>
 
       <ContactForm open={editOpen} onClose={() => setEditOpen(false)} contact={contact} />
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete contact?"
+        description={`${name} will be permanently deleted along with all their conversation history. This cannot be undone.`}
+        confirmLabel="Delete Contact"
+        loading={deleting}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }

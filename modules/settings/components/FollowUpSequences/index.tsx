@@ -20,6 +20,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Plus, Pencil, Trash2, X } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from 'sonner';
 import {
   useSequences,
@@ -184,8 +185,9 @@ function SequenceForm({ open, onClose, editing }: SequenceFormProps) {
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export function FollowUpSequences() {
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<FollowUpSequence | undefined>();
+  const [formOpen,       setFormOpen]       = useState(false);
+  const [editing,        setEditing]        = useState<FollowUpSequence | undefined>();
+  const [pendingDelete,  setPendingDelete]  = useState<FollowUpSequence | null>(null);
 
   const { data: sequences = [], isLoading } = useSequences();
   const update = useUpdateSequence();
@@ -199,11 +201,12 @@ export function FollowUpSequences() {
     }
   };
 
-  const handleDelete = async (seq: FollowUpSequence) => {
-    if (!confirm(`Delete sequence "${seq.name}"? This cannot be undone.`)) return;
+  const handleDelete = async () => {
+    if (!pendingDelete) return;
     try {
-      await remove.mutateAsync(seq.id);
+      await remove.mutateAsync(pendingDelete.id);
       toast.success('Sequence deleted');
+      setPendingDelete(null);
     } catch {
       toast.error('Failed to delete sequence');
     }
@@ -287,7 +290,7 @@ export function FollowUpSequences() {
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                      onClick={() => void handleDelete(seq)}
+                      onClick={() => setPendingDelete(seq)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -300,6 +303,16 @@ export function FollowUpSequences() {
       )}
 
       <SequenceForm open={formOpen} onClose={closeForm} editing={editing} />
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Delete sequence?"
+        description={`"${pendingDelete?.name}" and all its steps will be permanently deleted.`}
+        confirmLabel="Delete Sequence"
+        loading={remove.isPending}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

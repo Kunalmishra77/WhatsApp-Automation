@@ -17,6 +17,7 @@ import {
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 interface WebhookEndpoint {
   id: string;
@@ -52,6 +53,7 @@ export function WebhookSettings() {
   const [editEndpoint, setEditEndpoint] = useState<WebhookEndpoint | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   // Form
   const [formName, setFormName] = useState('');
@@ -131,12 +133,13 @@ export function WebhookSettings() {
     } catch { toast.error('Failed to update'); }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!workspaceId || !confirm('Delete this webhook endpoint?')) return;
+  const handleDelete = async () => {
+    if (!workspaceId || !pendingDeleteId) return;
     try {
-      await fetch(`/api/webhooks/outbound?id=${id}&workspaceId=${workspaceId}`, { method: 'DELETE' });
+      await fetch(`/api/webhooks/outbound?id=${pendingDeleteId}&workspaceId=${workspaceId}`, { method: 'DELETE' });
       toast.success('Webhook deleted');
-      setEndpoints((prev) => prev.filter((e) => e.id !== id));
+      setEndpoints((prev) => prev.filter((e) => e.id !== pendingDeleteId));
+      setPendingDeleteId(null);
     } catch { toast.error('Failed to delete'); }
   };
 
@@ -266,7 +269,7 @@ export function WebhookSettings() {
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(ep)}>
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/60 hover:text-destructive" onClick={() => void handleDelete(ep.id)}>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/60 hover:text-destructive" onClick={() => setPendingDeleteId(ep.id)}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -339,6 +342,15 @@ export function WebhookSettings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!pendingDeleteId}
+        title="Delete webhook?"
+        description="This endpoint will stop receiving events. This cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

@@ -16,6 +16,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Plus, Play, Loader2, MoreVertical, Trash2, FlaskConical, Trophy, TrendingUp, Megaphone } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useCampaigns, useRunCampaign, useDeleteCampaign } from '../../hooks/useCampaigns';
@@ -211,33 +212,44 @@ function ABComparisonDialog({ campaignId, open, onClose }: { campaignId: string;
 
 // ── Main CampaignList ────────────────────────────────────────────────────────
 
+type PendingAction = { type: 'run' | 'delete'; id: string; name: string } | null;
+
 export function CampaignList() {
   const router = useRouter();
-  const [wizardOpen, setWizardOpen]   = useState(false);
-  const [abCampaignId, setAbCampaignId] = useState<string | null>(null);
+  const [wizardOpen,    setWizardOpen]    = useState(false);
+  const [abCampaignId,  setAbCampaignId]  = useState<string | null>(null);
+  const [pending,       setPending]        = useState<PendingAction>(null);
+  const [actionLoading, setActionLoading]  = useState(false);
   const { data: campaigns = [], isLoading } = useCampaigns();
   const run    = useRunCampaign();
   const remove = useDeleteCampaign();
 
-  const handleRun = async (e: React.MouseEvent, campaignId: string, campaignName: string) => {
+  const handleRun = (e: React.MouseEvent, id: string, name: string) => {
     e.stopPropagation();
-    if (!confirm(`Send campaign "${campaignName}" to all audience contacts now?`)) return;
-    try {
-      const result = await run.mutateAsync(campaignId);
-      toast.success(`Campaign sent! ${result.sent} sent, ${result.failed} failed`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to run campaign');
-    }
+    setPending({ type: 'run', id, name });
   };
 
-  const handleDelete = async (e: React.MouseEvent, campaignId: string, campaignName: string) => {
+  const handleDelete = (e: React.MouseEvent, id: string, name: string) => {
     e.stopPropagation();
-    if (!confirm(`Delete campaign "${campaignName}"? This cannot be undone.`)) return;
+    setPending({ type: 'delete', id, name });
+  };
+
+  const handleConfirm = async () => {
+    if (!pending) return;
+    setActionLoading(true);
     try {
-      await remove.mutateAsync(campaignId);
-      toast.success('Campaign deleted');
+      if (pending.type === 'run') {
+        const result = await run.mutateAsync(pending.id);
+        toast.success(`Campaign sent! ${result.sent} sent, ${result.failed} failed`);
+      } else {
+        await remove.mutateAsync(pending.id);
+        toast.success('Campaign deleted');
+      }
+      setPending(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete campaign');
+      toast.error(err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -406,6 +418,21 @@ export function CampaignList() {
           onClose={() => setAbCampaignId(null)}
         />
       )}
+
+      <ConfirmDialog
+        open={!!pending}
+        title={pending?.type === 'run' ? 'Send campaign now?' : 'Delete campaign?'}
+        description={
+          pending?.type === 'run'
+            ? `"${pending?.name}" will be sent to all audience contacts immediately. This cannot be stopped once started.`
+            : `"${pending?.name}" will be permanently deleted. This cannot be undone.`
+        }
+        confirmLabel={pending?.type === 'run' ? 'Send Now' : 'Delete'}
+        variant={pending?.type === 'run' ? 'warning' : 'destructive'}
+        loading={actionLoading}
+        onConfirm={() => void handleConfirm()}
+        onCancel={() => setPending(null)}
+      />
     </div>
   );
 }

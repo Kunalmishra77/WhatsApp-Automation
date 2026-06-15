@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Upload, Copy, Trash2, Image, FileVideo, File, ExternalLink, Tag, Sparkles, X, Link2, PackagePlus } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -264,6 +265,7 @@ export function MediaLibrary() {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<'link' | 'product'>('link');
+  const [pendingDelete, setPendingDelete] = useState<MediaItem | null>(null);
 
   const { data: dbItems, isLoading } = useQuery({
     queryKey: ['media-library', workspaceId],
@@ -276,8 +278,9 @@ export function MediaLibrary() {
     enabled: !!workspaceId,
   });
 
-  const handleDelete = async (item: MediaItem) => {
-    if (!confirm(`Delete "${item.filename ?? item.name}"?`)) return;
+  const handleDelete = async () => {
+    if (!pendingDelete) return;
+    const item = pendingDelete;
     const params = new URLSearchParams({ path: item.path ?? '', workspaceId });
     await fetch(`/api/media/upload?${params}`, { method: 'DELETE' });
     await fetch(`/api/media-library`, {
@@ -285,6 +288,7 @@ export function MediaLibrary() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ workspaceId, id: item.id }),
     });
+    setPendingDelete(null);
     void queryClient.invalidateQueries({ queryKey: ['media-library', workspaceId] });
     toast.success('Deleted');
   };
@@ -389,7 +393,7 @@ export function MediaLibrary() {
                       <a href={url} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3.5 w-3.5" /></a>
                     </Button>
                     <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                      onClick={() => void handleDelete(item)}>
+                      onClick={() => setPendingDelete(item)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </div>
@@ -401,6 +405,15 @@ export function MediaLibrary() {
           <p className="text-sm text-muted-foreground text-center py-4">No products in catalog yet.</p>
         )
       )}
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Delete file?"
+        description={`"${pendingDelete?.filename ?? pendingDelete?.name}" will be permanently deleted.`}
+        confirmLabel="Delete"
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

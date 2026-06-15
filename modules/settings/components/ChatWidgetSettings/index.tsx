@@ -13,6 +13,7 @@ import {
   Plus, Copy, Trash2, Pencil, CheckCircle2, ExternalLink,
   BarChart2, MessageCircle, Smartphone,
 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { APP_URL } from '@/lib/constants';
@@ -122,7 +123,8 @@ export function ChatWidgetSettings() {
   const [showForm,  setShowForm]  = useState(false);
   const [form,      setForm]      = useState<FormState>(DEFAULTS);
   const [saving,    setSaving]    = useState(false);
-  const [copied,    setCopied]    = useState<string | null>(null);
+  const [copied,         setCopied]         = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['chat-widgets', workspaceId],
@@ -177,10 +179,11 @@ export function ChatWidgetSettings() {
     finally { setSaving(false); }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Delete this widget?')) return;
-    await fetch(`/api/chat-widgets/${id}`, { method: 'DELETE' });
+  async function handleDelete() {
+    if (!pendingDeleteId) return;
+    await fetch(`/api/chat-widgets/${pendingDeleteId}`, { method: 'DELETE' });
     toast.success('Deleted');
+    setPendingDeleteId(null);
     void queryClient.invalidateQueries({ queryKey: ['chat-widgets', workspaceId] });
   }
 
@@ -347,7 +350,7 @@ export function ChatWidgetSettings() {
                 <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(w)}>
                   <Pencil className="h-3.5 w-3.5" />
                 </Button>
-                <Button size="icon" variant="ghost" className="h-7 w-7 hover:text-destructive" onClick={() => void handleDelete(w.id)}>
+                <Button size="icon" variant="ghost" className="h-7 w-7 hover:text-destructive" onClick={() => setPendingDeleteId(w.id)}>
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
@@ -381,6 +384,14 @@ export function ChatWidgetSettings() {
           </div>
         ))
       )}
+    <ConfirmDialog
+      open={!!pendingDeleteId}
+      title="Delete widget?"
+      description="This chat widget and its embed code will be permanently removed."
+      confirmLabel="Delete"
+      onConfirm={() => void handleDelete()}
+      onCancel={() => setPendingDeleteId(null)}
+    />
     </div>
   );
 }

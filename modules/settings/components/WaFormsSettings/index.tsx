@@ -14,6 +14,7 @@ import {
   Plus, Trash2, Pencil, ChevronDown, ChevronUp, FileText,
   Eye, BarChart2, X, GripVertical, CheckSquare, Type, Hash, Mail, Phone, Calendar,
 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -71,7 +72,8 @@ export function WaFormsSettings() {
   const [editing,     setEditing]     = useState<WaForm | null>(null);
   const [formData,    setFormData]    = useState<Partial<WaForm>>(DEFAULT_FORM);
   const [saving,      setSaving]      = useState(false);
-  const [viewingResp, setViewingResp] = useState<WaForm | null>(null);
+  const [viewingResp,    setViewingResp]    = useState<WaForm | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const { data } = useQuery({
     queryKey: ['wa-forms', workspaceId],
@@ -139,10 +141,11 @@ export function WaFormsSettings() {
     finally { setSaving(false); }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Delete this form and all its responses?')) return;
-    await fetch(`/api/wa-forms/${id}`, { method: 'DELETE' });
+  async function handleDelete() {
+    if (!pendingDeleteId) return;
+    await fetch(`/api/wa-forms/${pendingDeleteId}`, { method: 'DELETE' });
     toast.success('Deleted');
+    setPendingDeleteId(null);
     void queryClient.invalidateQueries({ queryKey: ['wa-forms', workspaceId] });
   }
 
@@ -307,7 +310,7 @@ export function WaFormsSettings() {
               <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(f)}>
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
-              <Button size="icon" variant="ghost" className="h-7 w-7 hover:text-destructive" onClick={() => void handleDelete(f.id)}>
+              <Button size="icon" variant="ghost" className="h-7 w-7 hover:text-destructive" onClick={() => setPendingDeleteId(f.id)}>
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -377,6 +380,15 @@ export function WaFormsSettings() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!pendingDeleteId}
+        title="Delete form?"
+        description="This form and all its responses will be permanently deleted."
+        confirmLabel="Delete Form"
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }
