@@ -114,8 +114,10 @@ export function ConversationList() {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-muted-foreground">No conversations found.</p>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 py-16 px-4 text-center">
+          <MessageSquare className="h-8 w-8 text-muted-foreground/40" />
+          <p className="text-sm font-medium text-foreground">No conversations found</p>
+          <p className="text-xs text-muted-foreground">Try adjusting your filter or search term.</p>
         </div>
       ) : (
         <div ref={parentRef} className="flex-1 overflow-y-auto">

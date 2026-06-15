@@ -141,10 +141,12 @@ export function SettingsLayout() {
     if (tab && tab in CONTENT_MAP) setActive(tab);
   }, [searchParams]);
 
+  const activeLabel = NAV_SECTIONS.flatMap((s) => s.items).find((i) => i.key === active)?.label ?? 'Settings';
+
   return (
     <div className="flex h-full overflow-hidden">
-      {/* Left nav */}
-      <aside className="w-56 shrink-0 border-r border-border bg-card overflow-y-auto py-6 px-3">
+      {/* ── Desktop sidebar ───────────────────────────────────────────────── */}
+      <aside className="hidden md:flex md:w-56 shrink-0 border-r border-border bg-card flex-col overflow-y-auto py-6 px-3">
         <div className="mb-5 px-3">
           <h1 className="text-lg font-semibold text-foreground">Settings</h1>
           <p className="text-xs text-muted-foreground mt-0.5">Manage your workspace</p>
@@ -174,9 +176,28 @@ export function SettingsLayout() {
         ))}
       </aside>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
-        {CONTENT_MAP[active]}
+      {/* ── Content area ──────────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Mobile section picker */}
+        <div className="md:hidden shrink-0 border-b border-border bg-card px-4 py-3">
+          <select
+            value={active}
+            onChange={(e) => setActive(e.target.value as SettingKey)}
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+          >
+            {NAV_SECTIONS.map((section) => (
+              <optgroup key={section.label} label={section.label}>
+                {section.items.map(({ key, label }) => (
+                  <option key={key} value={key}>{label}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+          {CONTENT_MAP[active]}
+        </div>
       </div>
     </div>
   );

@@ -190,11 +190,11 @@ export function TeamPage() {
           <TableHeader className="sticky top-0 bg-card z-10">
             <TableRow>
               <TableHead>Member</TableHead>
-              <TableHead>Email</TableHead>
+              <TableHead className="hidden sm:table-cell">Email</TableHead>
               <TableHead>Role</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Max Chats</TableHead>
-              <TableHead>Joined</TableHead>
+              <TableHead className="hidden sm:table-cell">Status</TableHead>
+              <TableHead className="hidden md:table-cell">Max Chats</TableHead>
+              <TableHead className="hidden lg:table-cell">Joined</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -231,7 +231,7 @@ export function TeamPage() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{m.email}</TableCell>
+                      <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">{m.email}</TableCell>
                       <TableCell>
                         {isSelf ? (
                           <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', ROLE_COLORS[m.role])}>
@@ -258,13 +258,13 @@ export function TeamPage() {
                           </Select>
                         )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden sm:table-cell">
                         <span className={cn('text-xs font-medium', m.is_online ? 'text-emerald-600' : 'text-muted-foreground')}>
                           {m.is_online ? 'Online' : 'Offline'}
                         </span>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{m.max_chats}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
+                      <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{m.max_chats}</TableCell>
+                      <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
                         {format(new Date(m.joined_at), 'MMM d, yyyy')}
                       </TableCell>
                     </TableRow>

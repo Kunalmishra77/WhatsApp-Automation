@@ -263,13 +263,13 @@ export function CampaignList() {
           <TableHeader className="sticky top-0 bg-card z-10">
             <TableRow>
               <TableHead>Name</TableHead>
-              <TableHead>Template</TableHead>
+              <TableHead className="hidden sm:table-cell">Template</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Sent</TableHead>
-              <TableHead>Delivery</TableHead>
-              <TableHead>Read Rate</TableHead>
-              <TableHead>Scheduled</TableHead>
-              <TableHead className="w-28" />
+              <TableHead className="hidden sm:table-cell">Sent</TableHead>
+              <TableHead className="hidden md:table-cell">Delivery</TableHead>
+              <TableHead className="hidden md:table-cell">Read Rate</TableHead>
+              <TableHead className="hidden lg:table-cell">Scheduled</TableHead>
+              <TableHead className="w-24" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -308,7 +308,7 @@ export function CampaignList() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="text-sm font-mono text-muted-foreground">
+                      <TableCell className="hidden sm:table-cell text-sm font-mono text-muted-foreground">
                         {c.templates?.name ?? <span className="text-muted-foreground/50">—</span>}
                       </TableCell>
                       <TableCell>
@@ -316,17 +316,17 @@ export function CampaignList() {
                           {c.status}
                         </span>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
+                      <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
                         {total > 0 ? `${sent}/${total} (${sentPct}%)` : '—'}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden md:table-cell">
                         <div className="flex items-center gap-2 min-w-24">
                           <Progress value={deliveryPct} className="h-1.5 flex-1" />
                           <span className="text-xs text-muted-foreground w-8">{deliveryPct}%</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{readPct}%</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
+                      <TableCell className="hidden md:table-cell text-sm text-muted-foreground">{readPct}%</TableCell>
+                      <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
                         {c.scheduled_at ? new Date(c.scheduled_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) + ' IST' : '—'}
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
@@ -382,8 +382,17 @@ export function CampaignList() {
           </TableBody>
         </Table>
         {!isLoading && campaigns.length === 0 && (
-          <div className="flex h-48 items-center justify-center">
-            <p className="text-sm text-muted-foreground">No campaigns yet. Launch your first one.</p>
+          <div className="flex flex-col items-center justify-center h-64 gap-3 text-center px-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-50 border border-orange-100">
+              <Megaphone className="h-7 w-7 text-orange-500" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">No campaigns yet</p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-xs">Launch a bulk WhatsApp broadcast to reach all your contacts at once.</p>
+            </div>
+            <Button size="sm" className="gap-1.5 mt-1" onClick={() => setWizardOpen(true)}>
+              <Plus className="h-3.5 w-3.5" /> New Campaign
+            </Button>
           </div>
         )}
       </div>

@@ -82,12 +82,12 @@ export function TemplateList() {
           <TableHeader className="sticky top-0 bg-card z-10">
             <TableRow>
               <TableHead>Name</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Language</TableHead>
+              <TableHead className="hidden sm:table-cell">Category</TableHead>
+              <TableHead className="hidden md:table-cell">Language</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Variables</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="w-28" />
+              <TableHead className="hidden md:table-cell">Variables</TableHead>
+              <TableHead className="hidden lg:table-cell">Created</TableHead>
+              <TableHead className="w-24" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -102,17 +102,17 @@ export function TemplateList() {
               : templates.map((t) => (
                   <TableRow key={t.id} className="hover:bg-accent">
                     <TableCell className="font-mono text-sm">{t.name}</TableCell>
-                    <TableCell className="text-sm">{CATEGORY_LABELS[t.category] ?? t.category}</TableCell>
-                    <TableCell className="text-sm uppercase">{t.language}</TableCell>
+                    <TableCell className="hidden sm:table-cell text-sm">{CATEGORY_LABELS[t.category] ?? t.category}</TableCell>
+                    <TableCell className="hidden md:table-cell text-sm uppercase">{t.language}</TableCell>
                     <TableCell>
                       <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize', TEMPLATE_STATUS_COLORS[t.status] ?? 'bg-gray-100 text-gray-600')}>
                         {t.status}
                       </span>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
                       {t.variables.length > 0 ? t.variables.join(', ') : '—'}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
                       {format(new Date(t.created_at), 'MMM d, yyyy')}
                     </TableCell>
                     <TableCell>
@@ -144,8 +144,17 @@ export function TemplateList() {
           </TableBody>
         </Table>
         {!isLoading && templates.length === 0 && (
-          <div className="flex h-48 items-center justify-center">
-            <p className="text-sm text-muted-foreground">No templates yet. Create your first one.</p>
+          <div className="flex flex-col items-center justify-center h-64 gap-3 text-center px-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
+              <FileText className="h-7 w-7 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">No templates yet</p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-xs">Create your first WhatsApp-approved template to use in campaigns.</p>
+            </div>
+            <Button size="sm" className="gap-1.5 mt-1" onClick={() => { setEditing(undefined); setFormOpen(true); }}>
+              <Plus className="h-3.5 w-3.5" /> New Template
+            </Button>
           </div>
         )}
       </div>
