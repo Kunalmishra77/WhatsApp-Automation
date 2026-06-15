@@ -1580,6 +1580,7 @@ function extractMessageContent(msg: WAMessage): string {
     case 'document': return msg.document?.filename ?? '[Document]';
     case 'location': return `[Location: ${msg.location?.latitude},${msg.location?.longitude}]`;
     case 'sticker': return '[Sticker]';
+    case 'button': return `[Tapped button: "${msg.button?.text ?? 'button'}"]`;
     case 'interactive': {
       const ir = msg.interactive;
       if (ir?.type === 'button_reply') return `[Tapped button: "${ir.button_reply?.title ?? 'button'}"]`;
@@ -1638,6 +1639,8 @@ interface WAMessage {
   location?: { latitude: number; longitude: number };
   sticker?: { id: string };
   interactive?: WAInteractiveReply;
+  // Template quick-reply button tap (type = "button")
+  button?: { text: string; payload?: string };
 }
 
 interface WAStatus {
