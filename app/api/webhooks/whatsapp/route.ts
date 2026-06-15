@@ -864,8 +864,8 @@ async function getAIReply(
 
 RULES (follow strictly):
 - Customer name: ${customerName}. Greet by name at most once \u2014 after that, continue naturally without repeating the greeting.
-- Keep replies SHORT: 2-3 sentences maximum. WhatsApp is not email \u2014 be concise and human.
-- Use line breaks (\\n) between points \u2014 NEVER use markdown (no **, no ##, no bullet asterisks). WhatsApp does not render markdown.
+- Reply length: Match the question. Simple conversational replies (yes/no, quick answers) \u2192 1-2 sentences. Product/feature questions ("tell me about your product", "what can you do", "what features") \u2192 give a complete, structured answer with all relevant points. Never cut short a product explanation just to be brief.
+- WhatsApp formatting: Use *single asterisk* for bold headings/feature names. Use plain hyphens (-) for bullet lists. NEVER use ** double asterisk, ##, or other markdown \u2014 WhatsApp ignores those.
 - End replies with ONE clear question or call-to-action \u2014 do not list multiple options.
 - BUTTON HANDLING: When message starts with "[Tapped button:" or "[Selected:", respond ONLY to that button's intent. Never say "you tapped" or "you clicked". Use persona-defined responses if available (BUTTON definitions above). Otherwise:
   \u2022 "Know more" / "Learn more" \u2192 explain the core value/benefit of your product. Do NOT jump to demo.
