@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   User, Building2, MessageSquare, Shield, Clock,
-  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText, Camera,
+  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText, Camera, CalendarCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProfileSettings } from '../ProfileSettings';
@@ -32,13 +32,14 @@ import { AutomationTriggersSettings } from '../AutomationTriggersSettings';
 import { ChatWidgetSettings } from '../ChatWidgetSettings';
 import { WaFormsSettings } from '../WaFormsSettings';
 import { InstagramSettings } from '../InstagramSettings';
+import { GoogleCalendarSettings } from '../GoogleCalendarSettings';
 
 type SettingKey =
   | 'profile' | 'workspace' | 'branding' | 'billing'
   | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library' | 'chat-widget' | 'wa-forms'
   | 'instagram'
   | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers' | 'auto-triggers'
-  | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models'
+  | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models' | 'google-calendar'
   | 'audit-logs';
 
 interface NavSection {
@@ -85,10 +86,11 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Integrations',
     items: [
-      { key: 'integrations', label: 'Integrations', icon: Shield },
-      { key: 'webhooks',     label: 'Webhooks',     icon: Webhook },
-      { key: 'api-keys',     label: 'API Keys',     icon: Key },
-      { key: 'ai-models',    label: 'AI Models',    icon: Zap },
+      { key: 'integrations',    label: 'Integrations',    icon: Shield },
+      { key: 'google-calendar', label: 'Google Calendar', icon: CalendarCheck },
+      { key: 'webhooks',        label: 'Webhooks',        icon: Webhook },
+      { key: 'api-keys',        label: 'API Keys',        icon: Key },
+      { key: 'ai-models',       label: 'AI Models',       icon: Zap },
     ],
   },
   {
@@ -114,8 +116,9 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'custom-fields':  <CustomFieldSettings />,
   'time-triggers':  <TimeTriggerSettings />,
   'qr-code':        <QrCodeSettings />,
-  'integrations':   <IntegrationSettings />,
-  'webhooks':       <WebhookSettings />,
+  'integrations':    <IntegrationSettings />,
+  'google-calendar': <GoogleCalendarSettings />,
+  'webhooks':        <WebhookSettings />,
   'api-keys':       <ApiKeys />,
   'ai-models':      <LlmSettings />,
   'catalog':        <CatalogSettings />,

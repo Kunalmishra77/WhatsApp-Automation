@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   MessageSquare, Users, Kanban, Megaphone, FileText,
   BarChart3, Settings, UserCircle, ChevronLeft, ChevronRight,
-  Users2, GitBranch, BookOpen, TrendingUp, LifeBuoy,
+  Users2, GitBranch, BookOpen, TrendingUp, LifeBuoy, CalendarCheck,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -39,9 +39,10 @@ const NAV_ITEMS: Array<{
   { href: '/templates',     icon: FileText,      label: 'Templates'     },
   { href: '/flows',         icon: GitBranch,     label: 'Flows',        requiredFeature: 'flows', requiredPlan: 'Pro' },
   { href: '/team',          icon: Users2,        label: 'Team'          },
-  { href: '/analytics',     icon: BarChart3,     label: 'Analytics'     },
-  { href: '/ai-revenue',    icon: TrendingUp,    label: 'AI Revenue'    },
-  { href: '/knowledge-base',icon: BookOpen,      label: 'Knowledge Base'},
+  { href: '/analytics',     icon: BarChart3,      label: 'Analytics'        },
+  { href: '/bookings',      icon: CalendarCheck,  label: 'Bookings & Events'},
+  { href: '/ai-revenue',    icon: TrendingUp,     label: 'AI Revenue'       },
+  { href: '/knowledge-base',icon: BookOpen,       label: 'Knowledge Base'   },
 ];
 
 export function Sidebar() {

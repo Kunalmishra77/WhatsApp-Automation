@@ -1279,9 +1279,149 @@ async function sendAutoReply(
         updatePayload.bot_paused = true;
       }
       await (supabase as any).from('conversations').update(updatePayload).eq('id', conversationId);
+
+      // Detect booking/callback events and log them (non-blocking)
+      void detectAndLogEvent(
+        supabase, workspaceId, conversationId, contactId,
+        customerName, toPhone, customerMessage, message, wsSettings,
+      );
     }
   } catch (error) {
     console.error('[AutoReply] Failed:', error);
+  }
+}
+
+// ── Conversation Event Detection & Logging ────────────────────────────────────
+type ConvEventType = 'demo_booked' | 'callback_requested' | 'appointment_set' | 'not_interested' | 'follow_up';
+
+function detectConversationEvent(userMessage: string, botReply: string): ConvEventType | null {
+  const user = userMessage.toLowerCase();
+  const bot  = botReply.toLowerCase();
+
+  // Callback: user explicitly asks for a human/call
+  if (/\b(samajh nahi|call karo|call me|call back|callback|baat karni|agent|operator|human|speak to|connect me|mujhe samajh|nahi aaya|clear nahi|confused)\b/i.test(user)) {
+    return 'callback_requested';
+  }
+
+  // Not interested
+  if (/\b(not interested|nahi chahiye|remove|band karo|mat karo|no thanks|zaroorat nahi|interested nahi|nahi lena)\b/i.test(user)) {
+    return 'not_interested';
+  }
+
+  // Follow up scheduled
+  if (/\b(follow up|baad mein|next week|agle hafte|hafte baad|mahine baad|next month|2 week|2 hafte|3 hafte)\b/i.test(user)) {
+    return 'follow_up';
+  }
+
+  // Demo/Appointment booked — bot confirms with date+time
+  const hasDateInBot = /\b(\d{1,2}\s*(baje|am|pm|:00|:30)|kal|parso|aaj|monday|tuesday|wednesday|thursday|friday|saturday|sunday|somwar|mangal|budh|guru|shukra|shaniv|raviwar|\d{1,2}\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))\b/i.test(bot);
+  const hasConfirmInBot = /\b(confirm|book ho|schedule|visit|aayenge|milenge|appointment|aa jao|aa jayenge|kal aayenge|team aayegi|demo fix)\b/i.test(bot);
+
+  if (hasDateInBot && hasConfirmInBot) {
+    // Differentiate demo vs generic appointment
+    if (/\b(demo|visit|office mein|office me|aapke paas|aapke office)\b/i.test(bot)) return 'demo_booked';
+    return 'appointment_set';
+  }
+
+  return null;
+}
+
+function extractScheduledAt(botReply: string): string | null {
+  // Try to extract a rough date/time for the Google Calendar event
+  const now = new Date();
+  const tomorrow = new Date(now); tomorrow.setDate(now.getDate() + 1);
+  const dayAfter  = new Date(now); dayAfter.setDate(now.getDate() + 2);
+
+  if (/\bkal\b|\btomorrow\b/i.test(botReply)) {
+    const timeMatch = /(\d{1,2})\s*(baje|am|pm|:00|:30)/i.exec(botReply);
+    const hour = timeMatch?.[1] ? parseInt(timeMatch[1]) : 11;
+    tomorrow.setHours(hour < 8 ? hour + 12 : hour, 0, 0, 0);
+    return tomorrow.toISOString();
+  }
+  if (/\bparso\b|\bday after\b/i.test(botReply)) {
+    dayAfter.setHours(11, 0, 0, 0);
+    return dayAfter.toISOString();
+  }
+  const timeMatch = /(\d{1,2})\s*(baje|am|pm)/i.exec(botReply);
+  if (timeMatch?.[1] && timeMatch?.[2]) {
+    const hour = parseInt(timeMatch[1]);
+    const adjusted = /pm/i.test(timeMatch[2]) && hour < 12 ? hour + 12 : hour;
+    now.setHours(adjusted, 0, 0, 0);
+    return now.toISOString();
+  }
+  return null;
+}
+
+function extractLocation(botReply: string): string | null {
+  // Look for city/area mentioned near "office" or "address"
+  const m = /(?:office|address|location)[^.]*?(?:in|at|mein|me)\s+([A-Za-zऀ-ॿ\s,]+?)(?:\.|,|$)/i.exec(botReply);
+  return m?.[1]?.trim() ?? null;
+}
+
+async function detectAndLogEvent(
+  supabase: AdminClient,
+  workspaceId: string,
+  conversationId: string | undefined,
+  contactId: string | undefined,
+  contactName: string,
+  contactPhone: string,
+  userMessage: string,
+  botReply: string,
+  wsSettings: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const eventType = detectConversationEvent(userMessage, botReply);
+    if (!eventType) return;
+
+    const scheduledAt = extractScheduledAt(botReply);
+    const location    = extractLocation(botReply);
+
+    // Insert event record
+    const db = supabase as any;
+    const { data: inserted } = await db.from('conversation_events').insert({
+      workspace_id:    workspaceId,
+      conversation_id: conversationId ?? null,
+      contact_id:      contactId ?? null,
+      event_type:      eventType,
+      contact_name:    contactName,
+      contact_phone:   contactPhone,
+      scheduled_at:    scheduledAt,
+      location,
+      notes:           botReply.slice(0, 500),
+      status:          'pending',
+    }).select('id').single();
+
+    if (!inserted?.id) return;
+
+    // Sync to Google Calendar if connected
+    const refreshToken = wsSettings.google_calendar_refresh_token as string | undefined;
+    const calendarId   = (wsSettings.google_calendar_id as string | undefined) ?? 'primary';
+
+    if (refreshToken && (eventType === 'demo_booked' || eventType === 'appointment_set' || eventType === 'callback_requested')) {
+      const { createCalendarEvent } = await import('@/lib/google-calendar');
+      const start = scheduledAt ? new Date(scheduledAt) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const end   = new Date(start.getTime() + 30 * 60 * 1000); // 30 min duration
+
+      const title = eventType === 'demo_booked'
+        ? `Demo Visit — ${contactName} (${contactPhone})`
+        : eventType === 'callback_requested'
+        ? `Callback — ${contactName} (${contactPhone})`
+        : `Appointment — ${contactName} (${contactPhone})`;
+
+      const gcalEventId = await createCalendarEvent(refreshToken, calendarId, {
+        summary:       title,
+        description:   `WhatsApp conversation\nCustomer: ${contactName}\nPhone: ${contactPhone}\n\nLast message:\n${botReply.slice(0, 300)}`,
+        location:      location ?? undefined,
+        startDateTime: start.toISOString(),
+        endDateTime:   end.toISOString(),
+      });
+
+      if (gcalEventId) {
+        await db.from('conversation_events').update({ google_event_id: gcalEventId }).eq('id', inserted.id);
+      }
+    }
+  } catch (err) {
+    console.error('[EventDetect]', err);
   }
 }
 

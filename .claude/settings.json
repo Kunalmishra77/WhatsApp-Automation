@@ -85,7 +85,9 @@
       "PowerShell(New-Item -ItemType Directory -Force \"d:\\\\WhatsApp-Automation\\\\app\\\\api\\\\admin\\\\health-reports\")",
       "PowerShell(New-Item -ItemType Directory -Force \"d:\\\\WhatsApp-Automation\\\\modules\\\\admin\\\\components\\\\HealthMonitor\")",
       "PowerShell(node -e $script)",
-      "PowerShell(node \"d:\\\\tmp\\\\check_fk.js\")"
+      "PowerShell(node \"d:\\\\tmp\\\\check_fk.js\")",
+      "Bash(grep -E \"\\\\.ts$\")",
+      "Bash(mkdir \"d:/WhatsApp-Automation/app/api/admin/workspaces/[id]/settings\")"
     ],
     "additionalDirectories": [
       "d:\\WhatsApp-Automation\\app\\api\\contacts\\[id]",
