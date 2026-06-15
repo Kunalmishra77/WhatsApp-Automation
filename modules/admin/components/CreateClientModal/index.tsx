@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Mail, Copy, CheckCircle2, ExternalLink, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Mail, Copy, CheckCircle2, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -25,7 +25,6 @@ interface FormState {
   owner_phone: string;
   plan: string;
   industry: string;
-  custom_password: string;
 }
 
 interface CreatedCredentials {
@@ -35,21 +34,19 @@ interface CreatedCredentials {
 }
 
 const INITIAL: FormState = {
-  business_name:   '',
-  owner_email:     '',
-  owner_phone:     '',
-  plan:            'starter',
-  industry:        '',
-  custom_password: '',
+  business_name: '',
+  owner_email:   '',
+  owner_phone:   '',
+  plan:          'starter',
+  industry:      '',
 };
 
 export function CreateClientModal({ open, onOpenChange, onSuccess }: CreateClientModalProps) {
-  const [form, setForm]         = useState<FormState>(INITIAL);
-  const [loading, setLoading]   = useState(false);
-  const [errors, setErrors]     = useState<Partial<Record<keyof FormState, string>>>({});
-  const [created, setCreated]   = useState<CreatedCredentials | null>(null);
-  const [copied, setCopied]     = useState(false);
-  const [showPass, setShowPass] = useState(false);
+  const [form, setForm]       = useState<FormState>(INITIAL);
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors]   = useState<Partial<Record<keyof FormState, string>>>({});
+  const [created, setCreated] = useState<CreatedCredentials | null>(null);
+  const [copied, setCopied]   = useState(false);
 
   const set = <K extends keyof FormState>(key: K, val: FormState[K]) => {
     setForm((p) => ({ ...p, [key]: val }));
@@ -65,9 +62,6 @@ export function CreateClientModal({ open, onOpenChange, onSuccess }: CreateClien
       e.owner_email = 'Enter a valid email address';
     }
     if (!form.plan) e.plan = 'Plan is required';
-    if (form.custom_password && form.custom_password.length < 8) {
-      e.custom_password = 'Password must be at least 8 characters';
-    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -81,12 +75,11 @@ export function CreateClientModal({ open, onOpenChange, onSuccess }: CreateClien
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          business_name:   form.business_name.trim(),
-          owner_email:     form.owner_email.trim(),
-          owner_phone:     form.owner_phone.trim() || undefined,
-          plan:            form.plan,
-          industry:        form.industry.trim() || undefined,
-          custom_password: form.custom_password.trim() || undefined,
+          business_name: form.business_name.trim(),
+          owner_email:   form.owner_email.trim(),
+          owner_phone:   form.owner_phone.trim() || undefined,
+          plan:          form.plan,
+          industry:      form.industry.trim() || undefined,
         }),
       });
       const data = await res.json() as { success?: boolean; error?: string; password?: string; owner_email?: string };
@@ -122,7 +115,6 @@ export function CreateClientModal({ open, onOpenChange, onSuccess }: CreateClien
     setErrors({});
     setCreated(null);
     setCopied(false);
-    setShowPass(false);
     onOpenChange(false);
   };
 
@@ -239,32 +231,6 @@ export function CreateClientModal({ open, onOpenChange, onSuccess }: CreateClien
             <Label htmlFor="industry">Industry <span className="text-muted-foreground text-xs">(optional)</span></Label>
             <Input id="industry" placeholder="e.g. HR, Healthcare, Retail" value={form.industry}
               onChange={(e) => set('industry', e.target.value)} disabled={loading} />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="custom_password">
-              Custom Password <span className="text-muted-foreground text-xs">(optional — auto-generated if blank)</span>
-            </Label>
-            <div className="relative">
-              <Input
-                id="custom_password"
-                type={showPass ? 'text' : 'password'}
-                placeholder="Leave blank to auto-generate"
-                value={form.custom_password}
-                onChange={(e) => set('custom_password', e.target.value)}
-                disabled={loading}
-                className={errors.custom_password ? 'border-destructive pr-9' : 'pr-9'}
-              />
-              <button
-                type="button"
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => setShowPass((v) => !v)}
-                tabIndex={-1}
-              >
-                {showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-            {errors.custom_password && <p className="text-xs text-destructive">{errors.custom_password}</p>}
           </div>
 
           <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs text-blue-700 flex items-start gap-2">
