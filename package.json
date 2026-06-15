@@ -53,6 +53,7 @@
     "pdf-parse": "^1.1.4",
     "postcss": "^8.5.15",
     "react": "19.2.4",
+    "react-countup": "^6.5.3",
     "react-dom": "19.2.4",
     "react-hook-form": "^7.76.1",
     "reactflow": "^11.11.4",
