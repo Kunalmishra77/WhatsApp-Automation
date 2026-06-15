@@ -97,17 +97,25 @@ export function TeamPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-6 py-3">
+      <div className="flex shrink-0 items-center justify-between flex-wrap gap-3 border-b border-border bg-card px-4 sm:px-6 py-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-base font-semibold text-foreground">Team</h1>
-          {!isLoading && (
-            <Badge variant="outline" className="text-xs gap-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
-              {onlineCount} online
-            </Badge>
-          )}
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-100 shrink-0">
+            <Users2 className="h-5 w-5 text-cyan-600" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-semibold text-foreground leading-none">Team</h1>
+              {!isLoading && (
+                <Badge variant="outline" className="text-xs gap-1 py-0">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
+                  {onlineCount} online
+                </Badge>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">Manage agents and workload distribution</p>
+          </div>
         </div>
-        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => setInviteOpen(true)}>
+        <Button size="sm" className="gap-1.5" onClick={() => setInviteOpen(true)}>
           <UserPlus className="h-3.5 w-3.5" /> Invite Member
         </Button>
       </div>

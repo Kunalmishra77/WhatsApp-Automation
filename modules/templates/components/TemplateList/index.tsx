@@ -7,7 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { Plus, Pencil, Trash2, Send, RefreshCw } from 'lucide-react';
+import { Plus, Pencil, Trash2, Send, RefreshCw, FileText } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useTemplates, useDeleteTemplate, useSubmitTemplate, useSyncTemplates } from '../../hooks/useTemplates';
@@ -50,20 +50,28 @@ export function TemplateList() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-6 py-3">
-        <h1 className="text-base font-semibold text-foreground">Templates</h1>
+      <div className="flex shrink-0 items-center justify-between flex-wrap gap-3 border-b border-border bg-card px-4 sm:px-6 py-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 shrink-0">
+            <FileText className="h-5 w-5 text-blue-600" />
+          </div>
+          <div>
+            <h1 className="text-base font-semibold text-foreground leading-none">Message Templates</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">WhatsApp-approved templates for campaigns</p>
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <Button
             size="sm"
             variant="outline"
-            className="h-8 gap-1.5 text-xs"
+            className="gap-1.5"
             disabled={sync.isPending}
             onClick={() => void handleSync()}
           >
             <RefreshCw className={cn('h-3.5 w-3.5', sync.isPending && 'animate-spin')} />
             {sync.isPending ? 'Syncing…' : 'Sync from Meta'}
           </Button>
-          <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => { setEditing(undefined); setFormOpen(true); }}>
+          <Button size="sm" className="gap-1.5" onClick={() => { setEditing(undefined); setFormOpen(true); }}>
             <Plus className="h-3.5 w-3.5" /> New Template
           </Button>
         </div>

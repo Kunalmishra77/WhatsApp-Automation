@@ -21,36 +21,35 @@ export function NavItem({ href, icon: Icon, label, collapsed, badge, locked, req
   const pathname = usePathname();
   const isActive = !locked && (pathname === href || (href !== '/' && pathname.startsWith(href)));
 
-  // Locked state — render a non-clickable div
+  /* Locked */
   if (locked) {
     const lockedContent = (
       <div
         className={cn(
-          'group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium',
-          'text-muted-foreground/50 cursor-not-allowed select-none',
+          'group flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm',
+          'text-muted-foreground/40 cursor-not-allowed select-none',
           collapsed && 'justify-center px-2',
         )}
       >
-        <Icon className="h-5 w-5 shrink-0 text-muted-foreground/40" />
-        {!collapsed && <span className="flex-1 truncate">{label}</span>}
-        {!collapsed && <Lock className="ml-auto h-3.5 w-3.5 text-muted-foreground/40" />}
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg">
+          <Icon className="h-4 w-4 text-muted-foreground/30" />
+        </div>
+        {!collapsed && (
+          <>
+            <span className="flex-1 truncate">{label}</span>
+            <Lock className="ml-auto h-3 w-3 text-muted-foreground/30" />
+          </>
+        )}
       </div>
     );
 
     return (
       <Tooltip delayDuration={0}>
-        <TooltipTrigger asChild>
-          <span>{lockedContent}</span>
-        </TooltipTrigger>
+        <TooltipTrigger asChild><span>{lockedContent}</span></TooltipTrigger>
         <TooltipContent side="right" className="font-medium">
-          {collapsed ? (
-            <span className="flex items-center gap-1.5">
-              <Lock className="h-3 w-3" />
-              {label} — {requiredPlan ?? 'Pro'} plan
-            </span>
-          ) : (
-            `Available on ${requiredPlan ?? 'Pro'} plan`
-          )}
+          {collapsed
+            ? <span className="flex items-center gap-1.5"><Lock className="h-3 w-3" />{label} — {requiredPlan ?? 'Pro'} plan</span>
+            : `Available on ${requiredPlan ?? 'Pro'} plan`}
         </TooltipContent>
       </Tooltip>
     );
@@ -60,28 +59,34 @@ export function NavItem({ href, icon: Icon, label, collapsed, badge, locked, req
     <Link
       href={href}
       className={cn(
-        'group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150',
+        'group relative flex items-center gap-3 rounded-xl px-2.5 py-2 text-sm font-medium transition-all duration-150',
         isActive
-          ? 'bg-brand-500/10 text-brand-600'
-          : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+          ? 'bg-brand-500/10 text-brand-700'
+          : 'text-muted-foreground hover:bg-black/[0.04] hover:text-foreground',
         collapsed && 'justify-center px-2',
       )}
     >
-      {isActive && (
-        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-brand-500" />
-      )}
-
-      <Icon
+      {/* Icon — colored square when active */}
+      <div
         className={cn(
-          'h-5 w-5 shrink-0 transition-colors',
-          isActive ? 'text-brand-500' : 'text-muted-foreground group-hover:text-foreground',
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-all duration-150',
+          isActive
+            ? 'bg-brand-500 shadow-sm shadow-brand-500/40'
+            : 'group-hover:bg-black/[0.05]',
         )}
-      />
+      >
+        <Icon
+          className={cn(
+            'h-4 w-4 shrink-0 transition-colors',
+            isActive ? 'text-white' : 'text-muted-foreground group-hover:text-foreground',
+          )}
+        />
+      </div>
 
       {!collapsed && <span className="flex-1 truncate">{label}</span>}
 
       {!collapsed && badge !== undefined && badge > 0 && (
-        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-500 px-1.5 text-[10px] font-semibold text-white">
+        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-500 px-1.5 text-[10px] font-bold text-white">
           {badge > 99 ? '99+' : badge}
         </span>
       )}

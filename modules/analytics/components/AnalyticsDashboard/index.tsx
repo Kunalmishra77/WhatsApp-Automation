@@ -176,14 +176,14 @@ export function AnalyticsDashboard() {
   return (
     <div className="flex flex-col h-full bg-background">
       {/* ── Sticky Header ──────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-20 flex shrink-0 items-center justify-between border-b border-border bg-card/95 backdrop-blur px-6 py-3">
+      <div className="sticky top-0 z-20 flex shrink-0 items-center justify-between flex-wrap gap-3 border-b border-border bg-card/95 backdrop-blur px-4 sm:px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-100">
-            <BarChart2 className="h-4 w-4 text-brand-600" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-100 shrink-0">
+            <BarChart2 className="h-5 w-5 text-brand-600" />
           </div>
           <div>
-            <h1 className="text-base font-semibold">Analytics Powerhouse</h1>
-            <p className="text-[11px] text-muted-foreground">Full visibility across messages, campaigns, leads, sentiment & team</p>
+            <h1 className="text-base font-semibold leading-none">Analytics</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">Messages, campaigns, leads, sentiment & team</p>
           </div>
         </div>
         <div className="flex items-center gap-2">

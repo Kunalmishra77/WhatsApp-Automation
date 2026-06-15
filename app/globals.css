@@ -4,61 +4,67 @@
 
 @layer base {
   :root {
-    --surface-primary:   0 0% 100%;
-    --surface-secondary: 210 40% 98%;
+    --surface-primary:   220 20% 99%;
+    --surface-secondary: 220 20% 97%;
     --surface-elevated:  0 0% 100%;
 
-    --background:         0 0% 100%;
-    --foreground:         222.2 84% 4.9%;
+    --background:         220 20% 98%;
+    --foreground:         222 47% 8%;
     --card:               0 0% 100%;
-    --card-foreground:    222.2 84% 4.9%;
+    --card-foreground:    222 47% 8%;
     --popover:            0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 222 47% 8%;
     --primary:            199 89% 48%;
     --primary-foreground: 210 40% 98%;
-    --secondary:          210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted:              210 40% 96.1%;
-    --muted-foreground:   215.4 16.3% 46.9%;
-    --accent:             210 40% 96.1%;
-    --accent-foreground:  222.2 47.4% 11.2%;
-    --destructive:        0 84.2% 60.2%;
+    --secondary:          220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted:              220 14% 95%;
+    --muted-foreground:   220 9% 46%;
+    --accent:             220 14% 95%;
+    --accent-foreground:  222 47% 11%;
+    --destructive:        0 84% 60%;
     --destructive-foreground: 210 40% 98%;
-    --border:             214.3 31.8% 91.4%;
-    --input:              214.3 31.8% 91.4%;
+    --border:             220 13% 91%;
+    --input:              220 13% 91%;
     --ring:               199 89% 48%;
-    --radius:             0.5rem;
+    --radius:             0.625rem;
     --chat-bg:            #f0f2f5;
+
+    /* Premium shadow levels */
+    --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.07), 0 1px 2px -1px rgb(0 0 0 / 0.07);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.07), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.08), 0 8px 10px -6px rgb(0 0 0 / 0.05);
   }
 
   .dark {
     --chat-bg:            #0d1117;
-    --surface-primary:    222.2 84% 4.9%;
-    --surface-secondary:  217.2 32.6% 10%;
-    --surface-elevated:   217.2 32.6% 13%;
+    --surface-primary:    222 47% 6%;
+    --surface-secondary:  222 47% 8%;
+    --surface-elevated:   222 47% 10%;
 
-    --background:         222.2 84% 4.9%;
+    --background:         222 47% 6%;
     --foreground:         210 40% 98%;
-    --card:               222.2 84% 4.9%;
+    --card:               222 47% 8%;
     --card-foreground:    210 40% 98%;
-    --popover:            222.2 84% 4.9%;
+    --popover:            222 47% 8%;
     --popover-foreground: 210 40% 98%;
     --primary:            199 89% 48%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary:          217.2 32.6% 17.5%;
+    --primary-foreground: 222 47% 11%;
+    --secondary:          217 32% 15%;
     --secondary-foreground: 210 40% 98%;
-    --muted:              217.2 32.6% 17.5%;
-    --muted-foreground:   215 20.2% 65.1%;
-    --accent:             217.2 32.6% 17.5%;
+    --muted:              217 32% 15%;
+    --muted-foreground:   215 20% 65%;
+    --accent:             217 32% 15%;
     --accent-foreground:  210 40% 98%;
-    --destructive:        0 62.8% 30.6%;
+    --destructive:        0 62% 30%;
     --destructive-foreground: 210 40% 98%;
-    --border:             217.2 32.6% 17.5%;
-    --input:              217.2 32.6% 17.5%;
+    --border:             217 32% 17%;
+    --input:              217 32% 17%;
     --ring:               199 89% 48%;
   }
 }
-
 
 @layer base {
   * {
@@ -71,8 +77,8 @@
   }
 
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
   }
 
   ::-webkit-scrollbar-track {
@@ -80,10 +86,61 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-border rounded-full;
+    @apply rounded-full;
+    background: hsl(220 13% 85%);
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-muted-foreground/30;
+    background: hsl(220 9% 70%);
+  }
+}
+
+@layer utilities {
+  .shadow-card {
+    box-shadow: var(--shadow-sm);
+  }
+  .shadow-card-md {
+    box-shadow: var(--shadow-md);
+  }
+  .shadow-card-lg {
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* Gradient text utility */
+  .text-gradient-brand {
+    background: linear-gradient(135deg, #0ea5e9, #6366f1);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Premium glass card */
+  .glass {
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+  }
+
+  /* Fade in animation */
+  .animate-fade-up {
+    animation: fadeUp 0.4s ease-out both;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Shimmer for skeletons */
+  .shimmer {
+    background: linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--secondary)) 50%, hsl(var(--muted)) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  @keyframes shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
   }
 }
