@@ -805,7 +805,7 @@ function parseButtonResponses(persona: string): Map<string, string> {
 // \u2500\u2500 Extract button label from [Tapped button: "X"] or [Selected: "X"] \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 function extractButtonLabel(message: string): string | null {
   const m = /^\[(?:Tapped button|Selected):\s*"([^"]+)"\]$/i.exec(message.trim());
-  return m ? m[1].trim() : null;
+  return m?.[1]?.trim() ?? null;
 }
 
 async function getAIReply(
