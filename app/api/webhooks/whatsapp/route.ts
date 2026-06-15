@@ -722,8 +722,8 @@ async function fetchKnowledgeBaseContext(
         const { data: vecDocResults } = await (db.rpc('match_vector_documents', {
           query_embedding: formattedEmbedding,
           workspace_id_param: workspaceId,
-          match_count: 3,
-          min_similarity: 0.3,
+          match_count: 10,
+          min_similarity: 0.15,
         }) as Promise<{ data: Array<{ filename: string; content: string }> | null }>).catch(() => ({ data: null }));
 
         if (vecDocResults?.length) {
@@ -862,9 +862,13 @@ async function getAIReply(
 
   // \u2500\u2500 Conversation stage \u2014 adjusts AI behavior based on how far along we are \u2500\u2500\u2500
   const historyLen = conversationHistory.length;
+  // Detect if customer is explicitly asking for product/feature information
+  const isProductInfoQuery = /\b(tell me about|about your|what (do|can|does)|features?|how (does|do)|what is|explain|overview|benefits?|capabilities|product info|services?)\b/i.test(customerMessage);
   const conversationStage =
-    historyLen === 0
-      ? 'CONVERSATION STAGE: First message. If the customer tapped a button or sent a first message, respond naturally \u2014 do NOT re-introduce the whole product unless they asked. Ask ONE question to understand what they need.'
+    isProductInfoQuery
+      ? 'CONVERSATION STAGE: Customer asked for product information. Give a COMPLETE list of ALL features and benefits from the knowledge base. Do NOT skip any feature. Do NOT ask a qualifying question \u2014 instead end with an offer to demo or explore a specific feature.'
+      : historyLen === 0
+      ? 'CONVERSATION STAGE: First message. Respond warmly and ask ONE question to understand what they need.'
       : historyLen <= 3
       ? 'CONVERSATION STAGE: Early. You know a little about them. Ask one qualifying question (e.g. team size, current process, main problem) if not yet asked.'
       : historyLen <= 7
@@ -872,7 +876,7 @@ async function getAIReply(
       : 'CONVERSATION STAGE: Extended. Focus on resolving any remaining objection and confirming the next step. If they seem stuck, offer to connect them with a team member.';
 
   const kbSection = kbContext
-    ? `\n\nKNOWLEDGE BASE \u2014 answer from this accurately:\n${kbContext}\n\nOnly use information from the knowledge base. If a topic is not covered, say a team member will follow up \u2014 do NOT guess or invent.`
+    ? `\n\nKNOWLEDGE BASE \u2014 answer from this accurately:\n${kbContext}\n\nIMPORTANT: When the customer asks about features, products, or "about your business", list EVERY feature mentioned in the knowledge base above \u2014 do not pick only 2-3. Only use information from the knowledge base. If a topic is not covered, say a team member will follow up \u2014 do NOT guess or invent.`
     : '\nIf you do not know the answer, say a team member will follow up \u2014 do NOT guess or invent information.';
 
   const basePersona = agentPersona
