@@ -58,9 +58,10 @@ export async function createContact(
   payload: Omit<ContactInsert, 'workspace_id'>,
 ): Promise<ContactRow> {
   const supabase = createClient() as any;
+  const phone = payload.phone ? normalizePhone(payload.phone) : payload.phone;
   const { data, error } = await supabase
     .from('contacts')
-    .insert({ ...payload, workspace_id: workspaceId })
+    .insert({ ...payload, phone, workspace_id: workspaceId })
     .select()
     .single();
   if (error) throw error;
@@ -69,9 +70,10 @@ export async function createContact(
 
 export async function updateContact(id: string, payload: ContactUpdate): Promise<ContactRow> {
   const supabase = createClient() as any;
+  const phone = payload.phone ? normalizePhone(payload.phone) : payload.phone;
   const { data, error } = await supabase
     .from('contacts')
-    .update({ ...payload, updated_at: new Date().toISOString() })
+    .update({ ...payload, phone, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single();

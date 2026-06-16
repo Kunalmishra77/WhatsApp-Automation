@@ -325,6 +325,29 @@ async function handleIncomingMessage(
   // Track inbound message usage (non-blocking)
   void import('@/lib/usage-tracker').then(({ trackMessageIn }) => trackMessageIn(workspaceId)).catch(() => {});
 
+  // ── Campaign reply detection ─────────────────────────────────────────────────
+  // Must run before opt-out/order/form/CSAT handlers below, since those can
+  // `return` early — any inbound message should still count as a campaign reply
+  // regardless of what other feature also handles it.
+  {
+    const { data: pendingCr } = await (supabase as any)
+      .from('campaign_recipients')
+      .select('id')
+      .eq('contact_id', contactId)
+      .not('status', 'in', '("failed","replied")')
+      .order('sent_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (pendingCr) {
+      await (supabase as any)
+        .from('campaign_recipients')
+        .update({ status: 'replied', replied_at: new Date().toISOString() })
+        .eq('id', pendingCr.id);
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // ── Non-blocking language detection for contact ────────────────────────────
   if (content && content.length > 5) {
     const _contactId = contactId;
@@ -388,26 +411,6 @@ async function handleIncomingMessage(
   if (csatHandled) {
     console.log(`[Webhook] CSAT reply handled for conversation ${conversation.id}`);
     return;
-  }
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  // ── Campaign reply detection ─────────────────────────────────────────────────
-  {
-    const { data: pendingCr } = await (supabase as any)
-      .from('campaign_recipients')
-      .select('id')
-      .eq('contact_id', contactId)
-      .not('status', 'in', '("failed","replied")')
-      .order('sent_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (pendingCr) {
-      await (supabase as any)
-        .from('campaign_recipients')
-        .update({ status: 'replied', replied_at: new Date().toISOString() })
-        .eq('id', pendingCr.id);
-    }
   }
   // ─────────────────────────────────────────────────────────────────────────────
 
