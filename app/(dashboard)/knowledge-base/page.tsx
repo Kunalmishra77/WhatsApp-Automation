@@ -48,6 +48,12 @@ interface UploadQueueItem {
   error?: string;
 }
 
+interface TestReplyResult {
+  reply: string | null;
+  kbContext: string;
+  intentLabel: string | null;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function SimilarityBar({ pct }: { pct: number }) {
@@ -96,6 +102,13 @@ export default function KnowledgeBasePage() {
   const [searchQuery, setSearchQuery]   = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
   const [searching, setSearching]       = useState(false);
+
+  // Test Agent Reply (sandbox sub-mode)
+  const [sandboxMode, setSandboxMode]   = useState<'search' | 'reply'>('search');
+  const [testMessage, setTestMessage]   = useState('');
+  const [testCustomerName, setTestCustomerName] = useState('');
+  const [testing, setTesting]           = useState(false);
+  const [testResult, setTestResult]     = useState<TestReplyResult | null>(null);
 
   // Delete
   const [deleting, setDeleting]         = useState<string | null>(null);
@@ -255,6 +268,26 @@ export default function KnowledgeBasePage() {
       toast.error(err instanceof Error ? err.message : 'Search failed');
     } finally {
       setSearching(false);
+    }
+  };
+
+  const handleTestReply = async () => {
+    if (!testMessage.trim()) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/knowledge-base/test-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId, message: testMessage, customerName: testCustomerName }),
+      });
+      const data = await res.json() as TestReplyResult & { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Test reply failed');
+      setTestResult(data);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Test reply failed');
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -668,6 +701,95 @@ export default function KnowledgeBasePage() {
         {/* ══ VECTOR SANDBOX TAB ══════════════════════════════════════════ */}
         {tab === 'sandbox' && (
           <div className="space-y-5 max-w-3xl">
+            <div className="flex rounded-lg border border-border overflow-hidden w-fit">
+              {([
+                { id: 'search', label: 'Vector Search' },
+                { id: 'reply',  label: 'Test Agent Reply' },
+              ] as { id: 'search' | 'reply'; label: string }[]).map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => setSandboxMode(m.id)}
+                  className={cn(
+                    'px-3 py-1.5 text-xs font-medium transition-colors',
+                    sandboxMode === m.id
+                      ? 'bg-brand-500 text-white'
+                      : 'bg-card text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            {sandboxMode === 'reply' && (
+              <div className="space-y-5">
+                <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground mb-1">Test Agent Reply</p>
+                    <p className="text-xs text-muted-foreground">
+                      Type a sample customer message and see the exact reply the live bot would send — same retrieval and prompting code as production, nothing goes out on WhatsApp.
+                    </p>
+                  </div>
+                  <Input
+                    value={testCustomerName}
+                    onChange={(e) => setTestCustomerName(e.target.value)}
+                    placeholder="Customer name (optional)"
+                  />
+                  <div className="flex gap-2">
+                    <Textarea
+                      value={testMessage}
+                      onChange={(e) => setTestMessage(e.target.value)}
+                      placeholder="e.g. what is your return policy?"
+                      className="flex-1 min-h-[44px]"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          void handleTestReply();
+                        }
+                      }}
+                    />
+                    <Button onClick={() => void handleTestReply()} disabled={testing || !testMessage.trim()}>
+                      {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
+                      {testing ? 'Generating…' : 'Test Reply'}
+                    </Button>
+                  </div>
+                </div>
+
+                {testResult && (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-muted-foreground">Bot Reply</p>
+                        {testResult.intentLabel && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">
+                            {testResult.intentLabel}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm whitespace-pre-wrap">
+                        {testResult.reply ?? '(no reply generated — check AI provider config)'}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">Knowledge Base Context Used</p>
+                      {testResult.kbContext ? (
+                        <p className="text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap border-t border-border/50 pt-2">
+                          {testResult.kbContext}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-amber-600">
+                          No knowledge base context was retrieved for this message — the bot answered from persona/general knowledge only. If this should have matched a document, lower relevance is likely the cause.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {sandboxMode === 'search' && (
+              <>
             <div className="rounded-xl border border-border bg-card p-4">
               <p className="text-sm font-medium text-foreground mb-1">Vector KB Sandbox</p>
               <p className="text-xs text-muted-foreground mb-3">
@@ -733,6 +855,8 @@ export default function KnowledgeBasePage() {
                   </div>
                 ))}
               </div>
+            )}
+              </>
             )}
           </div>
         )}
