@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { validateApiKey, apiUnauthorized } from '@/lib/api-auth';
 import { checkApiLimit } from '@/lib/rate-limit';
+import { normalizePhone } from '@/lib/phone';
 
 // GET /api/v1/contacts?page=0&limit=50&search=&tag=
 export async function GET(request: NextRequest) {
@@ -52,12 +53,15 @@ export async function POST(request: NextRequest) {
 
   if (!body.phone?.trim()) return NextResponse.json({ error: 'phone is required' }, { status: 400 });
 
+  const phone = normalizePhone(body.phone);
+  if (!phone) return NextResponse.json({ error: 'phone is invalid' }, { status: 400 });
+
   const db = createAdminClient() as any;
   const { data, error } = await db
     .from('contacts')
     .upsert({
       workspace_id: auth.workspaceId,
-      phone: body.phone.trim(),
+      phone,
       name:  body.name?.trim() ?? null,
       email: body.email?.trim() ?? null,
       tags:  body.tags ?? [],

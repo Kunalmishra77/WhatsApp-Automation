@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
+import { normalizePhone } from '@/lib/phone';
 
 export const maxDuration = 30;
 
@@ -67,10 +68,6 @@ function mapShopifyToOrderStatus(topic: string): string {
   }
 }
 
-function sanitizePhone(phone: string): string {
-  return phone.replace(/[^\d+]/g, '');
-}
-
 // POST /api/integrations/shopify?workspaceId=
 export async function POST(request: NextRequest) {
   const workspaceId = request.nextUrl.searchParams.get('workspaceId');
@@ -111,7 +108,7 @@ export async function POST(request: NextRequest) {
     ?? (payload.shipping_address as Record<string, unknown> | null)?.phone as string | null
     ?? (payload.billing_address as Record<string, unknown> | null)?.phone as string | null;
 
-  const phone = rawPhone ? sanitizePhone(rawPhone) : null;
+  const phone = rawPhone ? normalizePhone(rawPhone) : null;
   const customerName = [customer?.first_name, customer?.last_name].filter(Boolean).join(' ') || null;
   const customerEmail = (customer?.email as string | null) ?? null;
 

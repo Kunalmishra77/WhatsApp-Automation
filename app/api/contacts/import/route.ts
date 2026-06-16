@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { normalizePhone } from '@/lib/phone';
 
 interface ContactRow {
   name?: string;
@@ -90,18 +91,4 @@ export async function POST(request: NextRequest) {
     console.error('[Import] Error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
-}
-
-function normalizePhone(raw: string): string {
-  // Strip everything except digits and leading +
-  const cleaned = raw.replace(/[^\d+]/g, '');
-  if (!cleaned) return '';
-  // If starts with +, keep as is
-  if (cleaned.startsWith('+')) return cleaned;
-  // If 10 digits (Indian), add +91
-  if (/^\d{10}$/.test(cleaned)) return `+91${cleaned}`;
-  // If starts with 91 and 12 digits total
-  if (/^91\d{10}$/.test(cleaned)) return `+${cleaned}`;
-  // Otherwise prefix +
-  return `+${cleaned}`;
 }

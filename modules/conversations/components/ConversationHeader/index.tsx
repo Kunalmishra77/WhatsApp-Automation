@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
-import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown, Bot, BotOff, Sparkles, Wand2, GitMerge, RefreshCw, FileText, Tag } from 'lucide-react';
+import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown, Bot, BotOff, Sparkles, Wand2, GitMerge, RefreshCw, FileText, Tag, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { createClient } from '@/services/supabase/client';
@@ -166,6 +166,14 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
         },
       },
     );
+  };
+
+  const handleExportConversation = () => {
+    if (!workspaceId) return;
+    const url = `/api/conversations/${conversation.id}/export?workspaceId=${workspaceId}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.click();
   };
 
   const handleSummarize = () => {
@@ -397,6 +405,9 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
             </DropdownMenuItem>
             <DropdownMenuItem className="gap-2 text-xs">
               <PhoneCall className="h-3.5 w-3.5" /> Call
+            </DropdownMenuItem>
+            <DropdownMenuItem className="gap-2 text-xs" onClick={handleExportConversation}>
+              <Download className="h-3.5 w-3.5 text-brand-500" /> Download Conversation (CSV)
             </DropdownMenuItem>
             {activeForms.length > 0 && (
               <>

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from '@/services/supabase/client';
+import { normalizePhone } from '@/lib/phone';
 import type { Database } from '@/types/database.types';
 
 export type ContactRow = Database['public']['Tables']['contacts']['Row'];
@@ -93,7 +94,11 @@ export async function bulkImportContacts(
 ): Promise<{ inserted: number; skipped: number }> {
   const supabase = createClient() as any;
 
-  const phones = rows.map((r) => r.phone);
+  const normalizedRows = rows
+    .map((r) => ({ ...r, phone: normalizePhone(r.phone) }))
+    .filter((r) => r.phone);
+
+  const phones = normalizedRows.map((r) => r.phone);
   const { data: existing } = await supabase
     .from('contacts')
     .select('phone')
@@ -101,7 +106,7 @@ export async function bulkImportContacts(
     .in('phone', phones);
   const existingPhones = new Set(((existing ?? []) as Array<{ phone: string }>).map((e) => e.phone));
 
-  const toInsert = rows
+  const toInsert = normalizedRows
     .filter((r) => !existingPhones.has(r.phone))
     .map((r) => ({ ...r, workspace_id: workspaceId, tags: r.tags ?? [] }));
 
