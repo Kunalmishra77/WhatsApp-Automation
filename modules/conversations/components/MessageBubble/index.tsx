@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { Check, CheckCheck, Clock, List, Languages, Loader2, MousePointerClick, Play, FileText, Music, X, Download } from 'lucide-react';
+import { Check, CheckCheck, Clock, List, Languages, Loader2, MousePointerClick, Play, FileText, Music, X, Download, ThumbsDown } from 'lucide-react';
 import { useState } from 'react';
 import type { MessageRow } from '../../services/message.service';
 import type { Json } from '@/types/database.types';
@@ -61,6 +61,23 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
   const [detectedLang, setDetectedLang] = useState<string | null>(null);
 
   const canTranslate = !isOutbound && !isNote && !isInteractive && !!message.content;
+
+  const isBotReply = isOutbound && message.sender_type === 'bot';
+  const [flagged, setFlagged] = useState(false);
+  const [flagging, setFlagging] = useState(false);
+
+  const handleToggleFlag = async () => {
+    setFlagging(true);
+    try {
+      const res = await fetch(`/api/messages/${message.id}/feedback`, {
+        method: flagged ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: flagged ? undefined : JSON.stringify({}),
+      });
+      if (res.ok) setFlagged((v) => !v);
+    } catch { /* silent */ }
+    setFlagging(false);
+  };
 
   const handleTranslate = async () => {
     if (translated) {
@@ -340,6 +357,23 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
             : showTranslated
               ? 'Show original'
               : 'Translate'}
+        </button>
+      )}
+
+      {/* Flag a bot reply as wrong, to review later in Knowledge Base → Flagged Replies */}
+      {isBotReply && (
+        <button
+          onClick={() => void handleToggleFlag()}
+          disabled={flagging}
+          className={cn(
+            'mt-0.5 flex items-center gap-1 text-[10px] transition-colors',
+            flagged ? 'text-destructive' : 'text-muted-foreground hover:text-destructive',
+          )}
+        >
+          {flagging
+            ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            : <ThumbsDown className="h-2.5 w-2.5" />}
+          {flagged ? 'Flagged as wrong' : 'Wrong'}
         </button>
       )}
     </div>

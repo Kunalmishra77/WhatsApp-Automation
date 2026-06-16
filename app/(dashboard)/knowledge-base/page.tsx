@@ -17,13 +17,14 @@ import {
   FileText, Trash2, Upload, Search, Database,
   Loader2, CheckCircle2, AlertCircle, Wand2,
   Sparkles, RefreshCw, Check, ChevronRight,
-  FileCheck, X, Bot,
+  FileCheck, X, Bot, ThumbsDown, ExternalLink,
 } from 'lucide-react';
 import { EmptyIllustration } from '@/components/ui/empty-illustration';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
-type Tab = 'documents' | 'sandbox' | 'ai-generate';
+type Tab = 'documents' | 'sandbox' | 'ai-generate' | 'flagged';
 
 interface VectorDoc {
   filename: string;
@@ -52,6 +53,16 @@ interface TestReplyResult {
   reply: string | null;
   kbContext: string;
   intentLabel: string | null;
+}
+
+interface FlaggedReply {
+  id: string;
+  message_id: string;
+  conversation_id: string | null;
+  note: string | null;
+  marked_bad_at: string;
+  message_content: string | null;
+  message_created_at: string | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -165,6 +176,26 @@ export default function KnowledgeBasePage() {
     enabled: !!workspaceId,
   });
   const docs = docsData?.documents ?? [];
+
+  // Flagged Replies
+  const { data: flaggedData, isLoading: flaggedLoading } = useQuery({
+    queryKey: ['flagged-replies', workspaceId],
+    queryFn: () =>
+      fetch(`/api/knowledge-base/flagged-replies?workspaceId=${workspaceId}`)
+        .then((r) => r.json() as Promise<{ flags: FlaggedReply[] }>),
+    enabled: !!workspaceId && tab === 'flagged',
+  });
+  const flaggedReplies = flaggedData?.flags ?? [];
+
+  const handleResolveFlag = async (id: string) => {
+    try {
+      const res = await fetch(`/api/knowledge-base/flagged-replies/${id}`, { method: 'PATCH' });
+      if (!res.ok) throw new Error('Failed');
+      void queryClient.invalidateQueries({ queryKey: ['flagged-replies', workspaceId] });
+    } catch {
+      toast.error('Failed to mark as reviewed');
+    }
+  };
 
   // ── Upload single file ────────────────────────────────────────────────────
   const uploadFile = async (item: UploadQueueItem): Promise<UploadQueueItem> => {
@@ -365,6 +396,7 @@ export default function KnowledgeBasePage() {
               { id: 'documents',   label: 'Documents' },
               { id: 'ai-generate', label: 'AI Generate' },
               { id: 'sandbox',     label: 'Sandbox' },
+              { id: 'flagged',     label: 'Flagged Replies' },
             ] as { id: Tab; label: string }[]).map((t) => (
               <button
                 key={t.id}
@@ -858,6 +890,60 @@ export default function KnowledgeBasePage() {
             )}
               </>
             )}
+          </div>
+        )}
+
+        {/* ══ FLAGGED REPLIES TAB ══════════════════════════════════════════ */}
+        {tab === 'flagged' && (
+          <div className="space-y-4 max-w-3xl">
+            <p className="text-xs text-muted-foreground">
+              Bot replies flagged as wrong from the conversation inbox. Review each one, fix the relevant KB entry or persona, then mark it reviewed.
+            </p>
+
+            {flaggedLoading && (
+              <div className="space-y-2">
+                <Skeleton className="h-20 w-full" />
+                <Skeleton className="h-20 w-full" />
+              </div>
+            )}
+
+            {!flaggedLoading && flaggedReplies.length === 0 && (
+              <div className="rounded-xl border border-border bg-card p-6 text-center">
+                <ThumbsDown className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm font-medium">No flagged replies</p>
+                <p className="text-xs text-muted-foreground mt-1">Nothing&apos;s been marked &quot;Wrong&quot; in the conversation inbox yet.</p>
+              </div>
+            )}
+
+            {flaggedReplies.map((flag) => (
+              <div key={flag.id} className="rounded-xl border border-border bg-card p-4 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">
+                    Flagged {new Date(flag.marked_bad_at).toLocaleString()}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {flag.conversation_id && (
+                      <Link
+                        href={`/conversations/${flag.conversation_id}`}
+                        className="flex items-center gap-1 text-[11px] text-brand-500 hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        Open conversation
+                      </Link>
+                    )}
+                    <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={() => void handleResolveFlag(flag.id)}>
+                      Mark reviewed
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-sm leading-relaxed border-t border-border/50 pt-2">
+                  {flag.message_content ?? <span className="text-muted-foreground italic">(message content unavailable)</span>}
+                </p>
+                {flag.note && (
+                  <p className="text-xs text-amber-600 italic">Note: {flag.note}</p>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>
