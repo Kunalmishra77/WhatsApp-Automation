@@ -506,24 +506,28 @@ async function handleIncomingMessage(
     return;
   }
 
-  // ── Non-blocking auto-categorization (after message saved) ─────────────────
-  const supabaseForCat = supabase;
-  const convIdForCat = conversation.id;
-  categorizeMessage(content).then(async (label) => {
-    if (!label) return;
-    const { data: conv } = await (supabaseForCat as any)
-      .from('conversations')
-      .select('labels')
-      .eq('id', convIdForCat)
-      .single();
-    const existing: string[] = conv?.labels ?? [];
-    if (!existing.includes(label)) {
-      await (supabaseForCat as any)
+  // ── Auto-categorization — awaited so the same intent label can also shape the
+  // AI reply below (billing vs sales vs complaint need different framing), not just
+  // the dashboard `conversations.labels` field it previously only fed.
+  const intentLabel = await categorizeMessage(content);
+  if (intentLabel) {
+    const supabaseForCat = supabase;
+    const convIdForCat = conversation.id;
+    (async () => {
+      const { data: conv } = await (supabaseForCat as any)
         .from('conversations')
-        .update({ labels: [...existing, label] })
-        .eq('id', convIdForCat);
-    }
-  }).catch(() => {}); // silent fail
+        .select('labels')
+        .eq('id', convIdForCat)
+        .single();
+      const existing: string[] = conv?.labels ?? [];
+      if (!existing.includes(intentLabel)) {
+        await (supabaseForCat as any)
+          .from('conversations')
+          .update({ labels: [...existing, intentLabel] })
+          .eq('id', convIdForCat);
+      }
+    })().catch(() => {}); // silent fail, non-blocking
+  }
   // ─────────────────────────────────────────────────────────────────────────────
 
   // Escalation detection — check BEFORE calling AI auto-reply
@@ -611,7 +615,7 @@ async function handleIncomingMessage(
 
     // Build rich AI prompt for media messages so AI can reply contextually
     const aiPrompt = buildAiPrompt(msg, content);
-    await sendAutoReply(supabase, waId, customerName, workspaceId, aiPrompt, conversation.id, contact.id, isEscalation, visionImageUrl);
+    await sendAutoReply(supabase, waId, customerName, workspaceId, aiPrompt, conversation.id, contact.id, isEscalation, intentLabel, visionImageUrl);
   } else {
     console.log(`[AutoReply] Rate limited for contact ${contact.id} — skipping`);
   }
@@ -695,6 +699,23 @@ async function categorizeMessage(content: string): Promise<string | null> {
   }
 }
 
+// Knowledge-base relevance threshold for the AI agent's reply context. Below this,
+// retrieved chunks are noise more often than not and confuse the model into blending
+// unrelated facts (see project-ai-agent-accuracy memory for the investigation).
+const KB_MIN_SIMILARITY = 0.45;
+
+function dedupeChunks(chunks: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of chunks) {
+    const key = c.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
+}
+
 async function fetchKnowledgeBaseContext(
   supabase: AdminClient,
   workspaceId: string,
@@ -718,12 +739,14 @@ async function fetchKnowledgeBaseContext(
           query_embedding: formattedEmbedding,
           workspace_id_param: workspaceId,
           match_count: 5,
+          min_similarity: KB_MIN_SIMILARITY,
         });
         if (vecResults?.length > 0) {
           contextParts.push(
-            (vecResults as Array<{ title: string; content: string }>)
-              .map((e) => `## ${e.title}\n${e.content}`)
-              .join('\n\n')
+            ...dedupeChunks(
+              (vecResults as Array<{ title: string; content: string }>)
+                .map((e) => `## ${e.title}\n${e.content}`)
+            )
           );
         }
 
@@ -732,14 +755,15 @@ async function fetchKnowledgeBaseContext(
           query_embedding: formattedEmbedding,
           workspace_id_param: workspaceId,
           match_count: 10,
-          min_similarity: 0.15,
+          min_similarity: KB_MIN_SIMILARITY,
         }) as Promise<{ data: Array<{ filename: string; content: string }> | null }>).catch(() => ({ data: null }));
 
         if (vecDocResults?.length) {
           contextParts.push(
-            (vecDocResults as Array<{ filename: string; content: string }>)
-              .map((r) => `[${r.filename}] ${r.content}`)
-              .join('\n\n')
+            ...dedupeChunks(
+              (vecDocResults as Array<{ filename: string; content: string }>)
+                .map((r) => `[${r.filename}] ${r.content}`)
+            )
           );
         }
 
@@ -752,7 +776,9 @@ async function fetchKnowledgeBaseContext(
     }
 
     // Direct scan of vector_documents — guarantees uploaded files are included even if
-    // embeddings are null (silent embedding failure during upload). Always runs as safety net.
+    // embeddings are null (silent embedding failure during upload). Always runs as safety
+    // net, but only for chunks that actually mention a query keyword — otherwise a workspace
+    // with many uploaded docs would dump everything into the prompt regardless of relevance.
     try {
       const { data: directDocs } = await (db
         .from('vector_documents')
@@ -760,17 +786,24 @@ async function fetchKnowledgeBaseContext(
         .eq('workspace_id', workspaceId)
         .order('filename')
         .order('chunk_index')
-        .limit(40) as Promise<{ data: Array<{ filename: string; content: string; chunk_index: number }> | null }>);
+        .limit(200) as Promise<{ data: Array<{ filename: string; content: string; chunk_index: number }> | null }>);
 
-      if (directDocs?.length) {
+      const queryWords = query.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+      const matching = (directDocs ?? []).filter((row) => {
+        if (queryWords.length === 0) return true;
+        const lower = row.content.toLowerCase();
+        return queryWords.some((w) => lower.includes(w));
+      }).slice(0, 40);
+
+      if (matching.length) {
         const byFile = new Map<string, string[]>();
-        for (const row of directDocs) {
+        for (const row of matching) {
           const arr = byFile.get(row.filename) ?? [];
           arr.push(row.content);
           byFile.set(row.filename, arr);
         }
         const directContext = Array.from(byFile.entries())
-          .map(([fn, chunks]) => `[${fn}]\n${chunks.join(' ')}`)
+          .map(([fn, chunks]) => `[${fn}]\n${dedupeChunks(chunks).join(' ')}`)
           .join('\n\n');
         return directContext;
       }
@@ -832,9 +865,13 @@ function parseButtonResponses(persona: string): Map<string, string> {
   const map = new Map<string, string>();
   for (const line of persona.split(/\r?\n/)) {
     const trimmed = line.trim();
-    if (!/^BUTTON\s+"/i.test(trimmed)) continue;
-    const labelMatch = /^BUTTON\s+"([^"]+)"/i.exec(trimmed);
-    if (!labelMatch?.[1]) continue;
+    if (!/^BUTTON\b/i.test(trimmed)) continue;
+    // Accept BUTTON "Label", BUTTON 'Label', BUTTON: "Label", and BUTTON "Label": variants
+    const labelMatch = /^BUTTON\s*:?\s*["']([^"']+)["']\s*:?/i.exec(trimmed);
+    if (!labelMatch?.[1]) {
+      console.warn('[parseButtonResponses] Unparsed BUTTON line in persona:', trimmed);
+      continue;
+    }
     const label = labelMatch[1].trim().toLowerCase();
     // Strip separator after closing quote: any arrows (\u2192 \u27a1 \u279c \u21d2 etc), dashes, colons, spaces
     const rest = trimmed.slice(labelMatch[0].length);
@@ -856,15 +893,19 @@ function detectReplyLanguage(text: string): 'english' | 'hindi' | null {
   const clean = text.replace(/\[.*?\]/g, '').trim();
   if (!clean) return null;
 
-  // Devanagari Unicode block \u2192 definitely Hindi script
+  // Devanagari Unicode block \u2192 several chars is unambiguous Hindi script
   const devanagariChars = (clean.match(/[\u0900-\u097f]/g) ?? []).length;
-  if (devanagariChars > 1) return 'hindi';
+  const latinLetters = (clean.match(/[a-zA-Z]/g) ?? []).length;
+  if (devanagariChars >= 3) return 'hindi';
 
   // English indicator: common English-only words not found in Roman Hindi
-  const hasEnglishWords = /\b(the|is|are|was|were|your|you\b|tell|about|first|what|how|when|where|why|please|thank|thanks|hello|hi\b|because|with|for\b|and\b|but\b|business|product|feature|price|demo|information|help|support|company|office|work|i am|i want|i need|can you|do you|are you|this is|that is)\b/i.test(clean);
-  const latinLetters = (clean.match(/[a-zA-Z]/g) ?? []).length;
+  const hasEnglishWords = /\b(the|is|are|was|were|your|you\b|tell|about|first|what|how|when|where|why|please|thank|thanks|hello|hi\b|because|with|for\b|and\b|but\b|business|product|feature|price|demo|information|help|support|company|office|work|i am|i want|i need|can you|do you|are you|this is|that is|okay|ok\b|yes\b|no\b|sure|sorry|good|great|nice|today|tomorrow|time\b|address|location|order|payment|pay\b|cost|charge|free\b|available|service|services|team\b|call\b|message|send\b|reply|confirm|confirmed|cancel|change|update|account|name\b|number|details|detail)\b/i.test(clean);
 
   if (latinLetters > 3 && hasEnglishWords) return 'english';
+
+  // A couple of stray Devanagari chars only acts as a tie-breaker when there isn't
+  // already substantial Latin text competing with it \u2014 not an automatic override.
+  if (devanagariChars >= 1 && latinLetters <= 3) return 'hindi';
 
   return null; // Hinglish / ambiguous \u2014 let AI decide
 }
@@ -877,6 +918,7 @@ async function getAIReply(
   wsSettings?: Record<string, unknown>,
   businessName = 'our team',
   conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+  intentLabel?: string | null,
 ): Promise<string | null> {
   const { getModel } = await import('@/lib/ai-router');
   const model = imageUrl
@@ -915,8 +957,30 @@ async function getAIReply(
       : 'CONVERSATION STAGE: Extended. Focus on resolving any remaining objection and confirming the next step. If they seem stuck, offer to connect them with a team member.';
 
   const kbSection = kbContext
-    ? `\n\nKNOWLEDGE BASE \u2014 answer from this accurately:\n${kbContext}\n\nIMPORTANT: When the customer asks about features, products, or "about your business", list EVERY feature mentioned in the knowledge base above \u2014 do not pick only 2-3. Only use information from the knowledge base. If a topic is not covered, say a team member will follow up \u2014 do NOT guess or invent.`
+    ? `\n\nKNOWLEDGE BASE \u2014 answer from this accurately:\n${kbContext}\n\nIMPORTANT: When the customer asks about features, products, or "about your business", list EVERY feature mentioned in the knowledge base above \u2014 do not pick only 2-3. Only state facts that appear verbatim or as a clear paraphrase in the knowledge base above. Do not combine or blend facts from different, unrelated sections to construct an answer \u2014 if the specific question isn't directly covered, say a team member will follow up instead of guessing. Never guess or invent.`
     : '\nIf you do not know the answer, say a team member will follow up \u2014 do NOT guess or invent information.';
+
+  // \u2500\u2500 Intent framing \u2014 same classifier that feeds conversations.labels on the
+  // dashboard, reused here so billing/complaint/sales messages get different framing
+  // instead of one generic prompt for every kind of message \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  const intentGuidance = intentLabel === 'billing'
+    ? 'INTENT: This message is about billing or payments. Stay focused on resolving that \u2014 do not pitch new products or features here.'
+    : intentLabel === 'complaint'
+    ? 'INTENT: This message is a complaint. Lead with empathy, acknowledge the issue directly, and do NOT upsell or pitch anything in this reply.'
+    : intentLabel === 'support'
+    ? 'INTENT: This is a support question. Prioritize a clear, correct answer over moving the sale forward.'
+    : intentLabel === 'spam'
+    ? ''
+    : '';
+
+  // \u2500\u2500 Lead temperature \u2014 already computed elsewhere for the CRM, reused here so a
+  // "maybe later" reply doesn't still get a pushy sales push \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  const temperature = detectLeadTemperature(customerMessage);
+  const temperatureGuidance = temperature === 'cold'
+    ? 'LEAD SIGNAL: Customer signaled low urgency or hesitation. Respect their timeline \u2014 acknowledge warmly, do NOT push for a demo or next step right now.'
+    : temperature === 'hot'
+    ? 'LEAD SIGNAL: Customer signaled strong interest. Guide them clearly toward a concrete next step (pricing, demo, or order).'
+    : '';
 
   const basePersona = agentPersona
     ? agentPersona
@@ -937,6 +1001,8 @@ RULES (follow strictly):
   \u2022 Any other button \u2192 respond directly to what that label means.
 - Never invent product names, prices, or features not in the knowledge base.
 ${conversationStage}
+${intentGuidance}
+${temperatureGuidance}
 ${kbSection}
 
 CRITICAL LANGUAGE RULE \u2014 HIGHEST PRIORITY, OVERRIDES EVERYTHING ABOVE:
@@ -1155,6 +1221,7 @@ async function sendAutoReply(
   conversationId?: string,
   contactId?: string,
   isEscalation = false,
+  intentLabel?: string | null,
   imageUrl?: string,
 ) {
   const { data: ws } = await (supabase as any)
@@ -1229,7 +1296,7 @@ async function sendAutoReply(
 
   const message = isEscalation
     ? ESCALATION_REPLY
-    : (await getAIReply(customerMessage, name, kbContext, imageUrl, wsSettings, businessName, conversationHistory)
+    : (await getAIReply(customerMessage, name, kbContext, imageUrl, wsSettings, businessName, conversationHistory, intentLabel)
       ?? `Thanks for reaching out to ${businessName}! Our team received your message and will get back to you shortly.`);
 
   try {
