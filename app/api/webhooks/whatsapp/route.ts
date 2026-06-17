@@ -251,6 +251,17 @@ async function handleIncomingMessage(
     .single();
   const contact = { id: contactId, is_vip: !!(contactFlags?.is_vip) };
 
+  // Check existing conversation status BEFORE upsert so we can reset bot_paused
+  // when a resolved conversation gets a new inbound message (customer starting fresh).
+  const { data: existingConv } = await (supabase as any)
+    .from('conversations')
+    .select('status, bot_paused')
+    .eq('workspace_id', workspaceId)
+    .eq('contact_id', contact.id)
+    .maybeSingle();
+
+  const wasResolved = existingConv?.status === 'resolved' || existingConv?.status === 'closed';
+
   const { data: conversation, error: conversationError } = await (supabase as any)
     .from('conversations')
     .upsert(
@@ -260,6 +271,9 @@ async function handleIncomingMessage(
         status: 'open',
         channel: 'whatsapp',
         last_message_at: new Date(parseInt(msg.timestamp, 10) * 1000).toISOString(),
+        // Reset bot_paused when conversation reopens after being resolved —
+        // customer is starting fresh, bot should be active again.
+        ...(wasResolved ? { bot_paused: false } : {}),
       },
       { onConflict: 'workspace_id,contact_id', ignoreDuplicates: false },
     )
@@ -458,6 +472,10 @@ async function handleIncomingMessage(
     .single();
 
   if (wsForRules?.phone_number_id && wsForRules?.access_token) {
+    // Strip BOM and whitespace from access_token — clients often copy-paste tokens
+    // from Windows apps which prepend an invisible BOM (﻿) that breaks Meta API auth.
+    const cleanToken = (wsForRules.access_token as string).replace(/﻿/g, '').trim();
+
     await applyInboxRules(
       supabase,
       workspaceId,
@@ -466,7 +484,7 @@ async function handleIncomingMessage(
       contact.id,
       isFirstMessage,
       wsForRules.phone_number_id,
-      wsForRules.access_token,
+      cleanToken,
     );
 
     // Try flow engine first — structured conversation flows take priority
@@ -477,7 +495,7 @@ async function handleIncomingMessage(
       contactId,
       content,
       wsForRules.phone_number_id,
-      wsForRules.access_token,
+      cleanToken,
       waId,
     );
 
@@ -831,7 +849,10 @@ async function sendAutoReply(
     .eq('id', workspaceId)
     .single();
 
-  if (!ws?.phone_number_id || !ws?.access_token) return;
+  if (!ws?.phone_number_id || !ws?.access_token) {
+    console.error(`[AutoReply] Skipping workspace ${workspaceId} — missing phone_number_id or access_token. Check WhatsApp settings.`);
+    return;
+  }
 
   const name = customerName !== toPhone ? (customerName.split(' ')[0] ?? customerName) : 'there';
   const businessName = (ws.name as string | undefined) ?? 'our team';

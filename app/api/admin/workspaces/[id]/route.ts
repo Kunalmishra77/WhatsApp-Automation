@@ -2,12 +2,38 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/services/supabase/server';
 import { createAdminClient } from '@/services/supabase/admin';
 
-// DELETE /api/admin/workspaces/:id — delete workspace + auth user
+async function hardDeleteWorkspace(db: any, workspaceId: string) {
+  const { data: members } = await db
+    .from('workspace_members')
+    .select('user_id')
+    .eq('workspace_id', workspaceId);
+
+  const { error: wsError } = await db.from('workspaces').delete().eq('id', workspaceId);
+  if (wsError) throw new Error('Failed to delete workspace');
+
+  if (members?.length) {
+    for (const member of members as Array<{ user_id: string }>) {
+      const { count } = await db
+        .from('workspace_members')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', member.user_id);
+      if ((count ?? 0) === 0) {
+        await db.auth.admin.deleteUser(member.user_id);
+      }
+    }
+  }
+}
+
+// DELETE /api/admin/workspaces/:id
+// ?permanent=true  → immediate hard delete (from trash)
+// default          → soft delete (move to trash, auto-purged after 7 days)
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const permanent = request.nextUrl.searchParams.get('permanent') === 'true';
+
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -18,28 +44,15 @@ export async function DELETE(
 
     const { id: workspaceId } = await params;
 
-    // Get workspace members to find auth users to delete
-    const { data: members } = await db
-      .from('workspace_members')
-      .select('user_id')
-      .eq('workspace_id', workspaceId);
-
-    // Delete workspace (cascades to members, messages, etc.)
-    const { error: wsError } = await db.from('workspaces').delete().eq('id', workspaceId);
-    if (wsError) return NextResponse.json({ error: 'Failed to delete workspace' }, { status: 500 });
-
-    // Delete auth users who only belonged to this workspace
-    if (members?.length) {
-      for (const member of members as Array<{ user_id: string }>) {
-        // Check if user has other workspaces
-        const { count } = await db
-          .from('workspace_members')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', member.user_id);
-        if ((count ?? 0) === 0) {
-          await db.auth.admin.deleteUser(member.user_id);
-        }
-      }
+    if (permanent) {
+      await hardDeleteWorkspace(db, workspaceId);
+    } else {
+      // Soft delete — move to trash
+      const { error } = await db
+        .from('workspaces')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', workspaceId);
+      if (error) return NextResponse.json({ error: 'Failed to move to trash' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
@@ -72,6 +85,7 @@ export async function PATCH(
 
     const { id } = await params;
     const body = await request.json() as {
+      restore?: boolean;
       plan?: string;
       is_active?: boolean;
       subscription_status?: string;
@@ -84,6 +98,13 @@ export async function PATCH(
       // Partial settings JSONB merge (e.g. agent_persona, app_id)
       settings?: Record<string, unknown>;
     };
+
+    // Restore from trash
+    if (body.restore) {
+      const { error } = await db.from('workspaces').update({ deleted_at: null }).eq('id', id);
+      if (error) return NextResponse.json({ error: 'Failed to restore workspace' }, { status: 500 });
+      return NextResponse.json({ success: true });
+    }
 
     const updateData: Record<string, unknown> = {};
     if (body.plan !== undefined) updateData.plan = body.plan;

@@ -26,6 +26,7 @@ interface MediaItem {
   tags?: string[];
   description?: string;
   created_at?: string;
+  last_used_at?: string | null;
 }
 
 function formatBytes(bytes: number): string {
@@ -40,18 +41,49 @@ function getFileIcon(mimeType = '') {
   return File;
 }
 
+function timeAgoShort(iso: string): string {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
 // ── Simple uploader: upload a file and copy the public link ────────────────
 function GetLinkTab({ workspaceId }: { workspaceId: string }) {
   const [uploading,  setUploading]  = useState(false);
   const [progress,   setProgress]   = useState(0);
   const [resultUrl,  setResultUrl]  = useState('');
+  const [resultName, setResultName] = useState('');
   const [dragging,   setDragging]   = useState(false);
+  const [recents,    setRecents]    = useState<MediaItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const loadRecents = async () => {
+    const res  = await fetch(`/api/media-library?workspaceId=${workspaceId}&recent=true`);
+    if (!res.ok) return;
+    const data = await res.json() as { items: MediaItem[] };
+    const withUsed = (data.items ?? []).filter((i) => i.last_used_at);
+    withUsed.sort((a, b) => new Date(b.last_used_at!).getTime() - new Date(a.last_used_at!).getTime());
+    setRecents(withUsed.slice(0, 5));
+  };
+
+  useState(() => { void loadRecents(); });
+
+  const markUsed = async (id: string) => {
+    await fetch('/api/media-library', {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ workspaceId, id, mark_used: true }),
+    });
+    void loadRecents();
+  };
 
   const uploadFile = async (file: File) => {
     setUploading(true);
     setProgress(10);
     setResultUrl('');
+    setResultName('');
     try {
       const form = new FormData();
       form.append('file', file);
@@ -59,11 +91,24 @@ function GetLinkTab({ workspaceId }: { workspaceId: string }) {
       setProgress(40);
       const res  = await fetch('/api/media/upload', { method: 'POST', body: form });
       setProgress(80);
-      const data = await res.json() as { url?: string; error?: string };
+      const data = await res.json() as { url?: string; mimeType?: string; error?: string };
       if (!res.ok || data.error) { toast.error(data.error ?? 'Upload failed'); return; }
-      setResultUrl(data.url ?? '');
+      const url = data.url ?? '';
+      setResultUrl(url);
+      setResultName(file.name);
       setProgress(100);
       toast.success('Uploaded! Link ready below.');
+      // Save to media-library and mark as recently used
+      const mediaType = data.mimeType?.startsWith('video') ? 'video' : data.mimeType?.startsWith('image') ? 'image' : 'document';
+      const saved = await fetch('/api/media-library', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ workspaceId, url, mediaType, filename: file.name, tags: [] }),
+      });
+      if (saved.ok) {
+        const savedData = await saved.json() as { item: MediaItem };
+        if (savedData.item?.id) await markUsed(savedData.item.id);
+      }
     } catch {
       toast.error('Upload failed');
     } finally {
@@ -72,11 +117,50 @@ function GetLinkTab({ workspaceId }: { workspaceId: string }) {
     }
   };
 
+  const handleCopy = async (url: string, itemId?: string) => {
+    await navigator.clipboard.writeText(url);
+    toast.success('Link copied!');
+    if (itemId) await markUsed(itemId);
+  };
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Upload any image, video or document — get a public URL instantly. No tags needed.
+        Upload any image, video or document — get a public URL instantly.
       </p>
+
+      {/* Recently used strip */}
+      {recents.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Recently Used</p>
+          <div className="grid grid-cols-1 gap-1.5">
+            {recents.map((item) => {
+              const url  = item.public_url ?? item.media_id ?? '';
+              const name = item.filename ?? item.name ?? 'media';
+              const type = item.media_type ?? '';
+              const isImg = type === 'image' || type.startsWith('image/');
+              return (
+                <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 p-2 group">
+                  {isImg && url.startsWith('http') ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={url} alt={name} className="h-8 w-8 rounded object-cover shrink-0 border border-border" />
+                  ) : (
+                    <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0">
+                      {getFileIcon(type)({ className: 'h-4 w-4 text-muted-foreground' } as any)}
+                    </div>
+                  )}
+                  <span className="text-xs truncate flex-1 font-medium">{name}</span>
+                  <span className="text-[10px] text-muted-foreground shrink-0">{timeAgoShort(item.last_used_at!)}</span>
+                  <Button size="sm" variant="outline" className="h-6 gap-1 text-[10px] shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => void handleCopy(url, item.id)}>
+                    <Copy className="h-3 w-3" /> Copy
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Drop zone */}
       <div
@@ -105,7 +189,7 @@ function GetLinkTab({ workspaceId }: { workspaceId: string }) {
       {/* Result URL */}
       {resultUrl && (
         <div className="rounded-lg border border-green-200 bg-green-50 p-3 space-y-2">
-          <p className="text-xs font-semibold text-green-800">Public Link</p>
+          <p className="text-xs font-semibold text-green-800">Public Link — {resultName}</p>
           <div className="flex items-center gap-2">
             <Input
               readOnly
@@ -116,7 +200,7 @@ function GetLinkTab({ workspaceId }: { workspaceId: string }) {
               size="sm"
               variant="outline"
               className="h-8 gap-1.5 shrink-0"
-              onClick={() => { void navigator.clipboard.writeText(resultUrl); toast.success('Link copied!'); }}
+              onClick={() => void handleCopy(resultUrl)}
             >
               <Copy className="h-3.5 w-3.5" /> Copy
             </Button>
@@ -386,7 +470,15 @@ export function MediaLibrary() {
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <Button size="icon" variant="ghost" className="h-7 w-7" title="Copy URL"
-                      onClick={() => { void navigator.clipboard.writeText(url); toast.success('URL copied!'); }}>
+                      onClick={() => {
+                        void navigator.clipboard.writeText(url);
+                        toast.success('URL copied!');
+                        void fetch('/api/media-library', {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ workspaceId, id: item.id, mark_used: true }),
+                        });
+                      }}>
                       <Copy className="h-3.5 w-3.5" />
                     </Button>
                     <Button size="icon" variant="ghost" className="h-7 w-7" asChild>

@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     const db = createAdminClient() as any;
 
     let query = db.from('media_library')
-      .select('id, filename, media_id, public_url, media_type, tags, description, created_at')
+      .select('id, filename, media_id, public_url, media_type, tags, description, created_at, last_used_at')
       .eq('workspace_id', workspaceId)
       .order('created_at', { ascending: false });
 
@@ -82,15 +82,16 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PATCH /api/media-library — update tags/description
+// PATCH /api/media-library — update tags/description or mark as recently used
 export async function PATCH(request: NextRequest) {
   try {
-    const { workspaceId, id, tags, description, filename } = await request.json() as {
+    const { workspaceId, id, tags, description, filename, mark_used } = await request.json() as {
       workspaceId?: string;
       id?: string;
       tags?: string[];
       description?: string;
       filename?: string;
+      mark_used?: boolean;
     };
     if (!workspaceId || !id) return NextResponse.json({ error: 'workspaceId and id required' }, { status: 400 });
 
@@ -101,6 +102,7 @@ export async function PATCH(request: NextRequest) {
     if (tags !== undefined) update.tags = tags.map((t) => t.toLowerCase().trim()).filter(Boolean);
     if (description !== undefined) update.description = description;
     if (filename !== undefined) update.filename = filename;
+    if (mark_used) update.last_used_at = new Date().toISOString();
 
     const { data, error } = await db.from('media_library')
       .update(update)

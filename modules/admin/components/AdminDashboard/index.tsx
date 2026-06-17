@@ -97,9 +97,15 @@ function SectionHeader({ icon: Icon, title, sub, iconBg, action, onAction }: {
 }
 
 /* ── Admin Dashboard ───────────────────────────────────────────────────────── */
+function daysLeft(deletedAt: string): number {
+  const ms = 7 * 24 * 60 * 60 * 1000 - (Date.now() - new Date(deletedAt).getTime());
+  return Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
+}
+
 export function AdminDashboard() {
   const [search,      setSearch]      = useState('');
   const [createOpen,  setCreateOpen]  = useState(false);
+  const [trashAction, setTrashAction] = useState<{ ws: WorkspaceRow; type: 'restore' | 'purge' } | null>(null);
   const handleAuthError = (status: number) => {
     if (status === 403 || status === 401) window.location.href = '/login?reason=session_expired';
   };
@@ -123,7 +129,36 @@ export function AdminDashboard() {
     },
   });
 
-  const handleRefetch = () => { void refetchWorkspaces(); void refetchStats(); };
+  const { data: trashData, refetch: refetchTrash } = useQuery<{ workspaces: WorkspaceRow[] }>({
+    queryKey: ['admin-workspaces-trash'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/workspaces?trash=true');
+      if (!res.ok) return { workspaces: [] };
+      return res.json();
+    },
+  });
+
+  const handleRefetch = () => { void refetchWorkspaces(); void refetchStats(); void refetchTrash(); };
+
+  const handleTrashConfirm = async () => {
+    if (!trashAction) return;
+    const { ws, type } = trashAction;
+    setTrashAction(null);
+    if (type === 'restore') {
+      await fetch(`/api/admin/workspaces/${ws.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restore: true }),
+      });
+      toast.success(`"${ws.name}" restored`);
+    } else {
+      await fetch(`/api/admin/workspaces/${ws.id}?permanent=true`, { method: 'DELETE' });
+      toast.success(`"${ws.name}" permanently deleted`);
+    }
+    handleRefetch();
+  };
+
+  const trashList = trashData?.workspaces ?? [];
 
   const filteredWorkspaces = (workspacesData?.workspaces ?? []).filter((w) => {
     if (!search.trim()) return true;
@@ -307,6 +342,49 @@ export function AdminDashboard() {
         </div>
       </div>
 
+      {/* ── Trash Bin ───────────────────────────────────────────────── */}
+      {trashList.length > 0 && (
+        <div className="rounded-2xl border border-red-200 bg-red-50/40 overflow-hidden shadow-[0_1px_3px_0_rgb(0_0_0/0.06)]">
+          <div className="border-b border-red-200 px-5 py-4">
+            <SectionHeader
+              icon={Trash2}
+              title="Trash Bin"
+              sub={`${trashList.length} workspace${trashList.length !== 1 ? 's' : ''} — auto-deleted after 7 days`}
+              iconBg="bg-gradient-to-br from-red-500 to-rose-600"
+            />
+          </div>
+          <div className="p-4 space-y-2">
+            {trashList.map((ws) => {
+              const days = daysLeft(ws.deleted_at!);
+              return (
+                <div key={ws.id} className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-white px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate">{ws.name}</p>
+                    <p className="text-xs text-muted-foreground">{ws.owner_email ?? ws.slug}</p>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className={cn(
+                      'text-xs font-semibold rounded-full px-2 py-0.5',
+                      days <= 1 ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-amber-50 text-amber-700 border border-amber-200',
+                    )}>
+                      {days === 0 ? 'Deletes today' : `${days}d left`}
+                    </span>
+                    <Button size="sm" variant="outline" className="h-7 text-xs"
+                      onClick={() => setTrashAction({ ws, type: 'restore' })}>
+                      Restore
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive hover:text-destructive"
+                      onClick={() => setTrashAction({ ws, type: 'purge' })}>
+                      Delete Now
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── Platform security info ───────────────────────────────────── */}
       <div className="rounded-2xl border border-border bg-card p-5 shadow-[0_1px_3px_0_rgb(0_0_0/0.06)]">
         <SectionHeader
@@ -331,6 +409,19 @@ export function AdminDashboard() {
       </div>
 
       <CreateClientModal open={createOpen} onOpenChange={setCreateOpen} onSuccess={handleRefetch} />
+
+      <ConfirmDialog
+        open={!!trashAction}
+        title={trashAction?.type === 'restore' ? `Restore "${trashAction.ws.name}"?` : `Permanently delete "${trashAction?.ws.name}"?`}
+        description={
+          trashAction?.type === 'restore'
+            ? 'This workspace and all its data will be restored and become active again.'
+            : 'This will immediately and permanently delete all workspace data. This cannot be undone.'
+        }
+        confirmLabel={trashAction?.type === 'restore' ? 'Restore' : 'Delete Forever'}
+        onConfirm={() => void handleTrashConfirm()}
+        onCancel={() => setTrashAction(null)}
+      />
 
     </div>
   );

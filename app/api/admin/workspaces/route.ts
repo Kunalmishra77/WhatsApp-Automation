@@ -12,6 +12,7 @@ export interface WorkspaceRow {
   subscription_status: string;
   owner_email: string | null;
   created_at: string;
+  deleted_at: string | null;
   messages_this_month: number;
   member_count: number;
   plan_limit_messages: number;
@@ -20,8 +21,10 @@ export interface WorkspaceRow {
   contacts_count: number;
 }
 
-export async function GET(_request: NextRequest) {
+export async function GET(request: NextRequest) {
   try {
+    const trash = request.nextUrl.searchParams.get('trash') === 'true';
+
     // 1. Get current user
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -38,12 +41,20 @@ export async function GET(_request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // 3. Fetch all workspaces (exclude internal/admin workspaces)
-    const { data: workspaces, error: wsError } = await db
+    // 3. Fetch workspaces — active list OR trash bin
+    let wsQuery = db
       .from('workspaces')
-      .select('id, name, slug, plan, plan_limits, is_active, subscription_status, owner_email, created_at, custom_domain')
+      .select('id, name, slug, plan, plan_limits, is_active, subscription_status, owner_email, created_at, deleted_at, custom_domain')
       .neq('subscription_status', 'internal')
       .order('created_at', { ascending: false });
+
+    if (trash) {
+      wsQuery = wsQuery.not('deleted_at', 'is', null);
+    } else {
+      wsQuery = wsQuery.is('deleted_at', null);
+    }
+
+    const { data: workspaces, error: wsError } = await wsQuery;
 
     if (wsError) {
       console.error('[admin/workspaces] workspaces query error:', wsError);
@@ -98,6 +109,7 @@ export async function GET(_request: NextRequest) {
         subscription_status: w.subscription_status ?? 'active',
         owner_email: w.owner_email ?? null,
         created_at: w.created_at,
+        deleted_at: w.deleted_at ?? null,
         messages_this_month: usageMap.get(w.id) ?? 0,
         member_count: memberMap.get(w.id) ?? 0,
         plan_limit_messages: limits.maxMessages,
