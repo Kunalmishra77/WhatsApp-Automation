@@ -317,7 +317,14 @@ export async function getAIReply(
     ? agentPersona
     : `You are a helpful WhatsApp customer support assistant for ${businessName}.`;
 
+  const nowIST = new Date().toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata', weekday: 'long', year: 'numeric',
+    month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true,
+  });
+
   const systemPrompt = `${basePersona}
+
+[SYSTEM: Current date and time (IST) = ${nowIST}]
 
 RULES (follow strictly):
 - Customer name: ${customerName}. Greet by name at most once — after that, continue naturally without repeating the greeting.
