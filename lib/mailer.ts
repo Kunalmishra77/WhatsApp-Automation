@@ -16,6 +16,10 @@ async function sendViaGmail(opts: MailOptions): Promise<void> {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user, pass },
+    // Fail fast — don't hang the caller for 60s if SMTP is unreachable
+    connectionTimeout: 8000,
+    greetingTimeout:   5000,
+    socketTimeout:     10000,
   });
 
   await transporter.sendMail({

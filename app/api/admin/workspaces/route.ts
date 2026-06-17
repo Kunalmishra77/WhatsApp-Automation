@@ -71,31 +71,18 @@ export async function GET(_request: NextRequest) {
       }
     }
 
-    // 5. Fetch member counts, conversations counts, and contacts counts in parallel
-    const [memberCountsResult, conversationsResult, contactsResult] = await Promise.all([
-      db.from('workspace_members').select('workspace_id').in('workspace_id', workspaceIds),
-      db.from('conversations').select('workspace_id').in('workspace_id', workspaceIds),
-      db.from('contacts').select('workspace_id').in('workspace_id', workspaceIds),
-    ]);
+    // 5. Fetch counts via a single aggregation RPC (replaces 3 full-table scans)
+    const { data: statsRows } = await db.rpc('get_workspace_stats', { workspace_ids: workspaceIds });
 
-    const memberMap = new Map<string, number>();
-    if (memberCountsResult.data) {
-      for (const m of memberCountsResult.data) {
-        memberMap.set(m.workspace_id, (memberMap.get(m.workspace_id) ?? 0) + 1);
-      }
-    }
-
+    const memberMap        = new Map<string, number>();
     const conversationsMap = new Map<string, number>();
-    if (conversationsResult.data) {
-      for (const c of conversationsResult.data) {
-        conversationsMap.set(c.workspace_id, (conversationsMap.get(c.workspace_id) ?? 0) + 1);
-      }
-    }
+    const contactsMap      = new Map<string, number>();
 
-    const contactsMap = new Map<string, number>();
-    if (contactsResult.data) {
-      for (const c of contactsResult.data) {
-        contactsMap.set(c.workspace_id, (contactsMap.get(c.workspace_id) ?? 0) + 1);
+    if (statsRows) {
+      for (const row of statsRows as Array<{ workspace_id: string; member_count: number; conversation_count: number; contact_count: number }>) {
+        memberMap.set(row.workspace_id,        Number(row.member_count));
+        conversationsMap.set(row.workspace_id, Number(row.conversation_count));
+        contactsMap.set(row.workspace_id,      Number(row.contact_count));
       }
     }
 

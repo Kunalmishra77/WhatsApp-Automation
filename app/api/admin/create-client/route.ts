@@ -143,7 +143,8 @@ export async function POST(request: NextRequest) {
       // Non-fatal
     }
 
-    // 8. Send invite email via Gmail SMTP (or Resend fallback)
+    // 8. Return credentials immediately — email is best-effort and fires in background
+    // (admin always sees password on screen; invite email is a convenience only)
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.aiagentixdev.com';
     const loginLink = `${appUrl}/login`;
     const emailHtml = `
@@ -165,16 +166,17 @@ export async function POST(request: NextRequest) {
         </div>
       </div>
     `;
-    try {
-      const { sendMail } = await import('@/lib/mailer');
-      const mailResult = await sendMail({ to: owner_email, subject: `Your Agentix account is ready — ${business_name}`, html: emailHtml });
-      if (mailResult.ok) console.log('[admin/create-client] Invite email sent to', owner_email);
-      else console.warn('[admin/create-client] Email failed:', mailResult.error);
-    } catch (emailErr) {
-      console.error('[admin/create-client] email error:', emailErr);
-    }
 
-    // Always return the password so admin can share it manually if email fails
+    // Fire-and-forget: don't await so the API returns in ~1-2s regardless of email latency
+    void import('@/lib/mailer').then(({ sendMail }) =>
+      sendMail({ to: owner_email, subject: `Your Agentix account is ready — ${business_name}`, html: emailHtml })
+        .then((r) => {
+          if (r.ok) console.log('[admin/create-client] Invite email sent to', owner_email);
+          else console.warn('[admin/create-client] Email failed:', r.error);
+        })
+        .catch((err) => console.error('[admin/create-client] email error:', err))
+    );
+
     return NextResponse.json({ success: true, workspaceId, userId: newUser.id, password, owner_email });
   } catch (err) {
     console.error('[admin/create-client] error:', err);
