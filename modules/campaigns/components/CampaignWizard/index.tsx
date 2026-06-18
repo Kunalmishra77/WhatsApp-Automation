@@ -12,9 +12,12 @@ import {
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Check, ChevronRight, Paperclip, X, Loader2 as Spin, FlaskConical,
   ImageIcon, Video, FileText, AlertTriangle, Clock, RotateCcw, Link,
+  Search, Users, Phone,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTemplates } from '@/modules/templates/hooks/useTemplates';
@@ -23,22 +26,32 @@ import { useWorkspaceStore } from '@/store/workspace.store';
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { WhatsAppPreview } from '@/modules/templates/components/WhatsAppPreview';
+import { normalizePhone } from '@/lib/phone';
 
 const STEPS = ['Name & Setup', 'Select Template', 'Audience', 'Schedule', 'Review'];
 
 interface WizardState {
-  name:           string;
-  templateId:     string;
-  templateIdB:    string;
-  abTest:         boolean;
-  audienceType:   'all' | 'tag' | 'tags';
-  audienceTag:    string;
-  audienceTags:   string;
-  scheduledAt:    string;
+  name:               string;
+  templateId:         string;
+  templateIdB:        string;
+  abTest:             boolean;
+  audienceType:       'all' | 'tag' | 'tags' | 'contacts' | 'manual';
+  audienceTag:        string;
+  audienceTags:       string;
+  selectedContactIds: string[];   // for 'contacts' mode
+  manualPhones:       string;     // for 'manual' mode — newline/comma separated
+  scheduledAt:        string;
   // Header media (for template with IMAGE/VIDEO/DOCUMENT header)
-  mediaId:        string;   // URL or WhatsApp media ID — stored in campaigns.media_id
-  mediaType:      string;   // image | video | document
-  mediaFileName:  string;   // display name for recent history
+  mediaId:            string;   // URL or WhatsApp media ID — stored in campaigns.media_id
+  mediaType:          string;   // image | video | document
+  mediaFileName:      string;   // display name for recent history
+}
+
+interface ContactPickerItem {
+  id: string;
+  name: string | null;
+  phone: string;
+  tags: string[];
 }
 
 interface MediaLibraryItem {
@@ -242,15 +255,28 @@ function MediaUrlInput({ headerType, workspaceId, value, onChange }: MediaUrlInp
   );
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function parseManualPhones(raw: string): string[] {
+  return raw
+    .split(/[\n,]+/)
+    .map((p) => normalizePhone(p.trim()))
+    .filter(Boolean);
+}
+
 // ── Main Wizard ───────────────────────────────────────────────────────────────
 
 export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const [step, setStep]  = useState(0);
   const [state, setState] = useState<WizardState>({
     name: '', templateId: '', templateIdB: '', abTest: false,
-    audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '',
+    audienceType: 'all', audienceTag: '', audienceTags: '',
+    selectedContactIds: [], manualPhones: '',
+    scheduledAt: '',
     mediaId: '', mediaType: '', mediaFileName: '',
   });
+  const [contactSearch,   setContactSearch]   = useState('');
+  const [contactList,     setContactList]     = useState<ContactPickerItem[]>([]);
+  const [contactLoading,  setContactLoading]  = useState(false);
   const mediaInputRef   = useRef<HTMLInputElement>(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
@@ -259,6 +285,20 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const create          = useCreateCampaign();
 
   const [manualMediaType, setManualMediaType] = useState<string | null>(null); // fallback if header_type is null
+
+  // Fetch contacts when user switches to 'contacts' audience mode
+  useEffect(() => {
+    if (state.audienceType !== 'contacts' || !workspaceId) return;
+    setContactLoading(true);
+    const q = new URLSearchParams({ workspaceId, page: '1', pageSize: '200' });
+    if (contactSearch.trim()) q.set('search', contactSearch.trim());
+    fetch(`/api/contacts/list?${q}`)
+      .then((r) => r.json())
+      .then((d: { data?: ContactPickerItem[] }) => setContactList(d.data ?? []))
+      .catch(() => setContactList([]))
+      .finally(() => setContactLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.audienceType, workspaceId, contactSearch]);
   const selectedTemplate  = templates.find((t) => t.id === state.templateId);
   const reqMediaType      = getMediaHeaderType(selectedTemplate) ?? (manualMediaType ?? null);
   const templateNeedsMedia = !!reqMediaType;
@@ -269,6 +309,11 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const canProceed = () => {
     if (step === 0) return state.name.trim().length > 0;
     if (step === 1 && templateNeedsMedia && !state.mediaId) return false;
+    if (step === 2) {
+      if (state.audienceType === 'contacts') return state.selectedContactIds.length > 0;
+      if (state.audienceType === 'manual')   return parseManualPhones(state.manualPhones).length > 0;
+      if (state.audienceType === 'tag')      return state.audienceTag.trim().length > 0;
+    }
     if (step === STEPS.length - 1) return !!(state.templateId || state.mediaId);
     return true;
   };
@@ -281,11 +326,12 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const handleCreate = async () => {
     setIsLaunching(true);
     try {
-      const audienceFilter = state.audienceType === 'tag'
-        ? { tag: state.audienceTag }
-        : state.audienceType === 'tags'
-          ? { tags: state.audienceTags.split(',').map((t) => t.trim()).filter(Boolean) }
-          : {};
+      const audienceFilter =
+        state.audienceType === 'tag'      ? { tag: state.audienceTag } :
+        state.audienceType === 'tags'     ? { tags: state.audienceTags.split(',').map((t) => t.trim()).filter(Boolean) } :
+        state.audienceType === 'contacts' ? { contact_ids: state.selectedContactIds } :
+        state.audienceType === 'manual'   ? { phones: parseManualPhones(state.manualPhones) } :
+        {};
       const isScheduled = !!state.scheduledAt;
 
       // datetime-local gives "YYYY-MM-DDTHH:mm" with no tz — append IST offset so
@@ -355,7 +401,9 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
 
   const resetAndClose = () => {
     setStep(0);
-    setState({ name: '', templateId: '', templateIdB: '', abTest: false, audienceType: 'all', audienceTag: '', audienceTags: '', scheduledAt: '', mediaId: '', mediaType: '', mediaFileName: '' });
+    setState({ name: '', templateId: '', templateIdB: '', abTest: false, audienceType: 'all', audienceTag: '', audienceTags: '', selectedContactIds: [], manualPhones: '', scheduledAt: '', mediaId: '', mediaType: '', mediaFileName: '' });
+    setContactSearch('');
+    setContactList([]);
     onClose();
   };
 
@@ -555,20 +603,29 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
           {step === 2 && (
             <div className="space-y-3">
               <Label>Audience Segment</Label>
-              <Select value={state.audienceType} onValueChange={(v) => setState((s) => ({ ...s, audienceType: v as WizardState['audienceType'] }))}>
+              <Select value={state.audienceType} onValueChange={(v) => {
+                setState((s) => ({ ...s, audienceType: v as WizardState['audienceType'] }));
+                setContactSearch('');
+              }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">🌍 All Contacts</SelectItem>
                   <SelectItem value="tag">🏷️ Single Tag</SelectItem>
                   <SelectItem value="tags">🏷️🏷️ Multiple Tags (OR)</SelectItem>
+                  <SelectItem value="contacts">✅ Select Specific Contacts</SelectItem>
+                  <SelectItem value="manual">📱 Enter Phone Numbers Manually</SelectItem>
                 </SelectContent>
               </Select>
+
+              {/* Single tag */}
               {state.audienceType === 'tag' && (
                 <div className="space-y-1.5">
                   <Label htmlFor="tag">Tag Name</Label>
                   <Input id="tag" value={state.audienceTag} onChange={(e) => setState((s) => ({ ...s, audienceTag: e.target.value }))} placeholder="e.g. vip" />
                 </div>
               )}
+
+              {/* Multiple tags */}
               {state.audienceType === 'tags' && (
                 <div className="space-y-1.5">
                   <Label>Tags (comma separated)</Label>
@@ -580,6 +637,123 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                       ))}
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Contact picker */}
+              {state.audienceType === 'contacts' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Select Contacts</Label>
+                    {state.selectedContactIds.length > 0 && (
+                      <span className="text-xs font-semibold text-brand-600">{state.selectedContactIds.length} selected</span>
+                    )}
+                  </div>
+                  {/* Search */}
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    <Input
+                      placeholder="Search by name or number…"
+                      value={contactSearch}
+                      onChange={(e) => setContactSearch(e.target.value)}
+                      className="pl-8 h-8 text-sm"
+                    />
+                  </div>
+                  {/* Select all / clear */}
+                  {contactList.length > 0 && (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setState((s) => ({ ...s, selectedContactIds: contactList.map((c) => c.id) }))}
+                        className="text-[11px] text-brand-600 hover:underline"
+                      >
+                        Select all {contactList.length}
+                      </button>
+                      <span className="text-muted-foreground text-[11px]">·</span>
+                      <button
+                        onClick={() => setState((s) => ({ ...s, selectedContactIds: [] }))}
+                        className="text-[11px] text-muted-foreground hover:underline"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+                  {/* Contact list */}
+                  <div className="rounded-lg border border-border max-h-56 overflow-y-auto divide-y divide-border">
+                    {contactLoading ? (
+                      <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
+                        <Spin className="h-4 w-4 animate-spin" />
+                        <span className="text-sm">Loading contacts…</span>
+                      </div>
+                    ) : contactList.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                        <Users className="h-8 w-8 mb-2 opacity-30" />
+                        <p className="text-sm">No contacts found</p>
+                      </div>
+                    ) : contactList.map((c) => {
+                      const checked = state.selectedContactIds.includes(c.id);
+                      return (
+                        <button
+                          key={c.id}
+                          onClick={() => setState((s) => ({
+                            ...s,
+                            selectedContactIds: checked
+                              ? s.selectedContactIds.filter((id) => id !== c.id)
+                              : [...s.selectedContactIds, c.id],
+                          }))}
+                          className={cn(
+                            'w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors',
+                            checked ? 'bg-brand-50' : 'hover:bg-muted/40',
+                          )}
+                        >
+                          <Checkbox checked={checked} className="pointer-events-none shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{c.name ?? 'Unknown'}</p>
+                            <p className="text-xs text-muted-foreground font-mono">{c.phone}</p>
+                          </div>
+                          {c.tags?.length > 0 && (
+                            <div className="flex gap-1 shrink-0">
+                              {c.tags.slice(0, 2).map((t) => (
+                                <span key={t} className="text-[9px] bg-muted text-muted-foreground rounded-full px-1.5 py-0.5">{t}</span>
+                              ))}
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {state.selectedContactIds.length > 0 && (
+                    <p className="text-xs text-brand-600 font-medium">
+                      ✓ {state.selectedContactIds.length} contact{state.selectedContactIds.length > 1 ? 's' : ''} selected
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Manual phone numbers */}
+              {state.audienceType === 'manual' && (
+                <div className="space-y-2">
+                  <Label>Phone Numbers</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Enter one number per line, or comma-separated. Include country code (e.g. 919876543210).
+                  </p>
+                  <Textarea
+                    value={state.manualPhones}
+                    onChange={(e) => setState((s) => ({ ...s, manualPhones: e.target.value }))}
+                    placeholder={"919876543210\n918765432109\n917654321098"}
+                    className="font-mono text-sm min-h-[120px] resize-none"
+                    rows={6}
+                  />
+                  {state.manualPhones.trim() && (() => {
+                    const phones = parseManualPhones(state.manualPhones);
+                    return phones.length > 0 ? (
+                      <div className="flex items-center gap-1.5 text-xs text-brand-600 font-medium">
+                        <Phone className="h-3.5 w-3.5" />
+                        {phones.length} valid number{phones.length > 1 ? 's' : ''} parsed
+                      </div>
+                    ) : (
+                      <p className="text-xs text-red-500">No valid numbers found — check format</p>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -622,9 +796,12 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   <Row label="Header media" value={state.mediaFileName || state.mediaId} />
                 )}
                 <Row label="Audience" value={
-                  state.audienceType === 'all' ? 'All Contacts' :
-                  state.audienceType === 'tag' ? `Tag: ${state.audienceTag}` :
-                  `Tags: ${state.audienceTags}`
+                  state.audienceType === 'all'      ? 'All Contacts' :
+                  state.audienceType === 'tag'      ? `Tag: ${state.audienceTag}` :
+                  state.audienceType === 'tags'     ? `Tags: ${state.audienceTags}` :
+                  state.audienceType === 'contacts' ? `${state.selectedContactIds.length} specific contact${state.selectedContactIds.length !== 1 ? 's' : ''}` :
+                  state.audienceType === 'manual'   ? `${parseManualPhones(state.manualPhones).length} phone number${parseManualPhones(state.manualPhones).length !== 1 ? 's' : ''}` :
+                  '—'
                 } />
                 <Row label="Schedule" value={state.scheduledAt ? new Date(state.scheduledAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) + ' IST' : 'Send immediately'} />
               </div>

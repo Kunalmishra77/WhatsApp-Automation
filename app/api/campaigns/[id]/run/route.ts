@@ -46,17 +46,23 @@ export async function POST(
     let audienceCount = 0;
     {
       const filter = (campaign.audience_filter ?? {}) as Record<string, unknown>;
-      let q = db.from('contacts').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', campaign.workspace_id)
-        .eq('opted_out', false)
-        .eq('is_blocked', false);
-      if (campaign.audience_type === 'tag' && filter.tag) {
-        q = q.contains('tags', [filter.tag]);
-      } else if (campaign.audience_type === 'tags' && Array.isArray(filter.tags)) {
-        q = q.overlaps('tags', filter.tags as string[]);
+      if (campaign.audience_type === 'contacts' && Array.isArray(filter.contact_ids)) {
+        audienceCount = (filter.contact_ids as string[]).length;
+      } else if (campaign.audience_type === 'manual' && Array.isArray(filter.phones)) {
+        audienceCount = (filter.phones as string[]).length;
+      } else {
+        let q = db.from('contacts').select('id', { count: 'exact', head: true })
+          .eq('workspace_id', campaign.workspace_id)
+          .eq('opted_out', false)
+          .eq('is_blocked', false);
+        if (campaign.audience_type === 'tag' && filter.tag) {
+          q = q.contains('tags', [filter.tag]);
+        } else if (campaign.audience_type === 'tags' && Array.isArray(filter.tags)) {
+          q = q.overlaps('tags', filter.tags as string[]);
+        }
+        const { count } = await q;
+        audienceCount = count ?? 0;
       }
-      const { count } = await q;
-      audienceCount = count ?? 0;
     }
 
     // Check campaign limit before running
