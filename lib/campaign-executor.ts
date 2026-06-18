@@ -208,8 +208,16 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
       contactQuery = contactQuery.ilike('phone', `${campaign.audience_filter.prefix}%`);
     }
 
-    const { data: contacts } = await contactQuery as { data: Contact[] | null };
-    recipients = contacts ?? [];
+    // Paginate: PostgREST returns max 1000 rows by default — loop until all fetched
+    const CONTACT_PAGE = 1000;
+    let pageOffset = 0;
+    while (true) {
+      const { data: page } = await contactQuery.range(pageOffset, pageOffset + CONTACT_PAGE - 1) as { data: Contact[] | null };
+      if (!page || page.length === 0) break;
+      recipients.push(...page);
+      if (page.length < CONTACT_PAGE) break;
+      pageOffset += CONTACT_PAGE;
+    }
   }
 
   if (recipients.length === 0) {
