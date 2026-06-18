@@ -84,7 +84,7 @@ export async function POST(
       return NextResponse.json({ success: true, mode: 'sync', ...result });
     }
 
-    // Large campaigns: enqueue for async processing
+    // Large campaigns: fire immediately in background (no 5-min cron wait)
     const { data: existing } = await db
       .from('campaign_queue')
       .select('id, status')
@@ -96,23 +96,53 @@ export async function POST(
       return NextResponse.json({ error: 'Campaign already queued' }, { status: 409 });
     }
 
-    await db.from('campaign_queue').insert({
+    // Insert as 'processing' immediately so cron doesn't double-run it
+    const { data: queueEntry } = await db.from('campaign_queue').insert({
       workspace_id: campaign.workspace_id,
       campaign_id:  campaignId,
       total:        audienceCount,
-      status:       'pending',
-    });
+      status:       'processing',
+      started_at:   new Date().toISOString(),
+    }).select('id').single();
+
+    // Mark campaign as running so UI updates immediately
+    await db.from('campaigns').update({ status: 'running' }).eq('id', campaignId);
+
     void import('@/lib/usage-tracker').then(({ trackCampaignRun }) => trackCampaignRun(campaign.workspace_id)).catch(() => {});
 
-    // Mark campaign as running
-    await db.from('campaigns').update({ status: 'running' }).eq('id', campaignId);
+    // Fire executor in background — response returns immediately, no 5-min wait
+    // On self-hosted Coolify (always-on Node.js), the event loop completes this after response
+    // Cron still runs every 5 min as safety net for any stuck jobs
+    void (async () => {
+      try {
+        const { executeCampaign } = await import('@/lib/campaign-executor');
+        const result = await executeCampaign(campaignId);
+        if (queueEntry?.id) {
+          await db.from('campaign_queue').update({
+            status:       'completed',
+            sent:         result.sent,
+            failed:       result.failed,
+            progress:     audienceCount,
+            completed_at: new Date().toISOString(),
+          }).eq('id', queueEntry.id);
+        }
+      } catch (err) {
+        console.error('[Campaign Background]', err);
+        if (queueEntry?.id) {
+          await db.from('campaign_queue').update({
+            status:        'failed',
+            error_message: String(err),
+          }).eq('id', queueEntry.id);
+        }
+        await db.from('campaigns').update({ status: 'failed' }).eq('id', campaignId);
+      }
+    })();
 
     return NextResponse.json({
       success: true,
       mode: 'async',
-      queued: true,
       total: audienceCount,
-      message: `Campaign queued for ${audienceCount} contacts. Processing will start within the hour.`,
+      message: `Campaign started for ${audienceCount} contacts.`,
     });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);

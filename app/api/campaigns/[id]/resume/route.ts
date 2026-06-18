@@ -33,15 +33,41 @@ export async function POST(
       .update({ status: 'running' })
       .eq('id', campaignId);
 
-    // Re-enqueue
-    await db.from('campaign_queue').insert({
+    // Insert as 'processing' immediately so cron doesn't double-run it
+    const { data: queueEntry } = await db.from('campaign_queue').insert({
       workspace_id: campaign.workspace_id,
       campaign_id:  campaignId,
-      status:       'pending',
+      status:       'processing',
+      started_at:   new Date().toISOString(),
       total:        0,
-    });
+    }).select('id').single();
 
-    return NextResponse.json({ ok: true, message: 'Campaign re-queued. Processing will start within 5 minutes.' });
+    // Fire executor immediately in background
+    void (async () => {
+      try {
+        const { executeCampaign } = await import('@/lib/campaign-executor');
+        const result = await executeCampaign(campaignId);
+        if (queueEntry?.id) {
+          await db.from('campaign_queue').update({
+            status:       'completed',
+            sent:         result.sent,
+            failed:       result.failed,
+            completed_at: new Date().toISOString(),
+          }).eq('id', queueEntry.id);
+        }
+      } catch (err) {
+        console.error('[Campaign Resume Background]', err);
+        if (queueEntry?.id) {
+          await db.from('campaign_queue').update({
+            status:        'failed',
+            error_message: String(err),
+          }).eq('id', queueEntry.id);
+        }
+        await db.from('campaigns').update({ status: 'failed' }).eq('id', campaignId);
+      }
+    })();
+
+    return NextResponse.json({ ok: true, message: 'Campaign started. Processing in background.' });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);
     console.error('[Campaign Resume]', error);
