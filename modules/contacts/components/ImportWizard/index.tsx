@@ -32,7 +32,7 @@ function fileTypeLabel(name: string): string {
 export function ImportWizard({ open, onClose }: ImportWizardProps) {
   const [step, setStep]       = useState<ImportStep>('upload');
   const [rows, setRows]       = useState<ParsedRow[]>([]);
-  const [result, setResult]   = useState<{ inserted: number; skipped: number } | null>(null);
+  const [result, setResult]   = useState<{ inserted: number; skipped: number; failed: number; lastError?: string } | null>(null);
   const [error, setError]     = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [fileName, setFileName] = useState('');
@@ -97,7 +97,7 @@ export function ImportWizard({ open, onClose }: ImportWizardProps) {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ workspaceId, contacts: rows }),
       });
-      const data = await res.json() as { inserted?: number; failed?: number; error?: string; code?: string };
+      const data = await res.json() as { inserted?: number; skipped?: number; failed?: number; lastError?: string; error?: string; code?: string };
       if (!res.ok) {
         if (data.code === 'PLAN_LIMIT_EXCEEDED') {
           setError(data.error ?? 'Contact limit reached on your current plan.');
@@ -108,10 +108,17 @@ export function ImportWizard({ open, onClose }: ImportWizardProps) {
         return;
       }
       setProgress(100);
-      setResult({ inserted: data.inserted ?? 0, skipped: rows.length - (data.inserted ?? 0) - (data.failed ?? 0) });
+      const insertedCount = data.inserted ?? 0;
+      const skippedCount  = data.skipped ?? (rows.length - insertedCount - (data.failed ?? 0));
+      const failedCount   = data.failed ?? 0;
+      setResult({ inserted: insertedCount, skipped: skippedCount, failed: failedCount, lastError: data.lastError });
       setStep('done');
       void queryClient.invalidateQueries({ queryKey: ['contacts', workspaceId] });
-      toast.success(`✅ Imported ${data.inserted ?? 0} contacts`);
+      if (failedCount > 0 && insertedCount === 0) {
+        toast.error(`Import error — ${failedCount} contacts failed. Check logs.`);
+      } else {
+        toast.success(`✅ Imported ${insertedCount} contacts`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed — please try again.');
       setStep('preview');
@@ -237,12 +244,23 @@ export function ImportWizard({ open, onClose }: ImportWizardProps) {
         {/* DONE */}
         {step === 'done' && result && (
           <div className="py-6 text-center space-y-3">
-            <CheckCircle2 className="h-10 w-10 text-green-500 mx-auto" />
-            <p className="text-lg font-semibold">Import Complete!</p>
+            {result.failed > 0 && result.inserted === 0
+              ? <AlertCircle className="h-10 w-10 text-red-500 mx-auto" />
+              : <CheckCircle2 className="h-10 w-10 text-green-500 mx-auto" />
+            }
+            <p className="text-lg font-semibold">
+              {result.failed > 0 && result.inserted === 0 ? 'Import Failed' : 'Import Complete!'}
+            </p>
             <div className="flex justify-center gap-6 text-sm">
               <div><p className="text-2xl font-bold text-green-600">{result.inserted}</p><p className="text-muted-foreground">Added</p></div>
-              <div><p className="text-2xl font-bold text-muted-foreground">{result.skipped}</p><p className="text-muted-foreground">Skipped (duplicates)</p></div>
+              <div><p className="text-2xl font-bold text-muted-foreground">{result.skipped}</p><p className="text-muted-foreground">Skipped</p></div>
+              {result.failed > 0 && (
+                <div><p className="text-2xl font-bold text-red-500">{result.failed}</p><p className="text-muted-foreground">Failed</p></div>
+              )}
             </div>
+            {result.lastError && (
+              <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1 mx-4">Error: {result.lastError}</p>
+            )}
             <Button onClick={handleClose}>Done</Button>
           </div>
         )}
@@ -256,15 +274,34 @@ export function ImportWizard({ open, onClose }: ImportWizardProps) {
 async function parseCSV(file: File): Promise<ParsedRow[]> {
   const Papa = (await import('papaparse')).default;
   return new Promise((resolve, reject) => {
-    Papa.parse<Record<string, string>>(file, {
+    Papa.parse<Record<string, unknown>>(file, {
       header: true,
       skipEmptyLines: true,
+      transformHeader: (h) => h.replace(/^﻿/, '').trim(), // strip BOM from headers
       complete: (results) => {
+        // Case-insensitive column lookup
+        const colOf = (row: Record<string, unknown>, ...keys: string[]) => {
+          const rowKeys = Object.keys(row);
+          for (const k of keys) {
+            // exact match first
+            if (k in row) return String(row[k] ?? '').trim();
+            // case-insensitive fallback
+            const found = rowKeys.find((rk) => rk.toLowerCase() === k.toLowerCase());
+            if (found) return String(row[found] ?? '').trim();
+          }
+          // last resort: any column whose name includes any key word
+          for (const k of keys) {
+            const found = rowKeys.find((rk) => rk.toLowerCase().includes(k.toLowerCase()));
+            if (found) return String(row[found] ?? '').trim();
+          }
+          return '';
+        };
+
         const parsed = results.data.map((row) => ({
-          phone:   (row['phone'] ?? row['Phone'] ?? row['PHONE'] ?? row['mobile'] ?? row['Mobile'] ?? row['number'] ?? '').trim(),
-          name:    (row['name'] ?? row['Name'] ?? row['full_name'] ?? row['Full Name'] ?? '').trim() || undefined,
-          email:   (row['email'] ?? row['Email'] ?? '').trim() || undefined,
-          company: (row['company'] ?? row['Company'] ?? row['organization'] ?? '').trim() || undefined,
+          phone:   colOf(row, 'phone', 'mobile', 'number', 'whatsapp', 'contact', 'tel', 'cell'),
+          name:    colOf(row, 'name', 'full_name', 'fullname', 'full name', 'customer') || undefined,
+          email:   colOf(row, 'email', 'e-mail', 'mail') || undefined,
+          company: colOf(row, 'company', 'organization', 'org', 'business') || undefined,
         })).filter((r) => r.phone.length > 5);
         resolve(parsed);
       },

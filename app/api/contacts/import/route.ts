@@ -38,17 +38,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Normalize phone numbers — strip non-digits, add country code if needed
+    // Use String() to handle cases where phone arrives as a number (large numbers in CSV/JSON)
     const rows = contacts
-      .filter((c) => c.phone?.trim())
+      .filter((c) => String(c.phone ?? '').trim())
       .map((c) => ({
         workspace_id: workspaceId,
-        phone:  normalizePhone(c.phone),
-        name:   c.name?.trim() || null,
-        email:  c.email?.trim() || null,
+        phone:  normalizePhone(String(c.phone ?? '').trim()),
+        name:   c.name ? String(c.name).trim() || null : null,
+        email:  c.email ? String(c.email).trim() || null : null,
         tags:   Array.isArray(c.tags) ? c.tags.filter(Boolean) : [],
-        notes:  c.notes?.trim() || null,
+        notes:  c.notes ? String(c.notes).trim() || null : null,
       }))
-      .filter((r) => r.phone);
+      .filter((r) => r.phone.length >= 7);
 
     if (rows.length === 0) {
       return NextResponse.json({ error: 'No valid contacts to import' }, { status: 400 });
@@ -56,22 +57,24 @@ export async function POST(request: NextRequest) {
 
     const db = createAdminClient() as any;
 
-    // Upsert in batches of 500 (Supabase supports up to 1000 per upsert)
-    const BATCH = 500;
+    // Use ignoreDuplicates: true — skip existing contacts (preserves their name/email/tags)
+    // Only newly inserted rows are returned by .select()
+    const BATCH = 250;
     let inserted = 0;
-    let updated = 0;
     let failed = 0;
+    let lastError = '';
 
     for (let i = 0; i < rows.length; i += BATCH) {
       const batch = rows.slice(i, i + BATCH);
       const { data, error } = await db
         .from('contacts')
-        .upsert(batch, { onConflict: 'workspace_id,phone', ignoreDuplicates: false })
+        .upsert(batch, { onConflict: 'workspace_id,phone', ignoreDuplicates: true })
         .select('id');
 
       if (error) {
-        console.error('[Import] Batch error:', error.message);
+        console.error('[Import] Batch error:', error.message, JSON.stringify(error));
         failed += batch.length;
+        lastError = error.message;
       } else {
         const batchInserted = data?.length ?? 0;
         inserted += batchInserted;
@@ -81,10 +84,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const skipped = rows.length - inserted - failed;
+
     return NextResponse.json({
       total: rows.length,
       inserted,
+      skipped,
       failed,
+      ...(lastError ? { lastError } : {}),
     });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);
