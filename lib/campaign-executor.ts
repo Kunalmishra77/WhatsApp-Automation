@@ -143,7 +143,6 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
   if (campError || !campaign) throw new Error(`Campaign ${campaignId} not found`);
 
-  if (campaign.status === 'running')   return { campaignId, total: 0, sent: 0, failed: 0, skipped: 'already running' };
   if (campaign.status === 'completed') return { campaignId, total: 0, sent: 0, failed: 0, skipped: 'already completed' };
 
   const template = campaign.templates as (Template & { header_type?: string; header_content?: string }) | null;
