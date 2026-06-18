@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   const { data: campaign } = await db
     .from('campaigns')
     .select('id, name, status, sent_count, failed_count, total_recipients')
-    .ilike('name', name)
+    .ilike('name', `%${name}%`)
     .order('created_at', { ascending: false })
     .limit(1)
     .single();
