@@ -167,15 +167,19 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   let recipients: Contact[] = [];
 
   if (campaign.audience_type === 'contacts' && Array.isArray(campaign.audience_filter?.contact_ids) && campaign.audience_filter.contact_ids.length > 0) {
-    // Specific contacts selected by ID
-    const { data } = await db
-      .from('contacts')
-      .select('id, phone, name, tags')
-      .eq('workspace_id', campaign.workspace_id)
-      .eq('is_blocked', false)
-      .eq('opted_out', false)
-      .in('id', campaign.audience_filter.contact_ids as string[]) as { data: Contact[] | null };
-    recipients = data ?? [];
+    // Specific contacts — batch the .in() queries to avoid URL length limit (PostgREST GET max ~8KB)
+    const allIds = campaign.audience_filter.contact_ids as string[];
+    const ID_BATCH = 400;
+    for (let b = 0; b < allIds.length; b += ID_BATCH) {
+      const { data } = await db
+        .from('contacts')
+        .select('id, phone, name, tags')
+        .eq('workspace_id', campaign.workspace_id)
+        .eq('is_blocked', false)
+        .eq('opted_out', false)
+        .in('id', allIds.slice(b, b + ID_BATCH)) as { data: Contact[] | null };
+      recipients.push(...(data ?? []));
+    }
   } else if (campaign.audience_type === 'manual' && Array.isArray(campaign.audience_filter?.phones) && campaign.audience_filter.phones.length > 0) {
     // Manually entered phone numbers — look up in contacts first, fall back to bare phone
     const rawPhones = (campaign.audience_filter.phones as string[]).map(sanitizePhone).filter(Boolean);
@@ -214,6 +218,28 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
       status: 'completed', completed_at: new Date().toISOString(),
     }).eq('id', campaignId);
     return { campaignId, total: 0, sent: 0, failed: 0, skipped: 'no contacts' };
+  }
+
+  // Dedup protection: skip contacts already sent to in a previous (interrupted) run
+  // Prevents double-charging if a cron times out mid-campaign and retries
+  const { data: alreadySentRows } = await db
+    .from('campaign_recipients')
+    .select('phone')
+    .eq('campaign_id', campaignId)
+    .in('status', ['sent', 'delivered', 'read', 'replied']) as { data: Array<{ phone: string }> | null };
+
+  if (alreadySentRows && alreadySentRows.length > 0) {
+    const sentPhones = new Set(alreadySentRows.map((r) => r.phone));
+    const before = recipients.length;
+    recipients = recipients.filter((c) => !sentPhones.has(c.phone));
+    console.log(`[Campaign ${campaignId}] Dedup: skipping ${before - recipients.length} already-sent contacts`);
+  }
+
+  if (recipients.length === 0) {
+    await db.from('campaigns').update({
+      status: 'completed', completed_at: new Date().toISOString(),
+    }).eq('id', campaignId);
+    return { campaignId, total: 0, sent: 0, failed: 0, skipped: 'all already sent' };
   }
 
   await db.from('campaigns').update({
@@ -276,10 +302,12 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
       const { contact, result } = settled.value;
       if (result.success) {
         sentCount++;
+        // contact.id may be a fake 'manual-<phone>' for manual-entry contacts — store null FK
+        const realContactId = contact.id && !contact.id.startsWith('manual-') ? contact.id : null;
         pendingRecipients.push({
           campaign_id:     campaignId,
           workspace_id:    campaign.workspace_id,
-          contact_id:      contact.id,
+          contact_id:      realContactId,
           phone:           contact.phone,
           name:            contact.name ?? null,
           status:          'sent',
@@ -289,10 +317,11 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
       } else {
         failedCount++;
         console.error(`[Campaign ${campaignId}] Failed → ${contact.phone}:`, result.error);
+        const realContactIdF = contact.id && !contact.id.startsWith('manual-') ? contact.id : null;
         pendingRecipients.push({
           campaign_id:   campaignId,
           workspace_id:  campaign.workspace_id,
-          contact_id:    contact.id,
+          contact_id:    realContactIdF,
           phone:         contact.phone,
           name:          contact.name ?? null,
           status:        'failed',
