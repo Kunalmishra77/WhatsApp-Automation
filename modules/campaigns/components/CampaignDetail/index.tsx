@@ -53,7 +53,7 @@ interface Recipient {
 }
 interface Stats { total: number; sent: number; delivered: number; read: number; failed: number; replied: number; }
 interface Campaign {
-  id: string; name: string; status: string; audience_type: string; audience_filter: string | null;
+  id: string; name: string; status: string; audience_type: string; audience_filter: Record<string, unknown> | null;
   total_recipients: number; sent_count: number; failed_count: number; delivered_count: number; read_count: number;
   scheduled_at: string | null; started_at: string | null; completed_at: string | null; created_at: string;
   media_id: string | null; media_type: string | null;
@@ -261,10 +261,13 @@ function OverviewTab({ campaign, stats, daily, loading }: {
   const tpl    = campaign.templates;
   const mType  = campaign.media_type;
 
+  const af = campaign.audience_filter;
   const audienceLabel = campaign.audience_type === 'all' ? 'All Contacts'
-    : campaign.audience_type === 'tag' ? `Tag: ${campaign.audience_filter ?? ''}`
-    : campaign.audience_type === 'tags' ? `Tags: ${campaign.audience_filter ?? ''}`
-    : campaign.audience_filter ?? campaign.audience_type;
+    : campaign.audience_type === 'tag'      ? `Tag: ${af?.tag ?? ''}`
+    : campaign.audience_type === 'tags'     ? `Tags: ${(af?.tags as string[] | undefined)?.join(', ') ?? ''}`
+    : campaign.audience_type === 'contacts' ? `${(af?.contact_ids as unknown[] | undefined)?.length ?? 0} specific contacts`
+    : campaign.audience_type === 'manual'   ? `${(af?.phones as unknown[] | undefined)?.length ?? 0} phone numbers`
+    : campaign.audience_type;
 
   const mediaIcon = mType === 'image' ? Image : mType === 'video' ? Video : FileText;
   const MediaIcon = mediaIcon;
