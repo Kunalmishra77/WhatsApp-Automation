@@ -229,14 +229,25 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
   // Dedup protection: skip contacts already sent to in a previous (interrupted) run
   // Prevents double-charging if a cron times out mid-campaign and retries
-  const { data: alreadySentRows } = await db
-    .from('campaign_recipients')
-    .select('phone')
-    .eq('campaign_id', campaignId)
-    .in('status', ['sent', 'delivered', 'read', 'replied']) as { data: Array<{ phone: string }> | null };
-
-  if (alreadySentRows && alreadySentRows.length > 0) {
-    const sentPhones = new Set(alreadySentRows.map((r) => r.phone));
+  // Paginate to bypass Supabase's 1000-row default SELECT limit
+  const sentPhones = new Set<string>();
+  {
+    let dedupOffset = 0;
+    const DEDUP_PAGE = 1000;
+    while (true) {
+      const { data: page } = await db
+        .from('campaign_recipients')
+        .select('phone')
+        .eq('campaign_id', campaignId)
+        .in('status', ['sent', 'delivered', 'read', 'replied'])
+        .range(dedupOffset, dedupOffset + DEDUP_PAGE - 1) as { data: Array<{ phone: string }> | null };
+      if (!page || page.length === 0) break;
+      page.forEach((r) => sentPhones.add(r.phone));
+      if (page.length < DEDUP_PAGE) break;
+      dedupOffset += DEDUP_PAGE;
+    }
+  }
+  if (sentPhones.size > 0) {
     const before = recipients.length;
     recipients = recipients.filter((c) => !sentPhones.has(c.phone));
     console.log(`[Campaign ${campaignId}] Dedup: skipping ${before - recipients.length} already-sent contacts`);
@@ -270,11 +281,27 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   const flushRecipients = async () => {
     if (pendingRecipients.length === 0) return;
     const rows = pendingRecipients.splice(0, pendingRecipients.length);
-    const { error: insertErr } = await db.from('campaign_recipients').insert(rows);
-    if (insertErr) {
-      // Throw so the error appears in the cron job response for debugging
-      throw new Error(`campaign_recipients insert failed: ${insertErr.message} | code:${insertErr.code} | hint:${insertErr.hint}`);
+
+    // Try batch insert first
+    const { error: batchErr } = await db.from('campaign_recipients').insert(rows);
+
+    if (batchErr) {
+      // Batch failed — fall back to one-by-one so bad rows don't block good ones
+      console.error(`[Campaign] Batch insert failed (${batchErr.code}): ${batchErr.message}. Retrying row-by-row.`);
+      let rowErrors = 0;
+      for (const row of rows) {
+        const { error: rowErr } = await db.from('campaign_recipients').insert(row);
+        if (rowErr) {
+          console.error(`[Campaign] Row insert failed for phone ${row.phone}: ${rowErr.message}`);
+          rowErrors++;
+        }
+      }
+      if (rowErrors === rows.length) {
+        // Every single row failed — surface the original batch error so cron response shows it
+        throw new Error(`campaign_recipients insert failed (all ${rows.length} rows): ${batchErr.message} | code:${batchErr.code} | hint:${batchErr.hint}`);
+      }
     }
+
     await db.from('campaigns').update({ sent_count: sentCount, failed_count: failedCount }).eq('id', campaignId);
   };
 
