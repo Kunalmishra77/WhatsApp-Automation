@@ -33,6 +33,16 @@ export default async function proxy(request: NextRequest): Promise<NextResponse>
     return NextResponse.next();
   }
 
+  // Admin endpoints: allow if CRON_SECRET provided as query param
+  if (pathname.startsWith('/api/admin')) {
+    const url = new URL(request.url);
+    const secret = url.searchParams.get('secret') ?? '';
+    if (process.env.CRON_SECRET && secret === process.env.CRON_SECRET) {
+      return NextResponse.next();
+    }
+    // Fall through to normal auth check
+  }
+
   if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
     return NextResponse.next();
   }
