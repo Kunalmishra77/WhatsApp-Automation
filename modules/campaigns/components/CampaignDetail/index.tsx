@@ -480,11 +480,12 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
   const [repliedWithin,   setRepliedWithin]   = useState('');
   const [replyFilter,     setReplyFilter]     = useState('');
   const [cancelling,      setCancelling]      = useState(false);
+  const [resuming,        setResuming]        = useState(false);
 
   const switchTab = useCallback((t: TabKey) => { setTab(t); setPage(1); setSearch(''); }, []);
 
   const handleCancel = useCallback(async () => {
-    if (!confirm('Cancel this campaign? Its status will be set to failed.')) return;
+    if (!confirm('Cancel this campaign? Its status will be set to failed.\n\nWARNING: If you cancel and create a new campaign for the same contacts, those contacts will be messaged again (double-charge). Use "Resume" instead to continue from where it left off.')) return;
     setCancelling(true);
     try {
       const res = await fetch(`/api/campaigns/${campaignId}/cancel`, { method: 'POST' });
@@ -493,6 +494,18 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
       router.refresh();
     } catch { toast.error('Cancel failed'); }
     finally { setCancelling(false); }
+  }, [campaignId, router]);
+
+  const handleResume = useCallback(async () => {
+    if (!confirm('Resume this campaign? It will continue from where it left off — contacts already messaged will be skipped automatically.')) return;
+    setResuming(true);
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/resume`, { method: 'POST' });
+      if (!res.ok) { const d = await res.json(); toast.error(d.error ?? 'Resume failed'); return; }
+      toast.success('Campaign re-queued — will resume within 5 minutes');
+      router.refresh();
+    } catch { toast.error('Resume failed'); }
+    finally { setResuming(false); }
   }, [campaignId, router]);
 
   // Main recipients + stats query
@@ -554,7 +567,16 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
             {campaign.status}
           </span>
         )}
-        {/* Cancel button — only for stuck running/scheduled campaigns */}
+        {/* Resume button — for stuck running/failed campaigns (continues from where left off, no double-sends) */}
+        {campaign && (campaign.status === 'running' || campaign.status === 'failed') && (
+          <Button size="sm" variant="outline"
+            className="h-7 gap-1.5 text-xs shrink-0 border-green-200 text-green-700 hover:bg-green-50"
+            onClick={handleResume} disabled={resuming}>
+            <Zap className="h-3.5 w-3.5" />
+            {resuming ? 'Resuming…' : 'Resume Campaign'}
+          </Button>
+        )}
+        {/* Cancel button — only for running/scheduled campaigns */}
         {campaign && (campaign.status === 'running' || campaign.status === 'scheduled') && (
           <Button size="sm" variant="outline"
             className="h-7 gap-1.5 text-xs shrink-0 border-red-200 text-red-600 hover:bg-red-50"

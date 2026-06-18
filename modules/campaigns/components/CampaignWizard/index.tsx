@@ -17,7 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Check, ChevronRight, Paperclip, X, Loader2 as Spin, FlaskConical,
   ImageIcon, Video, FileText, AlertTriangle, Clock, RotateCcw, Link,
-  Search, Users, Phone,
+  Search, Users, Phone, Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTemplates } from '@/modules/templates/hooks/useTemplates';
@@ -263,6 +263,41 @@ function parseManualPhones(raw: string): string[] {
     .filter(Boolean);
 }
 
+function parseCsvForPhones(text: string): string[] {
+  const lines = text.split('\n');
+  if (lines.length === 0) return [];
+  // BOM-safe header
+  const headerLine = (lines[0] ?? '').replace(/^﻿/, '').trim();
+  const headers = headerLine.split(',').map((h) => h.replace(/"/g, '').trim());
+  // Find phone column (case-insensitive, fuzzy)
+  const phoneKeywords = ['phone', 'mobile', 'number', 'whatsapp', 'contact', 'tel', 'cell'];
+  let phoneIdx = -1;
+  for (const kw of phoneKeywords) {
+    const idx = headers.findIndex((h) => h.toLowerCase() === kw);
+    if (idx >= 0) { phoneIdx = idx; break; }
+  }
+  if (phoneIdx < 0) {
+    // fallback: any header containing a keyword
+    for (const kw of phoneKeywords) {
+      const idx = headers.findIndex((h) => h.toLowerCase().includes(kw));
+      if (idx >= 0) { phoneIdx = idx; break; }
+    }
+  }
+  if (phoneIdx < 0) {
+    // Last resort: treat first column as phone
+    phoneIdx = 0;
+  }
+  const phones: string[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = (lines[i] ?? '').split(',');
+    const raw = (cols[phoneIdx] ?? '').replace(/"/g, '').trim();
+    if (!raw) continue;
+    const normalized = normalizePhone(raw);
+    if (normalized.length >= 7) phones.push(normalized);
+  }
+  return phones;
+}
+
 // ── Main Wizard ───────────────────────────────────────────────────────────────
 
 export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
@@ -278,6 +313,8 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const [contactList,     setContactList]     = useState<ContactPickerItem[]>([]);
   const [contactLoading,  setContactLoading]  = useState(false);
   const mediaInputRef   = useRef<HTMLInputElement>(null);
+  const csvImportRef    = useRef<HTMLInputElement>(null);
+  const [csvImporting,  setCsvImporting]  = useState(false);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
   const [testPhone,   setTestPhone]   = useState('');
@@ -287,6 +324,42 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const create          = useCreateCampaign();
 
   const [manualMediaType, setManualMediaType] = useState<string | null>(null); // fallback if header_type is null
+
+  // CSV import handler for Manual audience type
+  const handleCsvImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCsvImporting(true);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const text = ev.target?.result as string;
+        const phones = parseCsvForPhones(text);
+        if (phones.length === 0) {
+          toast.error('No phone numbers found in CSV. Make sure column is named "Phone", "Mobile", or similar.');
+        } else {
+          setState((s) => ({
+            ...s,
+            audienceType: 'manual',
+            manualPhones: [
+              ...new Set([
+                ...parseManualPhones(s.manualPhones),
+                ...phones,
+              ]),
+            ].join('\n'),
+          }));
+          toast.success(`${phones.length} numbers imported from CSV`);
+        }
+      } catch {
+        toast.error('Failed to parse CSV');
+      } finally {
+        setCsvImporting(false);
+        if (csvImportRef.current) csvImportRef.current.value = '';
+      }
+    };
+    reader.onerror = () => { toast.error('Failed to read file'); setCsvImporting(false); };
+    reader.readAsText(file);
+  };
 
   // Fetch contacts when user switches to 'contacts' audience mode
   useEffect(() => {
@@ -762,9 +835,29 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
               {/* Manual phone numbers */}
               {state.audienceType === 'manual' && (
                 <div className="space-y-2">
-                  <Label>Phone Numbers</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Phone Numbers</Label>
+                    <Button
+                      type="button" size="sm" variant="outline"
+                      className="h-7 gap-1.5 text-xs"
+                      onClick={() => csvImportRef.current?.click()}
+                      disabled={csvImporting}
+                    >
+                      {csvImporting
+                        ? <><Spin className="h-3 w-3 animate-spin" /> Importing…</>
+                        : <><Upload className="h-3 w-3" /> Upload CSV</>
+                      }
+                    </Button>
+                  </div>
+                  <input
+                    ref={csvImportRef}
+                    type="file"
+                    accept=".csv,text/csv"
+                    className="hidden"
+                    onChange={handleCsvImport}
+                  />
                   <p className="text-xs text-muted-foreground">
-                    Enter one number per line, or comma-separated. Include country code (e.g. 919876543210).
+                    Enter one number per line, or comma-separated. Include country code (e.g. 919876543210). Or upload a CSV file with a Phone/Mobile column.
                   </p>
                   <Textarea
                     value={state.manualPhones}
