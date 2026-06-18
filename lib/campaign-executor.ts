@@ -262,10 +262,8 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   const flushRecipients = async () => {
     if (pendingRecipients.length === 0) return;
     const rows = pendingRecipients.splice(0, pendingRecipients.length);
-    await db.from('campaign_recipients').insert(rows).catch((e: unknown) => {
-      console.error('[Campaign] Batch recipient insert failed:', e);
-    });
-    // Update progress counts on campaign row
+    const { error: insertErr } = await db.from('campaign_recipients').insert(rows);
+    if (insertErr) console.error('[Campaign] Batch recipient insert failed:', insertErr);
     await db.from('campaigns').update({ sent_count: sentCount, failed_count: failedCount }).eq('id', campaignId);
   };
 
