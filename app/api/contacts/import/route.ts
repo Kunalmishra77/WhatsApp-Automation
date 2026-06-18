@@ -5,10 +5,9 @@ import { normalizePhone } from '@/lib/phone';
 
 interface ContactRow {
   name?: string;
-  phone: string;
+  phone: string | number;
   email?: string;
   tags?: string[];
-  notes?: string;
 }
 
 // POST /api/contacts/import
@@ -47,7 +46,6 @@ export async function POST(request: NextRequest) {
         name:   c.name ? String(c.name).trim() || null : null,
         email:  c.email ? String(c.email).trim() || null : null,
         tags:   Array.isArray(c.tags) ? c.tags.filter(Boolean) : [],
-        notes:  c.notes ? String(c.notes).trim() || null : null,
       }))
       .filter((r) => r.phone.length >= 7);
 
