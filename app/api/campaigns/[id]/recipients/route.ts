@@ -33,7 +33,7 @@ export async function GET(
         total_recipients, sent_count, failed_count, delivered_count, read_count,
         scheduled_at, started_at, completed_at, created_at,
         media_id, media_type,
-        templates(id, name, header_type, body_text, button_labels)
+        templates(id, name, header_type, body, buttons)
       `)
       .eq('id', campaignId)
       .eq('workspace_id', workspaceId)

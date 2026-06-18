@@ -57,7 +57,7 @@ interface Campaign {
   total_recipients: number; sent_count: number; failed_count: number; delivered_count: number; read_count: number;
   scheduled_at: string | null; started_at: string | null; completed_at: string | null; created_at: string;
   media_id: string | null; media_type: string | null;
-  templates: { id: string; name: string; header_type: string | null; body_text: string | null; button_labels: string[] | null } | null;
+  templates: { id: string; name: string; header_type: string | null; body: string | null; buttons: Array<{ type: string; text: string }> | null } | null;
 }
 interface DetailData {
   campaign: Campaign; stats: Stats; unique_reply_texts: string[];
@@ -306,7 +306,7 @@ function OverviewTab({ campaign, stats, daily, loading }: {
         </div>
 
         {/* Template preview */}
-        {tpl?.body_text && (
+        {tpl?.body && (
           <div className="rounded-xl border border-border bg-card p-4 space-y-2">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Template Preview</h3>
             {campaign.media_id && (
@@ -315,11 +315,11 @@ function OverviewTab({ campaign, stats, daily, loading }: {
                 <span className="text-xs text-muted-foreground ml-2">{mType} attachment</span>
               </div>
             )}
-            <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed">{tpl.body_text}</p>
-            {tpl.button_labels && tpl.button_labels.length > 0 && (
+            <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed">{tpl.body}</p>
+            {tpl.buttons && tpl.buttons.length > 0 && (
               <div className="flex flex-wrap gap-1.5 pt-1">
-                {tpl.button_labels.map((btn, i) => (
-                  <span key={i} className="text-[10px] rounded-md border border-blue-300 bg-blue-50 text-blue-700 px-2 py-0.5 font-medium">{btn}</span>
+                {tpl.buttons.map((btn, i) => (
+                  <span key={i} className="text-[10px] rounded-md border border-blue-300 bg-blue-50 text-blue-700 px-2 py-0.5 font-medium">{btn.text}</span>
                 ))}
               </div>
             )}
