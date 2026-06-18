@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useWorkspaceStore } from '@/store/workspace.store';
@@ -9,186 +9,522 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Progress } from '@/components/ui/progress';
 import {
-  ArrowLeft, Download, MessageSquare,
-  Send, CheckCheck, Eye, XCircle, Reply, Users, Clock, Timer,
+  ArrowLeft, Download, MessageSquare, Send, CheckCheck, Eye,
+  XCircle, Reply, Users, Clock, Timer, Search, Zap, Calendar,
+  FileText, Image, Video, Filter,
 } from 'lucide-react';
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+} from 'recharts';
 import { format, formatDistanceStrict } from 'date-fns';
 import { cn } from '@/lib/utils';
+import type { DailyStatRow } from '@/app/api/campaigns/[id]/daily-stats/route';
 
-// Formats duration between two timestamps to human-readable string
-function formatDuration(startedAt: string | null, completedAt: string | null): string | null {
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmtDuration(startedAt: string | null, completedAt: string | null): string | null {
   if (!startedAt) return null;
-  const start = new Date(startedAt);
-  const end   = completedAt ? new Date(completedAt) : new Date();
-  return formatDistanceStrict(start, end);
+  return formatDistanceStrict(new Date(startedAt), completedAt ? new Date(completedAt) : new Date());
 }
-
-// Calculates send speed: messages per minute
 function sendSpeed(total: number, startedAt: string | null, completedAt: string | null): string | null {
   if (!startedAt || total === 0) return null;
-  const start = new Date(startedAt);
-  const end   = completedAt ? new Date(completedAt) : new Date();
-  const mins  = (end.getTime() - start.getTime()) / 60_000;
+  const mins = (( completedAt ? new Date(completedAt) : new Date()).getTime() - new Date(startedAt).getTime()) / 60_000;
   if (mins < 0.01) return null;
   return `${Math.round(total / mins)}/min`;
 }
+function diffLabel(a: string | null, b: string | null): string {
+  if (!a || !b) return '—';
+  const ms = new Date(b).getTime() - new Date(a).getTime();
+  if (ms < 0) return '—';
+  const m = Math.round(ms / 60000);
+  if (m === 0) return '< 1m';
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+function pct(n: number, d: number) { return d > 0 ? Math.round((n / d) * 100) : 0; }
 
+// ── Types ─────────────────────────────────────────────────────────────────────
 interface Recipient {
-  id: string;
-  phone: string;
-  name: string | null;
-  status: string;
-  sent_at: string | null;
-  delivered_at: string | null;
-  read_at: string | null;
-  replied_at: string | null;
-  error_message: string | null;
-  conversation_id: string | null;
+  id: string; phone: string; name: string | null; status: string;
+  sent_at: string | null; delivered_at: string | null; read_at: string | null;
+  replied_at: string | null; reply_type: string | null; reply_text: string | null;
+  error_message: string | null; conversation_id: string | null;
+}
+interface Stats { total: number; sent: number; delivered: number; read: number; failed: number; replied: number; }
+interface Campaign {
+  id: string; name: string; status: string; audience_type: string; audience_filter: string | null;
+  total_recipients: number; sent_count: number; failed_count: number; delivered_count: number; read_count: number;
+  scheduled_at: string | null; started_at: string | null; completed_at: string | null; created_at: string;
+  media_id: string | null; media_type: string | null;
+  templates: { id: string; name: string; header_type: string | null; body_text: string | null; button_labels: string[] | null } | null;
+}
+interface DetailData {
+  campaign: Campaign; stats: Stats; unique_reply_texts: string[];
+  recipients: Recipient[]; total: number; page: number; pages: number;
 }
 
-interface Stats {
-  total: number;
-  sent: number;
-  delivered: number;
-  read: number;
-  failed: number;
-  replied: number;
-}
+// ── Status config ─────────────────────────────────────────────────────────────
+const STATUS_CFG = {
+  sent:      { label: 'Sent',      icon: Send,       color: 'text-blue-600',    bg: 'bg-blue-50',    badge: 'bg-blue-100 text-blue-700'      },
+  delivered: { label: 'Delivered', icon: CheckCheck, color: 'text-sky-600',     bg: 'bg-sky-50',     badge: 'bg-sky-100 text-sky-700'        },
+  read:      { label: 'Read',      icon: Eye,        color: 'text-violet-600',  bg: 'bg-violet-50',  badge: 'bg-violet-100 text-violet-700'  },
+  replied:   { label: 'Replied',   icon: Reply,      color: 'text-emerald-600', bg: 'bg-emerald-50', badge: 'bg-emerald-100 text-emerald-700'},
+  failed:    { label: 'Failed',    icon: XCircle,    color: 'text-red-600',     bg: 'bg-red-50',     badge: 'bg-red-100 text-red-700'        },
+} as const;
 
-interface CampaignDetailData {
-  campaign: {
-    id: string;
-    name: string;
-    status: string;
-    total_recipients: number;
-    sent_count: number;
-    failed_count: number;
-    delivered_count: number;
-    read_count: number;
-    started_at: string | null;
-    completed_at: string | null;
-    media_id: string | null;
-    media_type: string | null;
-    templates: { name: string } | null;
-  };
-  stats: Stats;
-  recipients: Recipient[];
-  total: number;
-  page: number;
-  pages: number;
-}
-
-const STATUS_STYLES: Record<string, { label: string; className: string; icon: React.ElementType }> = {
-  sent:      { label: 'Sent',      className: 'bg-blue-100 text-blue-700',   icon: Send      },
-  delivered: { label: 'Delivered', className: 'bg-sky-100 text-sky-700',     icon: CheckCheck },
-  read:      { label: 'Read',      className: 'bg-violet-100 text-violet-700', icon: Eye     },
-  replied:   { label: 'Replied',   className: 'bg-emerald-100 text-emerald-700', icon: Reply },
-  failed:    { label: 'Failed',    className: 'bg-red-100 text-red-700',     icon: XCircle   },
-};
+const CHART_COLORS = { sent: '#f59e0b', delivered: '#0ea5e9', read: '#8b5cf6', replied: '#10b981', failed: '#ef4444' };
 
 const CAMPAIGN_STATUS_COLORS: Record<string, string> = {
-  draft:     'bg-gray-100 text-gray-600',
-  scheduled: 'bg-blue-100 text-blue-700',
-  running:   'bg-amber-100 text-amber-700',
-  completed: 'bg-emerald-100 text-emerald-700',
-  failed:    'bg-red-100 text-red-700',
+  draft: 'bg-gray-100 text-gray-600', scheduled: 'bg-blue-100 text-blue-700',
+  running: 'bg-amber-100 text-amber-700', completed: 'bg-emerald-100 text-emerald-700',
+  failed: 'bg-red-100 text-red-700',
 };
 
-const FILTER_TABS = [
-  { key: 'all',      label: 'All',       icon: Users     },
-  { key: 'sent',     label: 'Sent',      icon: Send      },
-  { key: 'delivered',label: 'Delivered', icon: CheckCheck },
-  { key: 'read',     label: 'Read',      icon: Eye       },
-  { key: 'replied',  label: 'Replied',   icon: Reply     },
-  { key: 'failed',   label: 'Failed',    icon: XCircle   },
-];
-
-async function fetchCampaignDetail(campaignId: string, workspaceId: string, status: string, page: number): Promise<CampaignDetailData> {
-  const params = new URLSearchParams({ workspaceId, status, page: String(page) });
-  const res = await fetch(`/api/campaigns/${campaignId}/recipients?${params.toString()}`);
-  if (!res.ok) throw new Error('Failed to fetch campaign detail');
-  return res.json() as Promise<CampaignDetailData>;
+// ── Stat pill (tab header) ────────────────────────────────────────────────────
+function StatPill({ label, value, total, icon: Icon, active, onClick }: {
+  label: string; value: number; total: number; icon: React.ElementType; active: boolean; onClick: () => void;
+}) {
+  const p = pct(value, total);
+  return (
+    <button onClick={onClick} className={cn(
+      'flex flex-col items-start px-4 py-3 border-b-2 transition-all whitespace-nowrap min-w-[110px]',
+      active ? 'border-brand-500 bg-brand-50/50' : 'border-transparent hover:border-muted-foreground/30 hover:bg-muted/30',
+    )}>
+      <div className="flex items-center gap-1.5 mb-1">
+        <Icon className={cn('h-3.5 w-3.5', active ? 'text-brand-500' : 'text-muted-foreground')} />
+        <span className={cn('text-xs font-medium', active ? 'text-brand-600' : 'text-muted-foreground')}>{label}</span>
+      </div>
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-xl font-bold text-foreground tabular-nums">{value.toLocaleString()}</span>
+        {label !== 'Overview' && total > 0 && (
+          <span className={cn('text-xs font-semibold', active ? 'text-brand-500' : 'text-muted-foreground')}>{p}%</span>
+        )}
+      </div>
+    </button>
+  );
 }
 
-interface RecipientWithLead extends Recipient {
-  lead_stage?:       string;
-  lead_temperature?: string;
-  lead_value?:       number | null;
+// ── Small stat card ───────────────────────────────────────────────────────────
+function MiniStat({ label, value, sub, icon: Icon, color }: { label: string; value: string | number; sub?: string; icon: React.ElementType; color: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="flex items-center gap-2 mb-1.5">
+        <Icon className={cn('h-4 w-4', color)} />
+        <span className="text-xs text-muted-foreground">{label}</span>
+      </div>
+      <p className="text-xl font-bold text-foreground">{value}</p>
+      {sub && <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>}
+    </div>
+  );
 }
 
-async function exportCSVWithLeads(campaignId: string, workspaceId: string, campaignName: string) {
-  // Fetch ALL recipients (no pagination) with lead data
-  const params = new URLSearchParams({ workspaceId, status: 'all', page: '1', limit: '10000', export: '1' });
-  const res    = await fetch(`/api/campaigns/${campaignId}/recipients?${params}`);
-  const data   = await res.json() as { recipients?: RecipientWithLead[]; leads_map?: Record<string, { stage: string; temperature: string; value: number | null }> };
-
-  const recipients = data?.recipients ?? [];
-
-  const header = [
-    'Name', 'Phone', 'Status',
-    'Sent At', 'Delivered At', 'Read At', 'Replied At',
-    'Lead Stage', 'Lead Temperature', 'Lead Value (₹)',
-    'Error',
-  ].join(',');
-
-  const rows = recipients.map((r) => {
-    const lead = data?.leads_map?.[r.phone] ?? null;
-    return [
-      r.name ?? '',
-      r.phone,
-      r.status,
-      r.sent_at      ? format(new Date(r.sent_at),      'yyyy-MM-dd HH:mm') : '',
-      r.delivered_at ? format(new Date(r.delivered_at), 'yyyy-MM-dd HH:mm') : '',
-      r.read_at      ? format(new Date(r.read_at),      'yyyy-MM-dd HH:mm') : '',
-      r.replied_at   ? format(new Date(r.replied_at),   'yyyy-MM-dd HH:mm') : '',
-      lead?.stage       ?? '',
-      lead?.temperature ?? '',
-      lead?.value != null ? String(lead.value) : '',
-      r.error_message ?? '',
-    ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',');
-  });
-
-  const csv  = [header, ...rows].join('\n');
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }); // BOM for Excel
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = `${campaignName.replace(/\s+/g, '_')}_full_export.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+// ── Download CSV helper ───────────────────────────────────────────────────────
+function downloadTab(campaignId: string, workspaceId: string, status: string, repliedWithin?: string, replyFilter?: string) {
+  const p = new URLSearchParams({ workspaceId, status, export: '1', page: '1' });
+  if (repliedWithin) p.set('replied_within', repliedWithin);
+  if (replyFilter)   p.set('reply_filter', replyFilter);
+  window.open(`/api/campaigns/${campaignId}/recipients?${p}`, '_blank');
 }
 
+// ── Recipient table shared ────────────────────────────────────────────────────
+function RecipientTable({ recipients, loading, tab, router, campaignId, workspaceId }: {
+  recipients: Recipient[]; loading: boolean; tab: string;
+  router: ReturnType<typeof useRouter>; campaignId: string; workspaceId: string;
+}) {
+  const showDelivered = ['delivered', 'read', 'replied', 'all'].includes(tab);
+  const showRead      = ['read', 'replied', 'all'].includes(tab);
+  const showReplied   = ['replied', 'all'].includes(tab);
+  const showError     = tab === 'failed';
+  const showReplyData = ['replied', 'all'].includes(tab);
+
+  if (loading) return (
+    <div className="space-y-2 p-4">
+      {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-10 w-full rounded-lg" />)}
+    </div>
+  );
+  if (recipients.length === 0) return (
+    <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+      <Users className="h-10 w-10 mb-3 opacity-30" />
+      <p className="text-sm">No contacts in this segment</p>
+    </div>
+  );
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow className="bg-muted/30">
+          <TableHead>Contact</TableHead>
+          <TableHead>Mobile</TableHead>
+          <TableHead>Sent At</TableHead>
+          {showDelivered && <TableHead>Delivered</TableHead>}
+          {showRead      && <TableHead>Read At</TableHead>}
+          {showReplied   && <TableHead>Replied At</TableHead>}
+          {showReplyData && <TableHead>Reply Type</TableHead>}
+          {showReplyData && <TableHead>Reply Text</TableHead>}
+          {showError     && <TableHead>Error Reason</TableHead>}
+          <TableHead className="w-8" />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {recipients.map((r) => {
+          const cfg = STATUS_CFG[r.status as keyof typeof STATUS_CFG] ?? STATUS_CFG.sent;
+          const Icon = cfg.icon;
+          return (
+            <TableRow key={r.id} className="hover:bg-accent/50">
+              <TableCell>
+                <div>
+                  <p className="text-sm font-medium">{r.name ?? '—'}</p>
+                  <span className={cn('inline-flex items-center gap-0.5 text-[10px] font-semibold rounded-full px-1.5 py-0.5 mt-0.5', cfg.badge)}>
+                    <Icon className="h-2.5 w-2.5" />{cfg.label}
+                  </span>
+                </div>
+              </TableCell>
+              <TableCell className="text-xs font-mono text-muted-foreground">{r.phone}</TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                {r.sent_at ? format(new Date(r.sent_at), 'MMM d, HH:mm') : '—'}
+              </TableCell>
+              {showDelivered && (
+                <TableCell className="text-xs text-muted-foreground">
+                  {r.delivered_at ? (
+                    <div>
+                      <p>{format(new Date(r.delivered_at), 'MMM d, HH:mm')}</p>
+                      <p className="text-[10px] text-sky-500">{diffLabel(r.sent_at, r.delivered_at)}</p>
+                    </div>
+                  ) : '—'}
+                </TableCell>
+              )}
+              {showRead && (
+                <TableCell className="text-xs text-muted-foreground">
+                  {r.read_at ? (
+                    <div>
+                      <p>{format(new Date(r.read_at), 'MMM d, HH:mm')}</p>
+                      <p className="text-[10px] text-violet-500">{diffLabel(r.delivered_at, r.read_at)}</p>
+                    </div>
+                  ) : '—'}
+                </TableCell>
+              )}
+              {showReplied && (
+                <TableCell className="text-xs text-muted-foreground">
+                  {r.replied_at ? (
+                    <div>
+                      <p>{format(new Date(r.replied_at), 'MMM d, HH:mm')}</p>
+                      <p className="text-[10px] text-emerald-500">{diffLabel(r.sent_at, r.replied_at)}</p>
+                    </div>
+                  ) : '—'}
+                </TableCell>
+              )}
+              {showReplyData && (
+                <TableCell>
+                  {r.reply_type ? (
+                    <span className={cn(
+                      'inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5',
+                      r.reply_type === 'button' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700',
+                    )}>
+                      {r.reply_type === 'button' ? '🔘' : '💬'} {r.reply_type}
+                    </span>
+                  ) : '—'}
+                </TableCell>
+              )}
+              {showReplyData && (
+                <TableCell className="text-xs max-w-[160px] truncate" title={r.reply_text ?? ''}>
+                  {r.reply_text ?? '—'}
+                </TableCell>
+              )}
+              {showError && (
+                <TableCell className="text-xs text-red-500 max-w-[200px]" title={r.error_message ?? ''}>
+                  {r.error_message ? (
+                    <span className="truncate block">{r.error_message}</span>
+                  ) : '—'}
+                </TableCell>
+              )}
+              <TableCell>
+                {r.conversation_id && (
+                  <Button variant="ghost" size="icon" className="h-6 w-6" title="Open conversation"
+                    onClick={() => router.push(`/conversations/${r.conversation_id}`)}>
+                    <MessageSquare className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
+  );
+}
+
+// ── Overview Tab ──────────────────────────────────────────────────────────────
+function OverviewTab({ campaign, stats, daily, loading }: {
+  campaign: Campaign; stats: Stats; daily: DailyStatRow[]; loading: boolean;
+}) {
+  const tpl    = campaign.templates;
+  const mType  = campaign.media_type;
+
+  const audienceLabel = campaign.audience_type === 'all' ? 'All Contacts'
+    : campaign.audience_type === 'tag' ? `Tag: ${campaign.audience_filter ?? ''}`
+    : campaign.audience_type === 'tags' ? `Tags: ${campaign.audience_filter ?? ''}`
+    : campaign.audience_filter ?? campaign.audience_type;
+
+  const mediaIcon = mType === 'image' ? Image : mType === 'video' ? Video : FileText;
+  const MediaIcon = mediaIcon;
+
+  return (
+    <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Left: campaign info */}
+      <div className="space-y-4">
+        <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+          <h3 className="text-sm font-semibold text-foreground">Campaign Info</h3>
+          {[
+            { label: 'Campaign Type', value: 'BROADCAST' },
+            { label: 'Message Type',  value: tpl ? `TEMPLATE${mType ? ` (${mType.toUpperCase()})` : ''}` : '—' },
+            { label: 'Template Name', value: tpl?.name ?? '—' },
+            { label: 'Audience',      value: audienceLabel },
+            { label: 'Created At',    value: format(new Date(campaign.created_at), 'MMM d, yyyy HH:mm') },
+            { label: 'Started At',    value: campaign.started_at ? format(new Date(campaign.started_at), 'MMM d, yyyy HH:mm') : '—' },
+            { label: 'Completed At',  value: campaign.completed_at ? format(new Date(campaign.completed_at), 'MMM d, yyyy HH:mm') : '—' },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex justify-between gap-2">
+              <span className="text-xs text-muted-foreground shrink-0">{label}</span>
+              <span className="text-xs font-medium text-foreground text-right truncate max-w-[160px]" title={value}>{value}</span>
+            </div>
+          ))}
+          {campaign.started_at && (
+            <div className="pt-2 border-t border-border">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-600">
+                <Zap className="h-3.5 w-3.5" />
+                {fmtDuration(campaign.started_at, campaign.completed_at) ?? 'Running…'}
+                {campaign.completed_at && ' to complete'}
+              </div>
+              {sendSpeed(stats.sent, campaign.started_at, campaign.completed_at) && (
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {sendSpeed(stats.sent, campaign.started_at, campaign.completed_at)} send speed
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Template preview */}
+        {tpl?.body_text && (
+          <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Template Preview</h3>
+            {campaign.media_id && (
+              <div className="rounded-lg bg-muted flex items-center justify-center h-20 border border-border">
+                <MediaIcon className="h-8 w-8 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground ml-2">{mType} attachment</span>
+              </div>
+            )}
+            <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed">{tpl.body_text}</p>
+            {tpl.button_labels && tpl.button_labels.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {tpl.button_labels.map((btn, i) => (
+                  <span key={i} className="text-[10px] rounded-md border border-blue-300 bg-blue-50 text-blue-700 px-2 py-0.5 font-medium">{btn}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Right: stats + chart */}
+      <div className="lg:col-span-2 space-y-5">
+        {/* Big stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {loading ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />) : [
+            { label: 'Sent',      value: stats.sent,      sub: `${pct(stats.sent, stats.total)}% of audience`,      icon: Send,       color: 'text-blue-600'    },
+            { label: 'Delivered', value: stats.delivered, sub: `${pct(stats.delivered, stats.sent)}% of sent`,      icon: CheckCheck, color: 'text-sky-600'     },
+            { label: 'Read',      value: stats.read,      sub: `${pct(stats.read, stats.delivered)}% of delivered`, icon: Eye,        color: 'text-violet-600'  },
+            { label: 'Replied',   value: stats.replied,   sub: `${pct(stats.replied, stats.sent)}% of sent`,        icon: Reply,      color: 'text-emerald-600' },
+          ].map(({ label, value, sub, icon, color }) => (
+            <MiniStat key={label} label={label} value={value.toLocaleString()} sub={sub} icon={icon} color={color} />
+          ))}
+        </div>
+
+        {/* Funnel */}
+        <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+          <h3 className="text-sm font-semibold text-foreground">Delivery Funnel</h3>
+          {[
+            { label: 'Sent',      value: stats.sent,      total: stats.total,     color: 'bg-blue-500'    },
+            { label: 'Delivered', value: stats.delivered, total: stats.sent,      color: 'bg-sky-500'     },
+            { label: 'Read',      value: stats.read,      total: stats.delivered, color: 'bg-violet-500'  },
+            { label: 'Replied',   value: stats.replied,   total: stats.sent,      color: 'bg-emerald-500' },
+            { label: 'Failed',    value: stats.failed,    total: stats.total,     color: 'bg-red-500'     },
+          ].map(({ label, value, total, color }) => {
+            const p2 = pct(value, total);
+            return (
+              <div key={label} className="flex items-center gap-3">
+                <span className="w-20 text-xs text-muted-foreground shrink-0">{label}</span>
+                <div className="flex-1 h-2.5 rounded-full bg-muted overflow-hidden">
+                  <div className={cn('h-full rounded-full transition-all duration-700', color)} style={{ width: `${p2}%` }} />
+                </div>
+                <span className="w-24 text-right text-xs font-semibold text-foreground tabular-nums">
+                  {value.toLocaleString()} <span className="text-muted-foreground font-normal">({p2}%)</span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Per-day chart */}
+        {daily.length > 0 && (
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold text-foreground mb-4">Campaign Messages (per day)</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={daily} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d) => format(new Date(d + 'T00:00:00'), 'MMM d')} />
+                <YAxis tick={{ fontSize: 10 }} />
+                <Tooltip labelFormatter={(d) => format(new Date(d + 'T00:00:00'), 'MMM d, yyyy')} />
+                <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                {(['sent', 'delivered', 'read', 'replied', 'failed'] as const).map((key) => (
+                  <Area key={key} type="monotone" dataKey={key} stackId="none"
+                    stroke={CHART_COLORS[key]} fill={CHART_COLORS[key]} fillOpacity={0.12}
+                    strokeWidth={2} dot={false} />
+                ))}
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Failed Tab extras ─────────────────────────────────────────────────────────
+function ErrorBreakdown({ recipients }: { recipients: Recipient[] }) {
+  const counts: Record<string, number> = {};
+  for (const r of recipients) {
+    const err = r.error_message ?? 'Unknown';
+    const key = err.length > 60 ? err.slice(0, 60) + '…' : err;
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const total  = recipients.length;
+  if (!sorted.length) return null;
+
+  return (
+    <div className="border-b border-border px-5 py-4 space-y-2">
+      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Error Breakdown</h3>
+      {sorted.map(([err, n]) => (
+        <div key={err} className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground truncate flex-1 min-w-0" title={err}>{err}</span>
+          <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden shrink-0">
+            <div className="h-full bg-red-400 rounded-full" style={{ width: `${pct(n, total)}%` }} />
+          </div>
+          <span className="text-xs font-semibold text-foreground w-16 text-right shrink-0">{n} ({pct(n, total)}%)</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Replied tab smart segregation bar ────────────────────────────────────────
+function SmartSegBar({ repliedWithin, setRepliedWithin, replyFilter, setReplyFilter, uniqueReplyTexts, onBroadcast, onDownload }: {
+  repliedWithin: string; setRepliedWithin: (v: string) => void;
+  replyFilter: string;   setReplyFilter:   (v: string) => void;
+  uniqueReplyTexts: string[]; onBroadcast: () => void; onDownload: () => void;
+}) {
+  return (
+    <div className="border-b border-border px-5 py-3 bg-muted/20">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-xs font-semibold text-muted-foreground">Replied In:</span>
+        {[{ v: '', label: 'All Time' }, { v: '1', label: '1 Hour' }, { v: '3', label: '3 Hours' }, { v: '24', label: '24 Hours' }].map(({ v, label }) => (
+          <button key={v} onClick={() => setRepliedWithin(v)}
+            className={cn('text-xs rounded-full px-3 py-1 border font-medium transition-all',
+              repliedWithin === v ? 'bg-brand-500 text-white border-brand-500' : 'border-border text-muted-foreground hover:border-brand-400')}>
+            {label}
+          </button>
+        ))}
+        {uniqueReplyTexts.length > 0 && (
+          <>
+            <span className="text-xs font-semibold text-muted-foreground ml-2">Reply:</span>
+            <select
+              value={replyFilter}
+              onChange={(e) => setReplyFilter(e.target.value)}
+              className="text-xs border border-border rounded-md px-2 py-1 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-brand-500"
+            >
+              <option value="">All Replies</option>
+              {uniqueReplyTexts.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          <Button size="sm" className="h-7 gap-1.5 bg-brand-500 hover:bg-brand-600 text-white text-xs" onClick={onBroadcast}>
+            <Send className="h-3 w-3" /> Broadcast
+          </Button>
+          <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={onDownload}>
+            <Download className="h-3 w-3" /> Download CSV
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
 interface CampaignDetailProps { campaignId: string }
+
+type TabKey = 'overview' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed';
 
 export function CampaignDetail({ campaignId }: CampaignDetailProps) {
   const router      = useRouter();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
-  const [filter, setFilter] = useState('all');
-  const [page, setPage]     = useState(1);
+  const [tab,             setTab]             = useState<TabKey>('overview');
+  const [page,            setPage]            = useState(1);
+  const [search,          setSearch]          = useState('');
+  const [repliedWithin,   setRepliedWithin]   = useState('');
+  const [replyFilter,     setReplyFilter]     = useState('');
 
+  const switchTab = useCallback((t: TabKey) => { setTab(t); setPage(1); setSearch(''); }, []);
+
+  // Main recipients + stats query
   const { data, isLoading } = useQuery({
-    queryKey: ['campaign-detail', campaignId, workspaceId, filter, page],
-    queryFn:  () => fetchCampaignDetail(campaignId, workspaceId, filter, page),
-    enabled:  !!workspaceId,
+    queryKey: ['campaign-detail', campaignId, workspaceId, tab, page, search, repliedWithin, replyFilter],
+    queryFn: async (): Promise<DetailData> => {
+      const p = new URLSearchParams({ workspaceId, status: tab === 'overview' ? 'all' : tab, page: String(page) });
+      if (search)        p.set('search', search);
+      if (repliedWithin) p.set('replied_within', repliedWithin);
+      if (replyFilter)   p.set('reply_filter', replyFilter);
+      const res = await fetch(`/api/campaigns/${campaignId}/recipients?${p}`);
+      if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    },
+    enabled: !!workspaceId,
     refetchInterval: (q) => q.state.data?.campaign?.status === 'running' ? 5000 : false,
   });
 
-  const campaign   = data?.campaign;
-  const stats      = data?.stats   ?? { total: 0, sent: 0, delivered: 0, read: 0, failed: 0, replied: 0 };
-  const recipients = data?.recipients ?? [];
+  // Daily stats for overview chart
+  const { data: dailyData } = useQuery({
+    queryKey: ['campaign-daily', campaignId, workspaceId],
+    queryFn: async () => {
+      const res = await fetch(`/api/campaigns/${campaignId}/daily-stats?workspaceId=${workspaceId}`);
+      if (!res.ok) return { daily: [] };
+      return res.json() as Promise<{ daily: DailyStatRow[] }>;
+    },
+    enabled: !!workspaceId && tab === 'overview',
+  });
 
-  const deliveryPct = stats.total > 0 ? Math.round((stats.delivered / stats.total) * 100) : 0;
-  const readPct     = stats.delivered > 0 ? Math.round((stats.read / stats.delivered) * 100) : 0;
-  const replyPct    = stats.total > 0 ? Math.round((stats.replied / stats.total) * 100) : 0;
+  const campaign   = data?.campaign;
+  const stats      = data?.stats ?? { total: 0, sent: 0, delivered: 0, read: 0, failed: 0, replied: 0 };
+  const recipients = data?.recipients ?? [];
+  const uniqueReplyTexts = data?.unique_reply_texts ?? [];
+
+  const TABS: Array<{ key: TabKey; label: string; icon: React.ElementType; count: number }> = [
+    { key: 'overview',  label: 'Overview',  icon: Users,      count: stats.total     },
+    { key: 'sent',      label: 'Sent',      icon: Send,       count: stats.sent      },
+    { key: 'delivered', label: 'Delivered', icon: CheckCheck, count: stats.delivered },
+    { key: 'read',      label: 'Read',      icon: Eye,        count: stats.read      },
+    { key: 'replied',   label: 'Replied',   icon: Reply,      count: stats.replied   },
+    { key: 'failed',    label: 'Failed',    icon: XCircle,    count: stats.failed    },
+  ];
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      {/* Header */}
+    <div className="flex h-full flex-col overflow-hidden bg-background">
+
+      {/* ── Top header ───────────────────────────────────────────────────── */}
       <div className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-6 py-3">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => router.push('/campaigns')}>
+        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => router.push('/campaigns')}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1 min-w-0">
@@ -197,214 +533,203 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
             : <h1 className="truncate text-base font-semibold text-foreground">{campaign?.name}</h1>}
         </div>
         {campaign && (
-          <span className={cn('rounded-full px-2.5 py-0.5 text-[11px] font-semibold capitalize', CAMPAIGN_STATUS_COLORS[campaign.status] ?? 'bg-gray-100 text-gray-600')}>
+          <span className={cn('rounded-full px-2.5 py-0.5 text-[11px] font-semibold capitalize shrink-0', CAMPAIGN_STATUS_COLORS[campaign.status] ?? 'bg-gray-100 text-gray-600')}>
             {campaign.status}
           </span>
         )}
-        <Button
-          size="sm" variant="outline" className="h-7 gap-1.5 text-xs"
-          onClick={() => campaign && void exportCSVWithLeads(campaignId, workspaceId, campaign.name)}
-          disabled={!campaign || campaign.status === 'draft'}
-        >
-          <Download className="h-3.5 w-3.5" /> Export CSV
+        {/* Overview full export */}
+        <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs shrink-0"
+          onClick={() => campaign && downloadTab(campaignId, workspaceId, 'all')}
+          disabled={!campaign || campaign.status === 'draft'}>
+          <Download className="h-3.5 w-3.5" /> Export All
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        {/* Stats cards */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          {[
-            { label: 'Total',     value: stats.total,     icon: Users,      color: 'text-foreground'        },
-            { label: 'Sent',      value: stats.sent,      icon: Send,       color: 'text-blue-600'          },
-            { label: 'Delivered', value: stats.delivered, icon: CheckCheck, color: 'text-sky-600'           },
-            { label: 'Read',      value: stats.read,      icon: Eye,        color: 'text-violet-600'        },
-            { label: 'Replied',   value: stats.replied,   icon: Reply,      color: 'text-emerald-600'       },
-            { label: 'Failed',    value: stats.failed,    icon: XCircle,    color: 'text-red-600'           },
-          ].map(({ label, value, icon: Icon, color }) => (
-            <div key={label} className="rounded-xl border border-border bg-card p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Icon className={cn('h-4 w-4', color)} />
-                <span className="text-xs text-muted-foreground">{label}</span>
-              </div>
-              {isLoading
-                ? <Skeleton className="h-6 w-10" />
-                : <p className="text-2xl font-bold text-foreground">{value}</p>}
-            </div>
-          ))}
-        </div>
+      {/* ── Tab bar ──────────────────────────────────────────────────────── */}
+      <div className="shrink-0 flex border-b border-border bg-card overflow-x-auto">
+        {TABS.map(({ key, label, icon: Icon, count }) => (
+          <StatPill
+            key={key}
+            label={label}
+            value={count}
+            total={stats.total}
+            icon={Icon}
+            active={tab === key}
+            onClick={() => switchTab(key)}
+          />
+        ))}
+      </div>
 
-        {/* Duration + Speed row */}
-        {campaign?.started_at && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <div className="rounded-xl border border-border bg-card p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Timer className="h-4 w-4 text-amber-500" />
-                <span className="text-xs text-muted-foreground">Duration</span>
-              </div>
-              <p className="text-lg font-bold text-foreground">
-                {formatDuration(campaign.started_at, campaign.completed_at) ?? 'Running…'}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">
-                {campaign.started_at ? `Started ${format(new Date(campaign.started_at), 'HH:mm, MMM d')}` : ''}
-              </p>
+      {/* ── Tab content ──────────────────────────────────────────────────── */}
+      <div className="flex-1 overflow-y-auto">
+
+        {/* Overview tab */}
+        {tab === 'overview' && (
+          <OverviewTab
+            campaign={campaign ?? {
+              id: '', name: '', status: '', audience_type: '', audience_filter: null,
+              total_recipients: 0, sent_count: 0, failed_count: 0, delivered_count: 0, read_count: 0,
+              scheduled_at: null, started_at: null, completed_at: null, created_at: '',
+              media_id: null, media_type: null, templates: null,
+            }}
+            stats={stats}
+            daily={dailyData?.daily ?? []}
+            loading={isLoading}
+          />
+        )}
+
+        {/* Sent / Delivered / Read tabs */}
+        {['sent', 'delivered', 'read'].includes(tab) && (
+          <div className="rounded-none">
+            {/* Tab stats row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-5 border-b border-border">
+              {tab === 'sent' && [
+                { label: 'Total Sent',    value: stats.sent,      icon: Send,       color: 'text-blue-600',   sub: `${pct(stats.sent, stats.total)}% of audience` },
+                { label: 'Send Speed',    value: sendSpeed(stats.sent, campaign?.started_at ?? null, campaign?.completed_at ?? null) ?? '—', icon: Zap, color: 'text-amber-500', sub: 'messages per minute' },
+                { label: 'Duration',      value: fmtDuration(campaign?.started_at ?? null, campaign?.completed_at ?? null) ?? '—', icon: Timer, color: 'text-orange-500', sub: 'to complete' },
+                { label: 'Not Sent',      value: stats.total - stats.sent, icon: XCircle, color: 'text-red-500', sub: 'failed or pending' },
+              ].map((s) => <MiniStat key={s.label} {...s} value={String(s.value)} />)}
+
+              {tab === 'delivered' && [
+                { label: 'Delivered',      value: stats.delivered, icon: CheckCheck, color: 'text-sky-600',    sub: `${pct(stats.delivered, stats.sent)}% of sent` },
+                { label: 'Not Delivered',  value: stats.sent - stats.delivered, icon: XCircle, color: 'text-red-500', sub: 'sent but undelivered' },
+                { label: 'Read After',     value: stats.read,      icon: Eye,        color: 'text-violet-600', sub: `${pct(stats.read, stats.delivered)}% of delivered` },
+                { label: 'Replied After',  value: stats.replied,   icon: Reply,      color: 'text-emerald-600', sub: `${pct(stats.replied, stats.delivered)}% of delivered` },
+              ].map((s) => <MiniStat key={s.label} {...s} value={String(s.value)} />)}
+
+              {tab === 'read' && [
+                { label: 'Read',           value: stats.read,      icon: Eye,        color: 'text-violet-600', sub: `${pct(stats.read, stats.delivered)}% of delivered` },
+                { label: 'Not Read',       value: stats.delivered - stats.read, icon: XCircle, color: 'text-red-500', sub: 'delivered but not read' },
+                { label: 'Replied After',  value: stats.replied,   icon: Reply,      color: 'text-emerald-600', sub: `${pct(stats.replied, stats.read)}% of readers` },
+                { label: 'Read Rate',      value: `${pct(stats.read, stats.sent)}%`, icon: Eye, color: 'text-violet-500', sub: 'of total sent' },
+              ].map((s) => <MiniStat key={s.label} {...s} value={String(s.value)} />)}
             </div>
-            <div className="rounded-xl border border-border bg-card p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Clock className="h-4 w-4 text-brand-500" />
-                <span className="text-xs text-muted-foreground">Send Speed</span>
+
+            {/* Search + download bar */}
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
+              <div className="relative flex-1 max-w-xs">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input placeholder="Search name or mobile…" value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                  className="pl-8 h-8 text-sm" />
               </div>
-              <p className="text-lg font-bold text-foreground">
-                {sendSpeed(stats.sent, campaign.started_at, campaign.completed_at) ?? '—'}
-              </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">messages per minute</p>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs ml-auto"
+                onClick={() => downloadTab(campaignId, workspaceId, tab)}>
+                <Download className="h-3.5 w-3.5" /> Download CSV
+              </Button>
             </div>
-            {campaign.completed_at && (
-              <div className="rounded-xl border border-border bg-card p-4">
-                <div className="flex items-center gap-2 mb-1">
-                  <CheckCheck className="h-4 w-4 text-emerald-500" />
-                  <span className="text-xs text-muted-foreground">Completed</span>
-                </div>
-                <p className="text-lg font-bold text-foreground">
-                  {format(new Date(campaign.completed_at), 'HH:mm')}
-                </p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">
-                  {format(new Date(campaign.completed_at), 'MMM d, yyyy')}
-                </p>
-              </div>
-            )}
+
+            <RecipientTable recipients={recipients} loading={isLoading} tab={tab} router={router} campaignId={campaignId} workspaceId={workspaceId} />
+            <Pagination data={data} page={page} setPage={setPage} />
           </div>
         )}
 
-        {/* Progress bars */}
-        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-          <h2 className="text-sm font-semibold text-foreground">Funnel</h2>
-          {[
-            { label: 'Delivery Rate', pct: deliveryPct, color: 'bg-sky-500'     },
-            { label: 'Read Rate',     pct: readPct,     color: 'bg-violet-500'  },
-            { label: 'Reply Rate',    pct: replyPct,    color: 'bg-emerald-500' },
-          ].map(({ label, pct, color }) => (
-            <div key={label} className="flex items-center gap-3">
-              <span className="w-28 text-xs text-muted-foreground shrink-0">{label}</span>
-              <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                <div className={cn('h-full rounded-full transition-all', color)} style={{ width: `${pct}%` }} />
-              </div>
-              <span className="w-10 text-right text-xs font-medium text-foreground">{pct}%</span>
+        {/* Replied tab */}
+        {tab === 'replied' && (
+          <div>
+            {/* Stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-5 border-b border-border">
+              {[
+                { label: 'Total Replied', value: stats.replied,     icon: Reply,  color: 'text-emerald-600', sub: `${pct(stats.replied, stats.sent)}% reply rate` },
+                { label: 'Button Clicks', value: recipients.filter((r) => r.reply_type === 'button').length, icon: Filter, color: 'text-blue-600', sub: 'tapped a button' },
+                { label: 'Text Replies',  value: recipients.filter((r) => r.reply_type === 'text').length,   icon: MessageSquare, color: 'text-violet-600', sub: 'typed a reply' },
+                { label: 'Unique Replies',value: uniqueReplyTexts.length, icon: CheckCheck, color: 'text-sky-600', sub: 'distinct messages' },
+              ].map((s) => <MiniStat key={s.label} {...s} value={String(s.value)} />)}
             </div>
-          ))}
-        </div>
 
-        {/* Filter tabs + table */}
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="flex items-center gap-1 border-b border-border px-4 py-2 overflow-x-auto">
-            {FILTER_TABS.map(({ key, label, icon: Icon }) => (
-              <button
-                key={key}
-                onClick={() => { setFilter(key); setPage(1); }}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors',
-                  filter === key
-                    ? 'bg-brand-500 text-white'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-                {key !== 'all' && (
-                  <span className={cn('ml-0.5 text-[10px]', filter === key ? 'text-white/80' : 'text-muted-foreground')}>
-                    {stats[key as keyof Stats] ?? 0}
-                  </span>
-                )}
-              </button>
-            ))}
+            {/* Reply breakdown pills */}
+            {uniqueReplyTexts.length > 0 && (
+              <div className="flex flex-wrap gap-2 px-5 py-3 border-b border-border">
+                {uniqueReplyTexts.map((t) => {
+                  const n = recipients.filter((r) => r.reply_text === t).length;
+                  return (
+                    <button key={t} onClick={() => setReplyFilter(replyFilter === t ? '' : t)}
+                      className={cn('text-xs rounded-full px-3 py-1 border font-medium transition-all',
+                        replyFilter === t ? 'bg-emerald-500 text-white border-emerald-500' : 'border-border text-muted-foreground hover:border-emerald-400')}>
+                      {t} <span className="opacity-70">({n})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Smart segregation bar */}
+            <SmartSegBar
+              repliedWithin={repliedWithin} setRepliedWithin={(v) => { setRepliedWithin(v); setPage(1); }}
+              replyFilter={replyFilter}     setReplyFilter={(v)   => { setReplyFilter(v);   setPage(1); }}
+              uniqueReplyTexts={uniqueReplyTexts}
+              onBroadcast={() => {
+                const phones = recipients.map((r) => r.phone).join(',');
+                router.push(`/campaigns?broadcast_to=${encodeURIComponent(phones)}`);
+              }}
+              onDownload={() => downloadTab(campaignId, workspaceId, 'replied', repliedWithin || undefined, replyFilter || undefined)}
+            />
+
+            <RecipientTable recipients={recipients} loading={isLoading} tab="replied" router={router} campaignId={campaignId} workspaceId={workspaceId} />
+            <Pagination data={data} page={page} setPage={setPage} />
           </div>
+        )}
 
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Contact</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Sent</TableHead>
-                <TableHead>Delivered</TableHead>
-                <TableHead>Read</TableHead>
-                <TableHead>Replied</TableHead>
-                <TableHead className="w-12" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading
-                ? Array.from({ length: 8 }).map((_, i) => (
-                    <TableRow key={i}>
-                      {Array.from({ length: 7 }).map((__, j) => (
-                        <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                : recipients.length === 0
-                  ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="h-32 text-center text-sm text-muted-foreground">
-                        No recipients yet — run the campaign to see tracking data.
-                      </TableCell>
-                    </TableRow>
-                  )
-                  : recipients.map((r) => {
-                      const s = STATUS_STYLES[r.status] ?? STATUS_STYLES['sent']!;
-                      const Icon = s.icon;
-                      return (
-                        <TableRow key={r.id} className="hover:bg-accent">
-                          <TableCell className="font-medium text-sm">{r.name ?? '—'}</TableCell>
-                          <TableCell className="text-sm font-mono text-muted-foreground">{r.phone}</TableCell>
-                          <TableCell>
-                            <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', s.className)}>
-                              <Icon className="h-3 w-3" /> {s.label}
-                            </span>
-                            {r.status === 'failed' && r.error_message && (
-                              <p className="text-[10px] text-red-500 mt-0.5 max-w-32 truncate" title={r.error_message}>{r.error_message}</p>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {r.sent_at ? format(new Date(r.sent_at), 'MMM d, HH:mm') : '—'}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {r.delivered_at ? format(new Date(r.delivered_at), 'MMM d, HH:mm') : '—'}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {r.read_at ? format(new Date(r.read_at), 'MMM d, HH:mm') : '—'}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {r.replied_at ? format(new Date(r.replied_at), 'MMM d, HH:mm') : '—'}
-                          </TableCell>
-                          <TableCell>
-                            {r.conversation_id && (
-                              <Button
-                                variant="ghost" size="icon" className="h-6 w-6"
-                                title="Open conversation"
-                                onClick={() => router.push(`/conversations/${r.conversation_id}`)}
-                              >
-                                <MessageSquare className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-            </TableBody>
-          </Table>
+        {/* Failed tab */}
+        {tab === 'failed' && (
+          <div>
+            {/* Stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-5 border-b border-border">
+              {[
+                { label: 'Total Failed', value: stats.failed, icon: XCircle, color: 'text-red-600', sub: `${pct(stats.failed, stats.total)}% failure rate` },
+                { label: 'Sent Success', value: stats.sent,   icon: Send,    color: 'text-blue-600', sub: `${pct(stats.sent, stats.total)}% sent successfully` },
+                { label: 'Audience',     value: stats.total,  icon: Users,   color: 'text-foreground', sub: 'total contacts targeted' },
+              ].map((s) => <MiniStat key={s.label} {...s} value={String(s.value)} />)}
+            </div>
 
-          {/* Pagination */}
-          {(data?.pages ?? 0) > 1 && (
-            <div className="flex items-center justify-between border-t border-border px-4 py-3">
-              <span className="text-xs text-muted-foreground">
-                Page {page} of {data?.pages} ({data?.total} recipients)
-              </span>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" className="h-7 text-xs" disabled={page === 1} onClick={() => setPage((p) => p - 1)}>Prev</Button>
-                <Button size="sm" variant="outline" className="h-7 text-xs" disabled={page === data?.pages} onClick={() => setPage((p) => p + 1)}>Next</Button>
+            {/* Error breakdown */}
+            <ErrorBreakdown recipients={recipients} />
+
+            {/* Search + retry + download */}
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
+              <div className="relative flex-1 max-w-xs">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input placeholder="Search name or mobile…" value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                  className="pl-8 h-8 text-sm" />
+              </div>
+              <div className="ml-auto flex items-center gap-2">
+                <Button size="sm" className="h-8 gap-1.5 text-xs bg-amber-500 hover:bg-amber-600 text-white"
+                  onClick={() => {
+                    const phones = recipients.map((r) => r.phone).join(',');
+                    router.push(`/campaigns?broadcast_to=${encodeURIComponent(phones)}`);
+                  }}>
+                  <Send className="h-3.5 w-3.5" /> Retry Campaign
+                </Button>
+                <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
+                  onClick={() => downloadTab(campaignId, workspaceId, 'failed')}>
+                  <Download className="h-3.5 w-3.5" /> Download CSV
+                </Button>
               </div>
             </div>
-          )}
-        </div>
+
+            <RecipientTable recipients={recipients} loading={isLoading} tab="failed" router={router} campaignId={campaignId} workspaceId={workspaceId} />
+            <Pagination data={data} page={page} setPage={setPage} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Pagination ────────────────────────────────────────────────────────────────
+function Pagination({ data, page, setPage }: {
+  data: DetailData | undefined; page: number; setPage: (p: number) => void;
+}) {
+  if (!data || (data.pages ?? 0) <= 1) return null;
+  return (
+    <div className="flex items-center justify-between border-t border-border px-5 py-3">
+      <span className="text-xs text-muted-foreground">
+        Page {page} of {data.pages} · {data.total.toLocaleString()} contacts
+      </span>
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" className="h-7 text-xs" disabled={page === 1} onClick={() => setPage(page - 1)}>Prev</Button>
+        <Button size="sm" variant="outline" className="h-7 text-xs" disabled={page === data.pages} onClick={() => setPage(page + 1)}>Next</Button>
       </div>
     </div>
   );

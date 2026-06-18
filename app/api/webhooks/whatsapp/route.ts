@@ -360,9 +360,18 @@ async function handleIncomingMessage(
       .maybeSingle();
 
     if (pendingCr) {
+      const isButton = msg.type === 'interactive';
+      const replyText = isButton
+        ? (msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? content)
+        : content;
       await (supabase as any)
         .from('campaign_recipients')
-        .update({ status: 'replied', replied_at: new Date().toISOString() })
+        .update({
+          status:     'replied',
+          replied_at: new Date().toISOString(),
+          reply_type: isButton ? 'button' : 'text',
+          reply_text: replyText ?? null,
+        })
         .eq('id', pendingCr.id);
     }
   }
