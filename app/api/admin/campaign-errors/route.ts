@@ -5,6 +5,11 @@ import { createAdminClient } from '@/services/supabase/admin';
 // Returns error distribution for a campaign by name. DELETE THIS FILE after use.
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
+  // Require CRON_SECRET so this endpoint is not publicly accessible
+  const secret = searchParams.get('secret') ?? '';
+  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   const name = searchParams.get('name') ?? 'PB_VMS_3_B';
   const db = createAdminClient() as any;
 
