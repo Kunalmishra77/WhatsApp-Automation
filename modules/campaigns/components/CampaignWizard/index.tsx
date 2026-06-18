@@ -280,6 +280,8 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const mediaInputRef   = useRef<HTMLInputElement>(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
+  const [testPhone,   setTestPhone]   = useState('');
+  const [testSending, setTestSending] = useState(false);
   const workspaceId     = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
   const { data: templates = [] } = useTemplates();
   const create          = useCreateCampaign();
@@ -321,6 +323,34 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const runCampaign = async (campaignId: string): Promise<{ sent?: number; failed?: number; queued?: boolean }> => {
     const res = await fetch(`/api/campaigns/${campaignId}/run`, { method: 'POST' });
     return res.json() as Promise<{ sent?: number; failed?: number; queued?: boolean; error?: string }>;
+  };
+
+  const handleTestSend = async () => {
+    if (!testPhone.trim() || !state.templateId) return;
+    setTestSending(true);
+    try {
+      const res = await fetch('/api/campaigns/test-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId,
+          templateId: state.templateId,
+          toPhone:    testPhone.trim(),
+          mediaId:    state.mediaId   || undefined,
+          mediaType:  state.mediaType || undefined,
+        }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok) {
+        toast.error(`Test failed: ${data.error ?? 'Unknown error'}`);
+      } else {
+        toast.success(`✅ Test message sent to ${testPhone.trim()}`);
+      }
+    } catch {
+      toast.error('Test send failed — check connection');
+    } finally {
+      setTestSending(false);
+    }
   };
 
   const handleCreate = async () => {
@@ -805,6 +835,29 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                 } />
                 <Row label="Schedule" value={state.scheduledAt ? new Date(state.scheduledAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) + ' IST' : 'Send immediately'} />
               </div>
+              {/* Test Send */}
+              <div className="rounded-lg border border-dashed border-brand-300 bg-brand-50/40 p-3 space-y-2">
+                <p className="text-xs font-semibold text-brand-700 flex items-center gap-1.5">
+                  <FlaskConical className="h-3.5 w-3.5" /> Send Test Message
+                </p>
+                <p className="text-[11px] text-muted-foreground">Send a preview to your own number before launching the campaign.</p>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="+91 98765 43210"
+                    value={testPhone}
+                    onChange={(e) => setTestPhone(e.target.value)}
+                    className="h-8 text-sm flex-1"
+                  />
+                  <Button
+                    size="sm" variant="outline" className="h-8 text-xs shrink-0 border-brand-300 text-brand-700 hover:bg-brand-100"
+                    disabled={!testPhone.trim() || !state.templateId || testSending}
+                    onClick={() => void handleTestSend()}
+                  >
+                    {testSending ? <Spin className="h-3.5 w-3.5 animate-spin" /> : 'Send Test'}
+                  </Button>
+                </div>
+              </div>
+
               {/* Preview */}
               {selectedTemplate && (
                 <div className="flex justify-center">
