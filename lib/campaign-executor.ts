@@ -314,16 +314,22 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
     const batch = recipients.slice(i, i + BATCH_SIZE);
 
     // Fire all messages in this batch concurrently
+    // Inner fn always returns (never throws) so settled.status is always 'fulfilled'
+    // and we always have contact info to track failures in campaign_recipients
     const results = await Promise.allSettled(
       batch.map(async (contact) => {
-        if (template) {
-          const variables = buildVariables(template, contact);
-          const result = await sendTemplateMessage(ws, sanitizePhone(contact.phone), template.name, template.language ?? 'en', variables, headerMediaId, headerMediaType);
-          return { contact, result, msgContent: template.body, msgType: 'template' as const };
-        } else {
-          const result = await sendMediaMessage(ws, sanitizePhone(contact.phone), campaign.media_id as string, campaign.media_type as string)
-            .catch((e: unknown) => ({ success: false, error: String(e) }));
-          return { contact, result, msgContent: `[${campaign.media_type}]`, msgType: campaign.media_type as string ?? 'image' };
+        try {
+          if (template) {
+            const variables = buildVariables(template, contact);
+            const result = await sendTemplateMessage(ws, sanitizePhone(contact.phone), template.name, template.language ?? 'en', variables, headerMediaId, headerMediaType);
+            return { contact, result, msgContent: template.body, msgType: 'template' as const };
+          } else {
+            const result = await sendMediaMessage(ws, sanitizePhone(contact.phone), campaign.media_id as string, campaign.media_type as string)
+              .catch((e: unknown) => ({ success: false, error: String(e) }));
+            return { contact, result, msgContent: `[${campaign.media_type}]`, msgType: campaign.media_type as string ?? 'image' };
+          }
+        } catch (e) {
+          return { contact, result: { success: false, error: String(e) }, msgContent: '', msgType: 'template' as const };
         }
       }),
     );
@@ -331,6 +337,8 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
     // Collect results into pending batch for DB
     for (const settled of results) {
       if (settled.status === 'rejected') {
+        // Promise itself rejected (should not happen — inner fn catches errors)
+        // failedCount incremented but no contact info available to track
         failedCount++;
         continue;
       }
