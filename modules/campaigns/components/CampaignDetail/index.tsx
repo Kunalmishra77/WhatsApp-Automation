@@ -497,7 +497,10 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
   }, [campaignId, router]);
 
   const handleResume = useCallback(async () => {
-    if (!confirm('Resume this campaign? It will continue from where it left off — contacts already messaged will be skipped automatically.')) return;
+    const msg = data?.campaign?.status === 'completed'
+      ? 'Send to remaining contacts? Contacts already messaged in this campaign will be skipped automatically — no double sends.'
+      : 'Resume this campaign? It will continue from where it left off — contacts already messaged will be skipped automatically.';
+    if (!confirm(msg)) return;
     setResuming(true);
     try {
       const res = await fetch(`/api/campaigns/${campaignId}/resume`, { method: 'POST' });
@@ -567,13 +570,17 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
             {campaign.status}
           </span>
         )}
-        {/* Resume button — for stuck running/failed campaigns (continues from where left off, no double-sends) */}
-        {campaign && (campaign.status === 'running' || campaign.status === 'failed') && (
+        {/* Resume / Send to Remaining button */}
+        {campaign && (campaign.status === 'running' || campaign.status === 'failed' || campaign.status === 'completed') && (
           <Button size="sm" variant="outline"
             className="h-7 gap-1.5 text-xs shrink-0 border-green-200 text-green-700 hover:bg-green-50"
             onClick={handleResume} disabled={resuming}>
             <Zap className="h-3.5 w-3.5" />
-            {resuming ? 'Resuming…' : 'Resume Campaign'}
+            {resuming
+              ? 'Queuing…'
+              : campaign.status === 'completed'
+                ? 'Send to Remaining'
+                : 'Resume Campaign'}
           </Button>
         )}
         {/* Cancel button — only for running/scheduled campaigns */}

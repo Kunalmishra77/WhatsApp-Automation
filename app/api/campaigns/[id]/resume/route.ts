@@ -22,10 +22,6 @@ export async function POST(
     if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     await requireWorkspacePermission(campaign.workspace_id, 'create_campaigns');
 
-    if (campaign.status === 'completed') {
-      return NextResponse.json({ error: 'Campaign already completed' }, { status: 409 });
-    }
-
     // Clear any stuck queue entries for this campaign
     await db.from('campaign_queue')
       .update({ status: 'failed' })

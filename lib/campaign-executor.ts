@@ -260,9 +260,9 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   // - BATCH_SIZE messages fire concurrently
   // - BATCH_DELAY ms gap between batches controls throughput
   // - DB inserts are batched every DB_FLUSH_SIZE contacts
-  // Target: 5 parallel × 1 batch/sec = 300 msgs/min (vs old 18/min sequential)
-  const BATCH_SIZE    = 5;
-  const BATCH_DELAY   = 1000;  // ms between batches
+  // Target: 15 parallel × 1 batch/200ms = ~4500 msgs/min
+  const BATCH_SIZE    = 15;
+  const BATCH_DELAY   = 200;   // ms between batches
   const DB_FLUSH_SIZE = 25;
 
   const pendingRecipients: Array<Record<string, unknown>> = [];
