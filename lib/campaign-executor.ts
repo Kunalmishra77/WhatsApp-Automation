@@ -165,26 +165,50 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
   const ws: Workspace = { phone_number_id: phoneNumberId, access_token: accessToken };
 
-  let contactQuery = db
-    .from('contacts')
-    .select('id, phone, name, tags')
-    .eq('workspace_id', campaign.workspace_id)
-    .eq('is_blocked', false)
-    .eq('opted_out', false);
+  let recipients: Contact[] = [];
 
-  if (campaign.audience_type === 'tag' && campaign.audience_filter?.tag) {
-    contactQuery = contactQuery.contains('tags', [campaign.audience_filter.tag]);
-  } else if (campaign.audience_type === 'tags' && Array.isArray(campaign.audience_filter?.tags) && campaign.audience_filter.tags.length > 0) {
-    const tagFilters = (campaign.audience_filter.tags as string[])
-      .map((t: string) => `tags.cs.{"${t}"}`)
-      .join(',');
-    contactQuery = contactQuery.or(tagFilters);
-  } else if (campaign.audience_type === 'phone_prefix' && campaign.audience_filter?.prefix) {
-    contactQuery = contactQuery.ilike('phone', `${campaign.audience_filter.prefix}%`);
+  if (campaign.audience_type === 'contacts' && Array.isArray(campaign.audience_filter?.contact_ids) && campaign.audience_filter.contact_ids.length > 0) {
+    // Specific contacts selected by ID
+    const { data } = await db
+      .from('contacts')
+      .select('id, phone, name, tags')
+      .eq('workspace_id', campaign.workspace_id)
+      .eq('is_blocked', false)
+      .eq('opted_out', false)
+      .in('id', campaign.audience_filter.contact_ids as string[]) as { data: Contact[] | null };
+    recipients = data ?? [];
+  } else if (campaign.audience_type === 'manual' && Array.isArray(campaign.audience_filter?.phones) && campaign.audience_filter.phones.length > 0) {
+    // Manually entered phone numbers — look up in contacts first, fall back to bare phone
+    const rawPhones = (campaign.audience_filter.phones as string[]).map(sanitizePhone).filter(Boolean);
+    const { data: found } = await db
+      .from('contacts')
+      .select('id, phone, name, tags')
+      .eq('workspace_id', campaign.workspace_id)
+      .in('phone', rawPhones) as { data: Contact[] | null };
+    const foundMap = new Map((found ?? []).map((c: Contact) => [c.phone, c]));
+    recipients = rawPhones.map((phone) => foundMap.get(phone) ?? { id: `manual-${phone}`, phone, name: null, tags: [] });
+  } else {
+    let contactQuery = db
+      .from('contacts')
+      .select('id, phone, name, tags')
+      .eq('workspace_id', campaign.workspace_id)
+      .eq('is_blocked', false)
+      .eq('opted_out', false);
+
+    if (campaign.audience_type === 'tag' && campaign.audience_filter?.tag) {
+      contactQuery = contactQuery.contains('tags', [campaign.audience_filter.tag]);
+    } else if (campaign.audience_type === 'tags' && Array.isArray(campaign.audience_filter?.tags) && campaign.audience_filter.tags.length > 0) {
+      const tagFilters = (campaign.audience_filter.tags as string[])
+        .map((t: string) => `tags.cs.{"${t}"}`)
+        .join(',');
+      contactQuery = contactQuery.or(tagFilters);
+    } else if (campaign.audience_type === 'phone_prefix' && campaign.audience_filter?.prefix) {
+      contactQuery = contactQuery.ilike('phone', `${campaign.audience_filter.prefix}%`);
+    }
+
+    const { data: contacts } = await contactQuery as { data: Contact[] | null };
+    recipients = contacts ?? [];
   }
-
-  const { data: contacts } = await contactQuery as { data: Contact[] | null };
-  const recipients = contacts ?? [];
 
   if (recipients.length === 0) {
     await db.from('campaigns').update({

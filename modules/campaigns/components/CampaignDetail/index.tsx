@@ -280,7 +280,7 @@ function OverviewTab({ campaign, stats, daily, loading }: {
             { label: 'Message Type',  value: tpl ? `TEMPLATE${mType ? ` (${mType.toUpperCase()})` : ''}` : '—' },
             { label: 'Template Name', value: tpl?.name ?? '—' },
             { label: 'Audience',      value: audienceLabel },
-            { label: 'Created At',    value: format(new Date(campaign.created_at), 'MMM d, yyyy HH:mm') },
+            { label: 'Created At',    value: campaign.created_at ? format(new Date(campaign.created_at), 'MMM d, yyyy HH:mm') : '—' },
             { label: 'Started At',    value: campaign.started_at ? format(new Date(campaign.started_at), 'MMM d, yyyy HH:mm') : '—' },
             { label: 'Completed At',  value: campaign.completed_at ? format(new Date(campaign.completed_at), 'MMM d, yyyy HH:mm') : '—' },
           ].map(({ label, value }) => (
@@ -565,17 +565,9 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
 
         {/* Overview tab */}
         {tab === 'overview' && (
-          <OverviewTab
-            campaign={campaign ?? {
-              id: '', name: '', status: '', audience_type: '', audience_filter: null,
-              total_recipients: 0, sent_count: 0, failed_count: 0, delivered_count: 0, read_count: 0,
-              scheduled_at: null, started_at: null, completed_at: null, created_at: '',
-              media_id: null, media_type: null, templates: null,
-            }}
-            stats={stats}
-            daily={dailyData?.daily ?? []}
-            loading={isLoading}
-          />
+          isLoading || !campaign
+            ? <div className="p-6 space-y-4">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-xl" />)}</div>
+            : <OverviewTab campaign={campaign} stats={stats} daily={dailyData?.daily ?? []} loading={false} />
         )}
 
         {/* Sent / Delivered / Read tabs */}
