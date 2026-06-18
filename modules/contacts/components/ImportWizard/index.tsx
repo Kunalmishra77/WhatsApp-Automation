@@ -7,7 +7,6 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Upload, CheckCircle2, AlertCircle, Sparkles, FileText, Loader2 } from 'lucide-react';
-import { bulkImportContacts } from '../../services/contact.service';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -92,14 +91,29 @@ export function ImportWizard({ open, onClose }: ImportWizardProps) {
     setStep('importing');
     setProgress(10);
     try {
-      const res = await bulkImportContacts(workspaceId, rows);
+      // Use server-side API — handles batching + upsert properly for large sets
+      const res = await fetch('/api/contacts/import', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ workspaceId, contacts: rows }),
+      });
+      const data = await res.json() as { inserted?: number; failed?: number; error?: string; code?: string };
+      if (!res.ok) {
+        if (data.code === 'PLAN_LIMIT_EXCEEDED') {
+          setError(data.error ?? 'Contact limit reached on your current plan.');
+        } else {
+          setError(data.error ?? 'Import failed — please try again.');
+        }
+        setStep('preview');
+        return;
+      }
       setProgress(100);
-      setResult(res);
+      setResult({ inserted: data.inserted ?? 0, skipped: rows.length - (data.inserted ?? 0) - (data.failed ?? 0) });
       setStep('done');
       void queryClient.invalidateQueries({ queryKey: ['contacts', workspaceId] });
-      toast.success(`✅ Imported ${res.inserted} contacts`);
+      toast.success(`✅ Imported ${data.inserted ?? 0} contacts`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import failed');
+      setError(err instanceof Error ? err.message : 'Import failed — please try again.');
       setStep('preview');
     }
   };

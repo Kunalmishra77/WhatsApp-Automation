@@ -56,8 +56,8 @@ export async function POST(request: NextRequest) {
 
     const db = createAdminClient() as any;
 
-    // Upsert in batches of 100
-    const BATCH = 100;
+    // Upsert in batches of 500 (Supabase supports up to 1000 per upsert)
+    const BATCH = 500;
     let inserted = 0;
     let updated = 0;
     let failed = 0;
