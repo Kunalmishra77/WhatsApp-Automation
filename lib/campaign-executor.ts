@@ -271,7 +271,10 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
     if (pendingRecipients.length === 0) return;
     const rows = pendingRecipients.splice(0, pendingRecipients.length);
     const { error: insertErr } = await db.from('campaign_recipients').insert(rows);
-    if (insertErr) console.error('[Campaign] Batch recipient insert failed:', insertErr);
+    if (insertErr) {
+      // Throw so the error appears in the cron job response for debugging
+      throw new Error(`campaign_recipients insert failed: ${insertErr.message} | code:${insertErr.code} | hint:${insertErr.hint}`);
+    }
     await db.from('campaigns').update({ sent_count: sentCount, failed_count: failedCount }).eq('id', campaignId);
   };
 
