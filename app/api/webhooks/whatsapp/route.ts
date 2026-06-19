@@ -1358,21 +1358,22 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
     .maybeSingle();
 
   if (updatedCr?.campaign_id && ['delivered', 'read', 'failed'].includes(status.status)) {
-    // Re-aggregate from campaign_recipients (accurate regardless of event order)
-    const { data: rows } = await db
-      .from('campaign_recipients')
-      .select('status')
-      .eq('campaign_id', updatedCr.campaign_id);
-
-    const allRows = (rows ?? []) as Array<{ status: string }>;
-    const deliveredCount = allRows.filter((r) => ['delivered', 'read', 'replied'].includes(r.status)).length;
-    const readCount      = allRows.filter((r) => ['read', 'replied'].includes(r.status)).length;
-    const failedCount    = allRows.filter((r) => r.status === 'failed').length;
+    // Re-aggregate via COUNT queries (bypasses Supabase's 1000-row default row limit)
+    const cid = updatedCr.campaign_id;
+    const [deliveredRes, readRes, failedRes] = await Promise.all([
+      db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).in('status', ['delivered', 'read', 'replied']),
+      db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).in('status', ['read', 'replied']),
+      db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).eq('status', 'failed'),
+    ]);
 
     await db
       .from('campaigns')
-      .update({ delivered_count: deliveredCount, read_count: readCount, failed_count: failedCount })
-      .eq('id', updatedCr.campaign_id);
+      .update({
+        delivered_count: deliveredRes.count ?? 0,
+        read_count:      readRes.count      ?? 0,
+        failed_count:    failedRes.count    ?? 0,
+      })
+      .eq('id', cid);
   }
 }
 
