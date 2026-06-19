@@ -40,11 +40,23 @@ async function sendTemplateMessage(
   variables: string[],
   headerMediaId?: string,    // WhatsApp media ID for IMAGE/VIDEO/DOCUMENT header
   headerMediaType?: string,  // image | video | document
+  ltoExpiryMs?: number,      // LTO: expiration_time_ms
+  ltoCouponCode?: string,    // LTO: coupon code for COPY_CODE button
 ): Promise<{ success: boolean; waMessageId?: string; error?: string }> {
   const components: Array<Record<string, unknown>> = [];
 
-  // Include header media component when template has IMAGE/VIDEO/DOCUMENT header
-  // Supports both WhatsApp media ID ({ id }) and public URL ({ link })
+  // LTO component (must come before body)
+  if (ltoExpiryMs) {
+    components.push({
+      type: 'limited_time_offer',
+      parameters: [{
+        type: 'limited_time_offer',
+        limited_time_offer: { expiration_time_ms: ltoExpiryMs, has_expiration: true },
+      }],
+    });
+  }
+
+  // Header media component (IMAGE/VIDEO/DOCUMENT)
   if (headerMediaId && headerMediaType) {
     const isUrl = headerMediaId.startsWith('http://') || headerMediaId.startsWith('https://');
     components.push({
@@ -58,6 +70,14 @@ async function sendTemplateMessage(
 
   if (variables.length > 0) {
     components.push({ type: 'body', parameters: variables.map((v) => ({ type: 'text', text: v || ' ' })) });
+  }
+
+  // COPY_CODE button for LTO (index 0 of buttons)
+  if (ltoCouponCode) {
+    components.push({
+      type: 'button', sub_type: 'copy_code', index: '0',
+      parameters: [{ type: 'coupon_code', coupon_code: ltoCouponCode }],
+    });
   }
 
   const res = await fetch(
@@ -122,6 +142,150 @@ async function sendMediaMessage(
   }
 }
 
+// Sends a location pin (session-only — contact must have active 24h window)
+async function sendLocationMessage(
+  ws: Workspace,
+  toPhone: string,
+  lat: number,
+  lng: number,
+  name?: string,
+  address?: string,
+): Promise<{ success: boolean; waMessageId?: string; error?: string }> {
+  try {
+    const res = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${ws.access_token.replace(/﻿/g, '').trim()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: toPhone,
+        type: 'location',
+        location: { latitude: lat, longitude: lng, name: name ?? '', address: address ?? '' },
+      }),
+    });
+    const data = await res.json() as { messages?: Array<{ id: string }>; error?: { message: string } };
+    if (!res.ok) return { success: false, error: data?.error?.message ?? 'WhatsApp API error' };
+    return { success: true, waMessageId: data?.messages?.[0]?.id };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+// Sends an interactive list message (session-only)
+async function sendInteractiveListMessage(
+  ws: Workspace,
+  toPhone: string,
+  body: string,
+  buttonText: string,
+  sections: Array<{ title: string; rows: Array<{ id: string; title: string; description: string }> }>,
+): Promise<{ success: boolean; waMessageId?: string; error?: string }> {
+  try {
+    const res = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${ws.access_token.replace(/﻿/g, '').trim()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: toPhone,
+        type: 'interactive',
+        interactive: {
+          type: 'list',
+          body: { text: body },
+          action: {
+            button: buttonText || 'Select',
+            sections: sections.map((s) => ({
+              title: s.title,
+              rows: s.rows.map((r) => ({ id: r.id, title: r.title, description: r.description || undefined })),
+            })),
+          },
+        },
+      }),
+    });
+    const data = await res.json() as { messages?: Array<{ id: string }>; error?: { message: string } };
+    if (!res.ok) return { success: false, error: data?.error?.message ?? 'WhatsApp API error' };
+    return { success: true, waMessageId: data?.messages?.[0]?.id };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+// Sends a carousel template message
+async function sendCarouselTemplateMessage(
+  ws: Workspace,
+  toPhone: string,
+  templateName: string,
+  language: string,
+  cards: Array<{ body: string; header_type: string; buttons: Array<{ type: string; text: string; value?: string }> }>,
+  cardMediaUrls: string[],
+): Promise<{ success: boolean; waMessageId?: string; error?: string }> {
+  const carouselCards = cards.map((card, idx) => {
+    const cardComponents: Array<Record<string, unknown>> = [];
+
+    // Card header (image or video)
+    if (card.header_type !== 'NONE' && cardMediaUrls[idx]) {
+      const mediaType = card.header_type.toLowerCase();
+      cardComponents.push({
+        type: 'header',
+        parameters: [{ type: mediaType, [mediaType]: { link: cardMediaUrls[idx] } }],
+      });
+    }
+
+    // Card body variables (extract {{1}}, {{2}}...)
+    const vars = (card.body.match(/\{\{(\d+)\}\}/g) ?? []).map((_, i) => `Variable ${i + 1}`);
+    if (vars.length > 0) {
+      cardComponents.push({ type: 'body', parameters: vars.map((v) => ({ type: 'text', text: v })) });
+    }
+
+    // Card buttons
+    card.buttons.forEach((btn, bi) => {
+      if (btn.type === 'QUICK_REPLY') {
+        cardComponents.push({
+          type: 'button', sub_type: 'quick_reply', index: String(bi),
+          parameters: [{ type: 'payload', payload: btn.text }],
+        });
+      } else if (btn.type === 'URL') {
+        cardComponents.push({
+          type: 'button', sub_type: 'url', index: String(bi),
+          parameters: [{ type: 'text', text: btn.value || btn.text }],
+        });
+      }
+    });
+
+    return { card_index: idx, components: cardComponents };
+  });
+
+  try {
+    const res = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${ws.access_token.replace(/﻿/g, '').trim()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: toPhone,
+        type: 'template',
+        template: {
+          name: templateName,
+          language: { code: language },
+          components: [{ type: 'carousel', cards: carouselCards }],
+        },
+      }),
+    });
+    const data = await res.json() as { messages?: Array<{ id: string }>; error?: { message: string } };
+    if (!res.ok) return { success: false, error: data?.error?.message ?? 'WhatsApp API error' };
+    return { success: true, waMessageId: data?.messages?.[0]?.id };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
 // Detects Meta API errors that mean the number is not registered on WhatsApp.
 // These go to 'failed' (API rejected) and get cached in contacts.whatsapp_valid.
 function isNotWhatsAppError(msg: string): boolean {
@@ -153,7 +317,13 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
   const { data: campaign, error: campError } = await db
     .from('campaigns')
-    .select('*, templates(name, language, body, variables, header_type, header_content)')
+    .select(`
+      *,
+      templates(
+        name, language, body, variables, header_type, header_content,
+        has_lto, is_carousel, cards, list_button_text, list_sections
+      )
+    `)
     .eq('id', campaignId)
     .single();
 
@@ -161,10 +331,17 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
   if (campaign.status === 'completed') return { campaignId, total: 0, sent: 0, failed: 0, filtered: 0, skipped: 'already completed' };
 
-  const template = campaign.templates as (Template & { header_type?: string; header_content?: string }) | null;
+  const template = campaign.templates as (Template & {
+    header_type?: string; header_content?: string;
+    has_lto?: boolean; is_carousel?: boolean;
+    cards?: Array<{ body: string; header_type: string; buttons: Array<{ type: string; text: string; value?: string }> }>;
+    list_button_text?: string; list_sections?: unknown;
+  }) | null;
 
-  // Require at least template OR media — can't run an empty campaign
-  if (!template && !campaign.media_id) throw new Error(`Campaign ${campaignId} has no template or media`);
+  const isLocationCampaign = campaign.media_type === 'location';
+
+  // Require at least template OR media OR location — can't run an empty campaign
+  if (!template && !campaign.media_id && !isLocationCampaign) throw new Error(`Campaign ${campaignId} has no template or media`);
 
   const { data: workspace } = await db
     .from('workspaces')
@@ -399,29 +576,69 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
     await db.from('campaigns').update({ sent_count: sentCount, failed_count: failedCount, filtered_count: filteredCount }).eq('id', campaignId);
   };
 
+  // Prepare send parameters
   const tmplHeaderType = template?.header_type?.toUpperCase();
   const isMediaHeader  = tmplHeaderType && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(tmplHeaderType);
   const headerMediaId  = isMediaHeader ? (campaign.media_id as string | undefined ?? undefined) : undefined;
   const headerMediaType = headerMediaId ? (tmplHeaderType?.toLowerCase() ?? undefined) : undefined;
 
+  // LTO params
+  const ltoExpiryMs   = campaign.lto_expiry_at ? new Date(campaign.lto_expiry_at).getTime() : undefined;
+  const ltoCouponCode = (campaign.lto_coupon_code as string | undefined) ?? undefined;
+
+  // Carousel params
+  const isCarousel     = !!(template?.is_carousel && Array.isArray(template?.cards) && template.cards.length > 0);
+  const carouselCards  = (template?.cards ?? []) as Array<{ body: string; header_type: string; buttons: Array<{ type: string; text: string; value?: string }> }>;
+  const cardMediaUrls  = (campaign.card_media_urls as string[] | null) ?? [];
+
+  // Location params
+  const locationLat  = campaign.location_lat  as number | null;
+  const locationLng  = campaign.location_lng  as number | null;
+  const locationName = campaign.location_name as string | null;
+  const locationAddr = campaign.location_address as string | null;
+
+  // Interactive list params
+  const isListTemplate  = !!(template?.list_sections && !isCarousel);
+  const listButtonText  = (template?.list_button_text as string | undefined) ?? 'Select';
+  const listSections    = (template?.list_sections as Array<{ title: string; rows: Array<{ id: string; title: string; description: string }> }> | null) ?? [];
+
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
     const batch = recipients.slice(i, i + BATCH_SIZE);
 
-    // Fire all messages in this batch concurrently
-    // Inner fn always returns (never throws) so settled.status is always 'fulfilled'
-    // and we always have contact info to track failures in campaign_recipients
     const results = await Promise.allSettled(
       batch.map(async (contact) => {
         try {
+          // Location campaign
+          if (isLocationCampaign && locationLat !== null && locationLng !== null) {
+            const result = await sendLocationMessage(ws, sanitizePhone(contact.phone), locationLat, locationLng, locationName ?? undefined, locationAddr ?? undefined);
+            return { contact, result, msgContent: '[location]', msgType: 'location' };
+          }
+          // Carousel template
+          if (isCarousel && template) {
+            const result = await sendCarouselTemplateMessage(ws, sanitizePhone(contact.phone), template.name, template.language ?? 'en', carouselCards, cardMediaUrls);
+            return { contact, result, msgContent: '[carousel]', msgType: 'template' as const };
+          }
+          // Interactive list template
+          if (isListTemplate && template) {
+            const listBody = template.body || 'Choose an option';
+            const result = await sendInteractiveListMessage(ws, sanitizePhone(contact.phone), listBody, listButtonText, listSections);
+            return { contact, result, msgContent: listBody, msgType: 'interactive' };
+          }
+          // Standard template (with optional LTO)
           if (template) {
             const variables = buildVariables(template, contact);
-            const result = await sendTemplateMessage(ws, sanitizePhone(contact.phone), template.name, template.language ?? 'en', variables, headerMediaId, headerMediaType);
+            const result = await sendTemplateMessage(
+              ws, sanitizePhone(contact.phone), template.name, template.language ?? 'en',
+              variables, headerMediaId, headerMediaType,
+              template.has_lto ? ltoExpiryMs : undefined,
+              template.has_lto ? ltoCouponCode : undefined,
+            );
             return { contact, result, msgContent: template.body, msgType: 'template' as const };
-          } else {
-            const result = await sendMediaMessage(ws, sanitizePhone(contact.phone), campaign.media_id as string, campaign.media_type as string)
-              .catch((e: unknown) => ({ success: false, error: String(e) }));
-            return { contact, result, msgContent: `[${campaign.media_type}]`, msgType: campaign.media_type as string ?? 'image' };
           }
+          // Media-only (image/video/document/audio)
+          const result = await sendMediaMessage(ws, sanitizePhone(contact.phone), campaign.media_id as string, campaign.media_type as string)
+            .catch((e: unknown) => ({ success: false, error: String(e) }));
+          return { contact, result, msgContent: `[${campaign.media_type}]`, msgType: campaign.media_type as string ?? 'image' };
         } catch (e) {
           return { contact, result: { success: false, error: String(e) }, msgContent: '', msgType: 'template' as const };
         }

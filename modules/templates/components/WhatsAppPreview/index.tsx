@@ -1,13 +1,14 @@
-import { Image, Video, FileText } from 'lucide-react';
+import { Image, Video, FileText, Timer, Copy } from 'lucide-react';
 
 interface WhatsAppPreviewProps {
-  headerType?:    string;           // NONE | TEXT | IMAGE | VIDEO | DOCUMENT
-  headerText?:    string;           // for TEXT type
-  mediaFileName?: string;           // for media types
-  header?:        string;           // legacy — treated as TEXT
+  headerType?:    string;
+  headerText?:    string;
+  mediaFileName?: string;
+  header?:        string;       // legacy — treated as TEXT
   body:           string;
   footer?:        string;
   buttons?:       Array<{ type: string; text: string }>;
+  hasLTO?:        boolean;      // Limited Time Offer — shows countdown banner
 }
 
 export function WhatsAppPreview({
@@ -18,6 +19,7 @@ export function WhatsAppPreview({
   body,
   footer,
   buttons,
+  hasLTO,
 }: WhatsAppPreviewProps) {
   const renderText = (text: string) =>
     text.replace(/\{\{(\d+)\}\}/g, (_, n) => `[Variable ${n}]`);
@@ -66,6 +68,18 @@ export function WhatsAppPreview({
 
         <div className="min-h-32 bg-[#e5ddd5] p-3">
           <div className="max-w-[85%] rounded-b-xl rounded-tr-xl bg-white p-2.5 shadow-sm">
+
+            {/* LTO countdown banner */}
+            {hasLTO && (
+              <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-[#fff3e0] px-2.5 py-1.5 border border-[#ffcc80]">
+                <Timer className="h-3.5 w-3.5 text-[#e65100] shrink-0" />
+                <div>
+                  <p className="text-[10px] font-semibold text-[#e65100]">Limited Time Offer</p>
+                  <p className="text-[9px] text-[#bf360c]">Offer expires: 2h 30m</p>
+                </div>
+              </div>
+            )}
+
             <MediaPlaceholder />
 
             {resolvedHeaderType === 'TEXT' && resolvedHeaderText && (
@@ -85,7 +99,8 @@ export function WhatsAppPreview({
             {buttons && buttons.length > 0 && (
               <div className="mt-2 border-t border-[#e9edef] pt-2 space-y-1">
                 {buttons.map((btn, i) => (
-                  <div key={i} className="rounded-md bg-[#f0f2f5] px-2 py-1.5 text-center text-[12px] font-medium text-[#00a884]">
+                  <div key={i} className="flex items-center justify-center gap-1.5 rounded-md bg-[#f0f2f5] px-2 py-1.5 text-center text-[12px] font-medium text-[#00a884]">
+                    {btn.type === 'COPY_CODE' && <Copy className="h-3 w-3" />}
                     {btn.text}
                   </div>
                 ))}

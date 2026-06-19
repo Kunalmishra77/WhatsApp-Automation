@@ -17,7 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Check, ChevronRight, Paperclip, X, Loader2 as Spin, FlaskConical,
   ImageIcon, Video, FileText, AlertTriangle, Clock, RotateCcw, Link,
-  Search, Users, Phone, Upload,
+  Search, Users, Phone, Upload, Timer, MapPin, Music, LayoutGrid,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTemplates } from '@/modules/templates/hooks/useTemplates';
@@ -38,13 +38,26 @@ interface WizardState {
   audienceType:       'all' | 'tag' | 'tags' | 'contacts' | 'manual';
   audienceTag:        string;
   audienceTags:       string;
-  selectedContactIds: string[];   // for 'contacts' mode
-  manualPhones:       string;     // for 'manual' mode — newline/comma separated
+  selectedContactIds: string[];
+  manualPhones:       string;
   scheduledAt:        string;
-  // Header media (for template with IMAGE/VIDEO/DOCUMENT header)
-  mediaId:            string;   // URL or WhatsApp media ID — stored in campaigns.media_id
-  mediaType:          string;   // image | video | document
-  mediaFileName:      string;   // display name for recent history
+  // Header media (IMAGE/VIDEO/DOCUMENT templates)
+  mediaId:            string;
+  mediaType:          string;
+  mediaFileName:      string;
+  // LTO (Limited Time Offer) fields
+  ltoCouponCode:      string;
+  ltoExpiryAt:        string;   // datetime-local value
+  // Carousel card media URLs — one per card
+  cardMediaUrls:      string[];
+  // Location campaign
+  campaignType:       'standard' | 'location' | 'audio';
+  locationLat:        string;
+  locationLng:        string;
+  locationName:       string;
+  locationAddress:    string;
+  // Audio campaign
+  audioUrl:           string;
 }
 
 interface ContactPickerItem {
@@ -308,6 +321,10 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
     selectedContactIds: [], manualPhones: '',
     scheduledAt: '',
     mediaId: '', mediaType: '', mediaFileName: '',
+    ltoCouponCode: '', ltoExpiryAt: '', cardMediaUrls: [],
+    campaignType: 'standard',
+    locationLat: '', locationLng: '', locationName: '', locationAddress: '',
+    audioUrl: '',
   });
   const [contactSearch,   setContactSearch]   = useState('');
   const [contactList,     setContactList]     = useState<ContactPickerItem[]>([]);
@@ -374,22 +391,37 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
       .finally(() => setContactLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.audienceType, workspaceId, contactSearch]);
-  const selectedTemplate  = templates.find((t) => t.id === state.templateId);
-  const reqMediaType      = getMediaHeaderType(selectedTemplate) ?? (manualMediaType ?? null);
-  const templateNeedsMedia = !!reqMediaType;
-  const headerTypeIsUnknown = !!state.templateId && !getMediaHeaderType(selectedTemplate); // template selected but header_type unknown
-  const progress          = ((step + 1) / STEPS.length) * 100;
-  const approvedTemplates = templates.filter((t) => t.status === 'approved');
+  const selectedTemplate    = templates.find((t) => t.id === state.templateId);
+  const selectedTemplateAny = selectedTemplate as any;
+  const reqMediaType        = getMediaHeaderType(selectedTemplate) ?? (manualMediaType ?? null);
+  const templateNeedsMedia  = !!reqMediaType && state.campaignType === 'standard';
+  const headerTypeIsUnknown = !!state.templateId && !getMediaHeaderType(selectedTemplate);
+  const templateIsLTO       = !!selectedTemplateAny?.has_lto;
+  const templateIsCarousel  = !!selectedTemplateAny?.is_carousel;
+  const templateCards       = (selectedTemplateAny?.cards ?? []) as Array<{ body: string; header_type: string }>;
+  const progress            = ((step + 1) / STEPS.length) * 100;
+  const approvedTemplates   = templates.filter((t) => t.status === 'approved');
 
   const canProceed = () => {
     if (step === 0) return state.name.trim().length > 0;
-    if (step === 1 && templateNeedsMedia && !state.mediaId) return false;
+    if (step === 1) {
+      if (state.campaignType === 'location') return !!(state.locationLat && state.locationLng);
+      if (state.campaignType === 'audio')    return !!state.audioUrl.trim();
+      if (templateNeedsMedia && !state.mediaId) return false;
+      if (templateIsLTO && !state.ltoCouponCode.trim()) return false;
+      if (templateIsCarousel && templateCards.length > 0) {
+        const needed = templateCards.filter((c) => c.header_type !== 'NONE').length;
+        if (state.cardMediaUrls.filter(Boolean).length < needed) return false;
+      }
+    }
     if (step === 2) {
       if (state.audienceType === 'contacts') return state.selectedContactIds.length > 0;
       if (state.audienceType === 'manual')   return parseManualPhones(state.manualPhones).length > 0;
       if (state.audienceType === 'tag')      return state.audienceTag.trim().length > 0;
     }
-    if (step === STEPS.length - 1) return !!(state.templateId || state.mediaId);
+    if (step === STEPS.length - 1) {
+      return !!(state.templateId || state.mediaId || state.campaignType !== 'standard');
+    }
     return true;
   };
 
@@ -472,14 +504,36 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
           toast.success(`A/B campaign scheduled for ${new Date(state.scheduledAt).toLocaleString()}`);
         }
       } else {
+        // Build extra fields for new campaign types
+        const extraFields: Record<string, unknown> = {};
+        if (state.campaignType === 'location') {
+          extraFields.location_lat     = parseFloat(state.locationLat) || null;
+          extraFields.location_lng     = parseFloat(state.locationLng) || null;
+          extraFields.location_name    = state.locationName || null;
+          extraFields.location_address = state.locationAddress || null;
+          extraFields.media_type       = 'location';
+        } else if (state.campaignType === 'audio') {
+          extraFields.media_id   = state.audioUrl || undefined;
+          extraFields.media_type = 'audio';
+        }
+        if (selectedTemplateAny?.has_lto && state.ltoCouponCode) {
+          const expiryIST = state.ltoExpiryAt ? state.ltoExpiryAt + ':00+05:30' : undefined;
+          extraFields.lto_coupon_code = state.ltoCouponCode;
+          extraFields.lto_expiry_at   = expiryIST;
+        }
+        if (selectedTemplateAny?.is_carousel && state.cardMediaUrls.length > 0) {
+          extraFields.card_media_urls = state.cardMediaUrls;
+        }
+
         const camp = await create.mutateAsync({
           name:            state.name,
-          template_id:     state.templateId,
+          template_id:     state.templateId || undefined,
           audience_type:   state.audienceType,
           audience_filter: audienceFilter,
           scheduled_at:    scheduledAtIST,
           media_id:        state.mediaId   || undefined,
           media_type:      state.mediaType || undefined,
+          ...extraFields,
         } as Parameters<typeof create.mutateAsync>[0]);
 
         if (!isScheduled) {
@@ -504,7 +558,16 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
 
   const resetAndClose = () => {
     setStep(0);
-    setState({ name: '', templateId: '', templateIdB: '', abTest: false, audienceType: 'all', audienceTag: '', audienceTags: '', selectedContactIds: [], manualPhones: '', scheduledAt: '', mediaId: '', mediaType: '', mediaFileName: '' });
+    setState({
+      name: '', templateId: '', templateIdB: '', abTest: false,
+      audienceType: 'all', audienceTag: '', audienceTags: '',
+      selectedContactIds: [], manualPhones: '', scheduledAt: '',
+      mediaId: '', mediaType: '', mediaFileName: '',
+      ltoCouponCode: '', ltoExpiryAt: '', cardMediaUrls: [],
+      campaignType: 'standard',
+      locationLat: '', locationLng: '', locationName: '', locationAddress: '',
+      audioUrl: '',
+    });
     setContactSearch('');
     setContactList([]);
     onClose();
@@ -587,11 +650,35 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
 
                 {/* No template option */}
                 <button
-                  onClick={() => setState((s) => ({ ...s, templateId: '', mediaId: '', mediaType: '', mediaFileName: '' }))}
-                  className={cn('w-full rounded-lg border p-2.5 text-left transition-colors', !state.templateId ? 'border-brand-500 bg-brand-500/5' : 'border-border hover:border-brand-300')}
+                  onClick={() => setState((s) => ({ ...s, templateId: '', mediaId: '', mediaType: '', mediaFileName: '', campaignType: 'standard' }))}
+                  className={cn('w-full rounded-lg border p-2.5 text-left transition-colors', !state.templateId && state.campaignType === 'standard' ? 'border-brand-500 bg-brand-500/5' : 'border-border hover:border-brand-300')}
                 >
                   <p className="text-sm font-medium text-muted-foreground">🚫 No template — media only</p>
                   <p className="text-xs text-muted-foreground mt-0.5">Only reaches contacts with active 24-hr session</p>
+                </button>
+
+                {/* Location option */}
+                <button
+                  onClick={() => setState((s) => ({ ...s, templateId: '', campaignType: 'location' }))}
+                  className={cn('w-full rounded-lg border p-2.5 text-left transition-colors', state.campaignType === 'location' ? 'border-emerald-500 bg-emerald-500/5' : 'border-border hover:border-emerald-300')}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5 text-emerald-600" />
+                    <p className="text-sm font-medium">📍 Location Pin</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">Send your store/office location — session contacts only</p>
+                </button>
+
+                {/* Audio option */}
+                <button
+                  onClick={() => setState((s) => ({ ...s, templateId: '', campaignType: 'audio' }))}
+                  className={cn('w-full rounded-lg border p-2.5 text-left transition-colors', state.campaignType === 'audio' ? 'border-purple-500 bg-purple-500/5' : 'border-border hover:border-purple-300')}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Music className="h-3.5 w-3.5 text-purple-600" />
+                    <p className="text-sm font-medium">🔊 Audio Message</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">Voice note or audio file — session contacts only</p>
                 </button>
 
                 {/* Template cards */}
@@ -665,14 +752,116 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   </div>
                 )}
 
-                {/* Media URL input (inline, only when needed) */}
-                {templateNeedsMedia && reqMediaType && reqMediaType !== 'NONE' && (
+                {/* Media URL input (standard templates with IMAGE/VIDEO/DOCUMENT header) */}
+                {templateNeedsMedia && reqMediaType && reqMediaType !== 'NONE' && state.campaignType === 'standard' && (
                   <MediaUrlInput
                     headerType={reqMediaType}
                     workspaceId={workspaceId}
                     value={state.mediaId}
                     onChange={(url, type, name) => setState((s) => ({ ...s, mediaId: url, mediaType: type, mediaFileName: name }))}
                   />
+                )}
+
+                {/* LTO fields (shown when selected template has_lto) */}
+                {templateIsLTO && state.campaignType === 'standard' && (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-3">
+                    <div className="flex items-center gap-1.5">
+                      <Timer className="h-4 w-4 text-amber-600" />
+                      <p className="text-xs font-semibold text-amber-800">Limited Time Offer Settings</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Coupon Code <span className="text-red-500">*</span></Label>
+                      <Input
+                        value={state.ltoCouponCode}
+                        onChange={(e) => setState((s) => ({ ...s, ltoCouponCode: e.target.value.toUpperCase() }))}
+                        placeholder="SAVE20"
+                        maxLength={15}
+                        className="font-mono uppercase"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Offer Expiry (IST) <span className="text-muted-foreground">(optional)</span></Label>
+                      <Input
+                        type="datetime-local"
+                        value={state.ltoExpiryAt}
+                        onChange={(e) => setState((s) => ({ ...s, ltoExpiryAt: e.target.value }))}
+                      />
+                      <p className="text-[11px] text-amber-700">WhatsApp will show a countdown timer until this time</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Carousel card media URLs */}
+                {templateIsCarousel && state.campaignType === 'standard' && templateCards.length > 0 && (
+                  <div className="mt-3 rounded-xl border border-purple-200 bg-purple-50/60 p-3 space-y-3">
+                    <div className="flex items-center gap-1.5">
+                      <LayoutGrid className="h-4 w-4 text-purple-600" />
+                      <p className="text-xs font-semibold text-purple-800">Carousel Card Images</p>
+                    </div>
+                    {templateCards.map((card, ci) => (
+                      card.header_type !== 'NONE' && (
+                        <div key={ci} className="space-y-1.5">
+                          <Label className="text-xs">Card {ci + 1} — {card.header_type} URL <span className="text-red-500">*</span></Label>
+                          <Input
+                            value={state.cardMediaUrls[ci] ?? ''}
+                            onChange={(e) => {
+                              const urls = [...state.cardMediaUrls];
+                              urls[ci] = e.target.value;
+                              setState((s) => ({ ...s, cardMediaUrls: urls }));
+                            }}
+                            placeholder={`https://example.com/card${ci + 1}.${card.header_type === 'VIDEO' ? 'mp4' : 'jpg'}`}
+                            className="text-sm"
+                          />
+                          <p className="text-[10px] text-muted-foreground truncate">{card.body.slice(0, 60)}</p>
+                        </div>
+                      )
+                    ))}
+                  </div>
+                )}
+
+                {/* Location fields */}
+                {state.campaignType === 'location' && (
+                  <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 space-y-3">
+                    <div className="flex items-center gap-1.5">
+                      <MapPin className="h-4 w-4 text-emerald-600" />
+                      <p className="text-xs font-semibold text-emerald-800">Location Details</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Latitude <span className="text-red-500">*</span></Label>
+                        <Input value={state.locationLat} onChange={(e) => setState((s) => ({ ...s, locationLat: e.target.value }))} placeholder="28.6139" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Longitude <span className="text-red-500">*</span></Label>
+                        <Input value={state.locationLng} onChange={(e) => setState((s) => ({ ...s, locationLng: e.target.value }))} placeholder="77.2090" />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Place Name</Label>
+                      <Input value={state.locationName} onChange={(e) => setState((s) => ({ ...s, locationName: e.target.value }))} placeholder="Our Office" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Address</Label>
+                      <Input value={state.locationAddress} onChange={(e) => setState((s) => ({ ...s, locationAddress: e.target.value }))} placeholder="123 Main St, New Delhi" />
+                    </div>
+                    <p className="text-[11px] text-emerald-700">Only contacts with active 24h WhatsApp session will receive this.</p>
+                  </div>
+                )}
+
+                {/* Audio URL */}
+                {state.campaignType === 'audio' && (
+                  <div className="mt-3 rounded-xl border border-purple-200 bg-purple-50/60 p-3 space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Music className="h-4 w-4 text-purple-600" />
+                      <p className="text-xs font-semibold text-purple-800">Audio File URL</p>
+                    </div>
+                    <Input
+                      value={state.audioUrl}
+                      onChange={(e) => setState((s) => ({ ...s, audioUrl: e.target.value }))}
+                      placeholder="https://example.com/audio.mp3 or .ogg"
+                    />
+                    <p className="text-[11px] text-purple-700">Supported: mp3, ogg, aac. Only session contacts will receive this.</p>
+                  </div>
                 )}
               </div>
 
@@ -911,12 +1100,29 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
               )}
               <div className="rounded-lg border border-border p-4 space-y-2 text-sm">
                 <Row label="Name"         value={state.name} />
-                <Row label="Template"     value={selectedTemplate?.name ?? '—'} mono />
-                {selectedTemplate?.header_type && selectedTemplate.header_type !== 'NONE' && (
-                  <Row label="Header type"  value={selectedTemplate.header_type} />
-                )}
-                {state.mediaId && (
-                  <Row label="Header media" value={state.mediaFileName || state.mediaId} />
+                {state.campaignType === 'location' ? (
+                  <>
+                    <Row label="Type"     value="📍 Location" />
+                    <Row label="Location" value={state.locationName || `${state.locationLat}, ${state.locationLng}`} />
+                  </>
+                ) : state.campaignType === 'audio' ? (
+                  <Row label="Type"       value="🔊 Audio Message" />
+                ) : (
+                  <>
+                    <Row label="Template"     value={selectedTemplate?.name ?? '—'} mono />
+                    {templateIsLTO && state.ltoCouponCode && (
+                      <Row label="Coupon Code" value={state.ltoCouponCode} />
+                    )}
+                    {templateIsCarousel && (
+                      <Row label="Cards" value={`${templateCards.length} cards`} />
+                    )}
+                    {selectedTemplate?.header_type && selectedTemplate.header_type !== 'NONE' && (
+                      <Row label="Header type" value={selectedTemplate.header_type} />
+                    )}
+                    {state.mediaId && (
+                      <Row label="Header media" value={state.mediaFileName || state.mediaId} />
+                    )}
+                  </>
                 )}
                 <Row label="Audience" value={
                   state.audienceType === 'all'      ? 'All Contacts' :
@@ -952,7 +1158,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
               </div>
 
               {/* Preview */}
-              {selectedTemplate && (
+              {selectedTemplate && state.campaignType === 'standard' && !templateIsCarousel && (
                 <div className="flex justify-center">
                   <div className="w-64">
                     <p className="text-xs text-muted-foreground text-center mb-2">Message Preview</p>
@@ -963,6 +1169,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                       body={selectedTemplate.body}
                       footer={selectedTemplate.footer ?? undefined}
                       buttons={templateButtons}
+                      hasLTO={templateIsLTO}
                     />
                   </div>
                 </div>
