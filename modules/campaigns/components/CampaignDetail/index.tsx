@@ -53,7 +53,7 @@ interface Recipient {
   error_message: string | null; conversation_id: string | null;
   filtered_reason: string | null;
 }
-interface Stats { total: number; sent: number; delivered: number; read: number; failed: number; replied: number; filtered: number; }
+interface Stats { total: number; sent: number; delivered: number; read: number; failed: number; replied: number; filtered: number; button_replies: number; text_replies: number; }
 interface Campaign {
   id: string; name: string; status: string; audience_type: string; audience_filter: Record<string, unknown> | null;
   total_recipients: number; sent_count: number; failed_count: number; delivered_count: number; read_count: number;
@@ -553,7 +553,7 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
   });
 
   const campaign   = data?.campaign;
-  const stats      = data?.stats ?? { total: 0, sent: 0, delivered: 0, read: 0, failed: 0, replied: 0, filtered: 0 };
+  const stats      = data?.stats ?? { total: 0, sent: 0, delivered: 0, read: 0, failed: 0, replied: 0, filtered: 0, button_replies: 0, text_replies: 0 };
   const recipients = data?.recipients ?? [];
   const uniqueReplyTexts = data?.unique_reply_texts ?? [];
 
@@ -692,10 +692,10 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
             {/* Stats */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-5 border-b border-border">
               {[
-                { label: 'Total Replied', value: stats.replied,     icon: Reply,  color: 'text-emerald-600', sub: `${pct(stats.replied, stats.sent)}% reply rate` },
-                { label: 'Button Clicks', value: recipients.filter((r) => r.reply_type === 'button').length, icon: Filter, color: 'text-blue-600', sub: 'tapped a button' },
-                { label: 'Text Replies',  value: recipients.filter((r) => r.reply_type === 'text').length,   icon: MessageSquare, color: 'text-violet-600', sub: 'typed a reply' },
-                { label: 'Unique Replies',value: uniqueReplyTexts.length, icon: CheckCheck, color: 'text-sky-600', sub: 'distinct messages' },
+                { label: 'Total Replied', value: stats.replied,        icon: Reply,        color: 'text-emerald-600', sub: `${pct(stats.replied, stats.sent)}% reply rate` },
+                { label: 'Button Clicks', value: stats.button_replies, icon: Filter,       color: 'text-blue-600',    sub: 'tapped a template button' },
+                { label: 'Text Replies',  value: stats.text_replies,   icon: MessageSquare,color: 'text-violet-600',  sub: 'typed a reply' },
+                { label: 'Unique Replies',value: uniqueReplyTexts.length, icon: CheckCheck,color: 'text-sky-600',     sub: 'distinct messages' },
               ].map((s) => <MiniStat key={s.label} {...s} value={String(s.value)} />)}
             </div>
 

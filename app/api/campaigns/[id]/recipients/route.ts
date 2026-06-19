@@ -43,7 +43,10 @@ export async function GET(
 
     // ── Full stats via parallel count queries (bypass 1000-row default limit) ─
     // Model: sent (API accepted) + failed (API rejected) + filtered (pre-filtered) = total
-    const [totalRes, sentRes, deliveredRes, readRes, repliedRes, failedRes, filteredRes] = await Promise.all([
+    const [
+      totalRes, sentRes, deliveredRes, readRes, repliedRes, failedRes, filteredRes,
+      buttonRepliesRes, textRepliesRes,
+    ] = await Promise.all([
       db.from('campaign_recipients').select('id', { count: 'exact', head: true })
         .eq('campaign_id', campaignId),
       db.from('campaign_recipients').select('id', { count: 'exact', head: true })
@@ -58,16 +61,23 @@ export async function GET(
         .eq('campaign_id', campaignId).eq('status', 'failed'),
       db.from('campaign_recipients').select('id', { count: 'exact', head: true })
         .eq('campaign_id', campaignId).eq('status', 'filtered'),
+      // Breakdown of replied by reply_type — server-side so it's accurate across all pages
+      db.from('campaign_recipients').select('id', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId).eq('status', 'replied').eq('reply_type', 'button'),
+      db.from('campaign_recipients').select('id', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId).eq('status', 'replied').eq('reply_type', 'text'),
     ]);
 
-    const total     = totalRes.count     ?? 0;
-    const sent      = sentRes.count      ?? 0;   // API accepted (may still deliver)
-    const failed    = failedRes.count    ?? 0;   // API immediately rejected
-    const filtered  = filteredRes.count  ?? 0;   // pre-filtered before send
-    const delivered = deliveredRes.count ?? 0;
-    const read      = readRes.count      ?? 0;
-    const replied   = repliedRes.count   ?? 0;
-    const stats = { total, sent, delivered, read, replied, failed, filtered };
+    const total          = totalRes.count          ?? 0;
+    const sent           = sentRes.count           ?? 0;
+    const failed         = failedRes.count         ?? 0;
+    const filtered       = filteredRes.count       ?? 0;
+    const delivered      = deliveredRes.count      ?? 0;
+    const read           = readRes.count           ?? 0;
+    const replied        = repliedRes.count        ?? 0;
+    const button_replies = buttonRepliesRes.count  ?? 0;
+    const text_replies   = textRepliesRes.count    ?? 0;
+    const stats = { total, sent, delivered, read, replied, failed, filtered, button_replies, text_replies };
 
     // ── Unique reply texts for dropdown ───────────────────────────────────────
     const { data: replyTextsRaw } = await db
