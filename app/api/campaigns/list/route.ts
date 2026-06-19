@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     const result = (campaigns ?? []).map((c: any) => ({
       ...c,
       live_total:     c.total_recipients ?? 0,
-      live_sent:      c.sent_count       ?? 0,
+      live_sent:      c.total_recipients ?? 0,   // sent = total contacts attempted
       live_delivered: c.delivered_count  ?? 0,
       live_read:      c.read_count       ?? 0,
       live_replied:   0,

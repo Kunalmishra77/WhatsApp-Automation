@@ -336,10 +336,10 @@ function OverviewTab({ campaign, stats, daily, loading }: {
         {/* Big stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {loading ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />) : [
-            { label: 'Sent',      value: stats.sent,      sub: `${pct(stats.sent, stats.total)}% of audience`,      icon: Send,       color: 'text-blue-600'    },
-            { label: 'Delivered', value: stats.delivered, sub: `${pct(stats.delivered, stats.sent)}% of sent`,      icon: CheckCheck, color: 'text-sky-600'     },
+            { label: 'Sent',      value: stats.total,     sub: `100% of audience`,                                  icon: Send,       color: 'text-blue-600'    },
+            { label: 'Delivered', value: stats.delivered, sub: `${pct(stats.delivered, stats.total)}% of sent`,     icon: CheckCheck, color: 'text-sky-600'     },
             { label: 'Read',      value: stats.read,      sub: `${pct(stats.read, stats.delivered)}% of delivered`, icon: Eye,        color: 'text-violet-600'  },
-            { label: 'Replied',   value: stats.replied,   sub: `${pct(stats.replied, stats.sent)}% of sent`,        icon: Reply,      color: 'text-emerald-600' },
+            { label: 'Replied',   value: stats.replied,   sub: `${pct(stats.replied, stats.total)}% of sent`,       icon: Reply,      color: 'text-emerald-600' },
           ].map(({ label, value, sub, icon, color }) => (
             <MiniStat key={label} label={label} value={value.toLocaleString()} sub={sub} icon={icon} color={color} />
           ))}
@@ -349,11 +349,11 @@ function OverviewTab({ campaign, stats, daily, loading }: {
         <div className="rounded-xl border border-border bg-card p-5 space-y-3">
           <h3 className="text-sm font-semibold text-foreground">Delivery Funnel</h3>
           {[
-            { label: 'Sent',      value: stats.sent,      total: stats.total,     color: 'bg-blue-500'    },
-            { label: 'Delivered', value: stats.delivered, total: stats.sent,      color: 'bg-sky-500'     },
-            { label: 'Read',      value: stats.read,      total: stats.delivered, color: 'bg-violet-500'  },
-            { label: 'Replied',   value: stats.replied,   total: stats.sent,      color: 'bg-emerald-500' },
-            { label: 'Failed',    value: stats.failed,    total: stats.total,     color: 'bg-red-500'     },
+            { label: 'Sent',      value: stats.total,     total: stats.total, color: 'bg-blue-500'    },
+            { label: 'Delivered', value: stats.delivered, total: stats.total, color: 'bg-sky-500'     },
+            { label: 'Read',      value: stats.read,      total: stats.total, color: 'bg-violet-500'  },
+            { label: 'Replied',   value: stats.replied,   total: stats.total, color: 'bg-emerald-500' },
+            { label: 'Failed',    value: stats.failed,    total: stats.total, color: 'bg-red-500'     },
           ].map(({ label, value, total, color }) => {
             const p2 = pct(value, total);
             return (

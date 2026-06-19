@@ -60,7 +60,8 @@ export async function GET(
     const delivered = deliveredRes.count ?? 0;
     const read      = readRes.count      ?? 0;
     const replied   = repliedRes.count   ?? 0;
-    const stats = { total, sent: total - failed, delivered, read, replied, failed };
+    // sent = total contacts the campaign was sent to (failed = those not delivered, not those not attempted)
+    const stats = { total, sent: total, delivered, read, replied, failed };
 
     // ── Unique reply texts for dropdown ───────────────────────────────────────
     const { data: replyTextsRaw } = await db
@@ -89,9 +90,8 @@ export async function GET(
       .order('sent_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
-    // Status filter — funnel-style (sent includes all downstream statuses)
-    if (status === 'sent')           query = query.in('status', ['sent', 'delivered', 'read', 'replied']);
-    else if (status === 'delivered') query = query.in('status', ['delivered', 'read', 'replied']);
+    // Status filter — sent = ALL contacts (total attempted); other tabs are subsets
+    if (status === 'delivered')      query = query.in('status', ['delivered', 'read', 'replied']);
     else if (status === 'read')      query = query.in('status', ['read', 'replied']);
     else if (status !== 'all')       query = query.eq('status', status);
 
