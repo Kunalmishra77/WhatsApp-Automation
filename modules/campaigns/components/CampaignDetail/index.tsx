@@ -774,6 +774,43 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
             <Pagination data={data} page={page} setPage={setPage} />
           </div>
         )}
+
+        {/* Filtered tab */}
+        {tab === 'filtered' && (
+          <div>
+            {/* Stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-5 border-b border-border">
+              {[
+                { label: 'Total Filtered', value: stats.filtered, icon: Filter,  color: 'text-orange-600', sub: `${pct(stats.filtered, stats.total)}% of audience pre-filtered` },
+                { label: 'Not on WhatsApp', value: recipients.filter((r) => r.filtered_reason === 'no_whatsapp').length,          icon: XCircle, color: 'text-red-500',    sub: 'cached as invalid number' },
+                { label: 'Repeat Failures', value: recipients.filter((r) => r.filtered_reason === 'repeat_campaign_fail').length, icon: Users,   color: 'text-amber-600', sub: 'failed in 2+ past campaigns' },
+              ].map((s) => <MiniStat key={s.label} {...s} value={String(s.value)} />)}
+            </div>
+
+            {/* Info banner */}
+            <div className="mx-5 my-3 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-700">
+              These contacts were skipped before sending — <strong>no WhatsApp message was sent and no charge was incurred</strong> for them.
+              Download the list to re-verify numbers or remove them from future campaigns.
+            </div>
+
+            {/* Search + download */}
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
+              <div className="relative flex-1 max-w-xs">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input placeholder="Search name or mobile…" value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                  className="pl-8 h-8 text-sm" />
+              </div>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs ml-auto"
+                onClick={() => downloadTab(campaignId, workspaceId, 'filtered')}>
+                <Download className="h-3.5 w-3.5" /> Download CSV
+              </Button>
+            </div>
+
+            <RecipientTable recipients={recipients} loading={isLoading} tab="filtered" router={router} campaignId={campaignId} workspaceId={workspaceId} />
+            <Pagination data={data} page={page} setPage={setPage} />
+          </div>
+        )}
       </div>
     </div>
   );

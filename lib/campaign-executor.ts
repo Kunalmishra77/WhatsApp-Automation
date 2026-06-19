@@ -255,7 +255,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
         .from('campaign_recipients')
         .select('phone')
         .eq('campaign_id', campaignId)
-        .in('status', ['sent', 'delivered', 'read', 'replied'])
+        .in('status', ['sent', 'delivered', 'read', 'replied', 'filtered'])
         .range(dedupOffset, dedupOffset + DEDUP_PAGE - 1) as { data: Array<{ phone: string }> | null };
       if (!page || page.length === 0) break;
       page.forEach((r) => sentPhones.add(r.phone));

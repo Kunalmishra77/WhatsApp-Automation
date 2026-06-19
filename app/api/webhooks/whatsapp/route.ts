@@ -1370,9 +1370,13 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
     .maybeSingle();
 
   if (updatedCr?.campaign_id && ['delivered', 'read', 'failed'].includes(status.status)) {
-    // Re-aggregate via COUNT queries (bypasses Supabase's 1000-row default row limit)
+    // Re-aggregate via COUNT queries (bypasses Supabase's 1000-row default row limit).
+    // sent_count is also re-calculated here so it stays in sync as messages progress
+    // from 'sent' → 'delivered' (executor writes sent_count at completion time but
+    // later delivery webhooks can push more rows into delivered without updating it).
     const cid = updatedCr.campaign_id;
-    const [deliveredRes, readRes, failedRes] = await Promise.all([
+    const [sentRes, deliveredRes, readRes, failedRes] = await Promise.all([
+      db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).in('status', ['sent', 'delivered', 'read', 'replied']),
       db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).in('status', ['delivered', 'read', 'replied']),
       db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).in('status', ['read', 'replied']),
       db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).eq('status', 'failed'),
@@ -1381,6 +1385,7 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
     await db
       .from('campaigns')
       .update({
+        sent_count:      sentRes.count      ?? 0,
         delivered_count: deliveredRes.count ?? 0,
         read_count:      readRes.count      ?? 0,
         failed_count:    failedRes.count    ?? 0,
