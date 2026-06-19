@@ -55,7 +55,7 @@ export function useDeleteTemplate() {
   const queryClient = useQueryClient();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   return useMutation({
-    mutationFn: (id: string) => deleteTemplate(id),
+    mutationFn: (id: string) => deleteTemplate(id, workspaceId!),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['templates', workspaceId] }),
   });
 }

@@ -56,10 +56,12 @@ export async function updateTemplate(id: string, payload: TemplateUpdate): Promi
   return data as TemplateRow;
 }
 
-export async function deleteTemplate(id: string): Promise<void> {
-  const supabase = createClient();
-  const { error } = await supabase.from('templates').delete().eq('id', id);
-  if (error) throw error;
+export async function deleteTemplate(id: string, workspaceId: string): Promise<void> {
+  const res = await fetch(`/api/templates/${id}?workspaceId=${workspaceId}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body?.error ?? 'Failed to delete template');
+  }
 }
 
 export function extractVariables(body: string): string[] {
