@@ -350,29 +350,41 @@ async function handleIncomingMessage(
   // `return` early — any inbound message should still count as a campaign reply
   // regardless of what other feature also handles it.
   {
-    const { data: pendingCr } = await (supabase as any)
+    const { data: pendingCr, error: crFindErr } = await (supabase as any)
       .from('campaign_recipients')
       .select('id')
       .eq('contact_id', contactId)
-      .not('status', 'in', '("failed","replied")')
+      .eq('workspace_id', workspaceId)
+      // Correct PostgREST not-in syntax: no quotes around text values
+      .not('status', 'in', '(failed,replied,filtered)')
       .order('sent_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
+    if (crFindErr) console.error('[Webhook] Campaign reply lookup error:', crFindErr.message);
+
     if (pendingCr) {
-      const isButton = msg.type === 'interactive';
-      const replyText = isButton
+      // msg.type='button'  → template quick-reply button tap (most common from campaigns)
+      // msg.type='interactive' → interactive list/button (rich menus)
+      const isButton = msg.type === 'button' || msg.type === 'interactive';
+      const replyText = msg.type === 'button'
+        ? (msg.button?.text ?? content)
+        : msg.type === 'interactive'
         ? (msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? content)
         : content;
-      await (supabase as any)
+
+      const { error: crUpdateErr } = await (supabase as any)
         .from('campaign_recipients')
         .update({
-          status:     'replied',
-          replied_at: new Date().toISOString(),
-          reply_type: isButton ? 'button' : 'text',
-          reply_text: replyText ?? null,
+          status:          'replied',
+          replied_at:      new Date().toISOString(),
+          reply_type:      isButton ? 'button' : 'text',
+          reply_text:      replyText ?? null,
+          conversation_id: conversation?.id ?? null,
         })
         .eq('id', pendingCr.id);
+
+      if (crUpdateErr) console.error('[Webhook] Campaign reply update error:', crUpdateErr.message, 'cr_id:', pendingCr.id);
     }
   }
   // ─────────────────────────────────────────────────────────────────────────────
