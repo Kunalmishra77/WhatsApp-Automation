@@ -345,16 +345,43 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
   const { data: workspace } = await db
     .from('workspaces')
-    .select('phone_number_id, access_token')
+    .select('phone_number_id, access_token, waba_id')
     .eq('id', campaign.workspace_id)
     .single();
 
   const phoneNumberId = workspace?.phone_number_id ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
   const accessToken   = workspace?.access_token    ?? process.env.WHATSAPP_ACCESS_TOKEN;
+  const wabaId        = workspace?.waba_id         ?? process.env.WHATSAPP_WABA_ID;
 
   if (!phoneNumberId || !accessToken) throw new Error('Missing WhatsApp credentials');
 
   const ws: Workspace = { phone_number_id: phoneNumberId, access_token: accessToken };
+
+  // Pre-flight: verify template exists in Meta before starting the campaign.
+  // Catches misconfigurations (template not submitted, wrong WABA) before wasting send quota.
+  if (template && wabaId) {
+    const cleanToken = accessToken.replace(/﻿/g, '').trim();
+    const verifyUrl  = `https://graph.facebook.com/v19.0/${wabaId}/message_templates` +
+      `?name=${encodeURIComponent(template.name)}&fields=name,status,language&access_token=${cleanToken}`;
+    try {
+      const verifyRes  = await fetch(verifyUrl);
+      const verifyData = await verifyRes.json() as { data?: Array<{ name: string; status: string; language: string }> };
+      const match = (verifyData.data ?? []).find(
+        (t) => t.name === template.name && t.language === (template.language ?? 'en') && t.status === 'APPROVED',
+      );
+      if (!match) {
+        const statusFound = (verifyData.data ?? []).find((t) => t.name === template.name);
+        const reason = statusFound
+          ? `Template "${template.name}" exists in Meta but status is "${statusFound.status}" (not APPROVED)`
+          : `Template "${template.name}" (language: ${template.language ?? 'en'}) not found in this workspace's Meta account. Submit and get it approved first.`;
+        await db.from('campaigns').update({ status: 'failed', completed_at: new Date().toISOString() }).eq('id', campaignId);
+        return { campaignId, total: 0, sent: 0, failed: 0, filtered: 0, skipped: reason };
+      }
+    } catch (_err) {
+      // Non-fatal: if the verify call itself fails (network error etc.), proceed anyway
+      console.warn('[Campaign] Template pre-flight check failed (non-fatal):', _err);
+    }
+  }
 
   let recipients: Contact[] = [];
 
