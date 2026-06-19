@@ -350,7 +350,8 @@ async function handleIncomingMessage(
   // `return` early — any inbound message should still count as a campaign reply
   // regardless of what other feature also handles it.
   {
-    const { data: pendingCr, error: crFindErr } = await (supabase as any)
+    // Primary lookup: by contact_id (works for contact-list campaigns)
+    let { data: pendingCr, error: crFindErr } = await (supabase as any)
       .from('campaign_recipients')
       .select('id')
       .eq('contact_id', contactId)
@@ -362,6 +363,21 @@ async function handleIncomingMessage(
       .maybeSingle();
 
     if (crFindErr) console.error('[Webhook] Campaign reply lookup error:', crFindErr.message);
+
+    // Fallback: by phone (covers CSV/manual campaigns where contact_id is NULL in campaign_recipients)
+    if (!pendingCr && waId) {
+      const { data: phoneCr, error: phoneCrErr } = await (supabase as any)
+        .from('campaign_recipients')
+        .select('id')
+        .eq('phone', waId)
+        .eq('workspace_id', workspaceId)
+        .not('status', 'in', '(failed,replied,filtered)')
+        .order('sent_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (phoneCrErr) console.error('[Webhook] Campaign reply phone-lookup error:', phoneCrErr.message);
+      if (phoneCr) pendingCr = phoneCr;
+    }
 
     if (pendingCr) {
       // msg.type='button'  → template quick-reply button tap (most common from campaigns)

@@ -650,12 +650,35 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
 
                 {/* No template option */}
                 <button
-                  onClick={() => setState((s) => ({ ...s, templateId: '', mediaId: '', mediaType: '', mediaFileName: '', campaignType: 'standard' }))}
+                  onClick={() => { setState((s) => ({ ...s, templateId: '', mediaId: '', mediaType: '', mediaFileName: '', campaignType: 'standard' })); setManualMediaType(null); }}
                   className={cn('w-full rounded-lg border p-2.5 text-left transition-colors', !state.templateId && state.campaignType === 'standard' ? 'border-brand-500 bg-brand-500/5' : 'border-border hover:border-brand-300')}
                 >
-                  <p className="text-sm font-medium text-muted-foreground">🚫 No template — media only</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Only reaches contacts with active 24-hr session</p>
+                  <p className="text-sm font-medium text-muted-foreground">📎 No template — media only</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Send image / video / document — session contacts only</p>
                 </button>
+
+                {/* Standalone media type picker (shown when "No template" is selected) */}
+                {!state.templateId && state.campaignType === 'standard' && (
+                  <div className="rounded-xl border border-brand-200 bg-brand-50/40 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-brand-800">What type of media do you want to send?</p>
+                    <div className="flex gap-2">
+                      {(['IMAGE', 'VIDEO', 'DOCUMENT'] as const).map((type) => {
+                        const meta = MEDIA_TYPE_MAP[type];
+                        return (
+                          <button key={type} onClick={() => setManualMediaType(type)}
+                            className={cn(
+                              'flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
+                              manualMediaType === type
+                                ? 'border-brand-500 bg-brand-500 text-white'
+                                : 'border-brand-300 bg-white text-brand-800 hover:border-brand-500 hover:bg-brand-50',
+                            )}>
+                            {meta?.icon}{meta?.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Location option */}
                 <button
