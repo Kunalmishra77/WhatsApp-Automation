@@ -122,11 +122,27 @@ async function sendMediaMessage(
   }
 }
 
+// Detects Meta API errors that mean the number is not registered on WhatsApp.
+// These go to 'failed' (API rejected) and get cached in contacts.whatsapp_valid.
+function isNotWhatsAppError(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes('131026') ||
+    m.includes('not a valid whatsapp') ||
+    m.includes('does not have a whatsapp') ||
+    m.includes('not registered on whatsapp') ||
+    m.includes('unknown contact') ||
+    m.includes('recipient not found') ||
+    m.includes('phone number is not valid')
+  );
+}
+
 export interface CampaignRunResult {
   campaignId: string;
   total: number;
   sent: number;
   failed: number;
+  filtered: number;
   skipped?: string;
 }
 
@@ -143,7 +159,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
   if (campError || !campaign) throw new Error(`Campaign ${campaignId} not found`);
 
-  if (campaign.status === 'completed') return { campaignId, total: 0, sent: 0, failed: 0, skipped: 'already completed' };
+  if (campaign.status === 'completed') return { campaignId, total: 0, sent: 0, failed: 0, filtered: 0, skipped: 'already completed' };
 
   const template = campaign.templates as (Template & { header_type?: string; header_content?: string }) | null;
 
@@ -224,7 +240,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
     await db.from('campaigns').update({
       status: 'completed', completed_at: new Date().toISOString(),
     }).eq('id', campaignId);
-    return { campaignId, total: 0, sent: 0, failed: 0, skipped: 'no contacts' };
+    return { campaignId, total: 0, sent: 0, failed: 0, filtered: 0, skipped: 'no contacts' };
   }
 
   // Dedup protection: skip contacts already sent to in a previous (interrupted) run
@@ -257,11 +273,89 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
     await db.from('campaigns').update({
       status: 'completed', completed_at: new Date().toISOString(),
     }).eq('id', campaignId);
-    return { campaignId, total: 0, sent: 0, failed: 0, skipped: 'all already sent' };
+    return { campaignId, total: 0, sent: 0, failed: 0, filtered: 0, skipped: 'all already sent' };
   }
 
+  // ── Pre-flight filters ────────────────────────────────────────────────────
+  // Run BEFORE setting status=running so total_recipients includes filtered contacts.
+  const audienceSize = recipients.length;
+  let filteredCount = 0;
+
+  {
+    const allPhones = recipients.map((c) => sanitizePhone(c.phone)).filter(Boolean);
+    const BATCH = 400;
+    const cacheExpiry = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Filter 1: WhatsApp validation cache (contacts.whatsapp_valid=false, checked within 7 days)
+    const cachedInvalidPhones = new Set<string>();
+    for (let i = 0; i < allPhones.length; i += BATCH) {
+      const { data } = await db
+        .from('contacts')
+        .select('phone')
+        .eq('workspace_id', campaign.workspace_id)
+        .eq('whatsapp_valid', false)
+        .gt('whatsapp_checked_at', cacheExpiry)
+        .in('phone', allPhones.slice(i, i + BATCH)) as { data: Array<{ phone: string }> | null };
+      for (const c of data ?? []) cachedInvalidPhones.add(c.phone);
+    }
+
+    // Filter 2: Engagement filter — phones that have had API-rejected sends in 2+ previous campaigns
+    const repeatFailPhones = new Set<string>();
+    for (let i = 0; i < allPhones.length; i += BATCH) {
+      const { data } = await db
+        .from('campaign_recipients')
+        .select('phone, campaign_id')
+        .eq('workspace_id', campaign.workspace_id)
+        .neq('campaign_id', campaignId)
+        .eq('status', 'failed')
+        .in('phone', allPhones.slice(i, i + BATCH)) as { data: Array<{ phone: string; campaign_id: string }> | null };
+      const campaignMap = new Map<string, Set<string>>();
+      for (const row of data ?? []) {
+        if (!campaignMap.has(row.phone)) campaignMap.set(row.phone, new Set());
+        campaignMap.get(row.phone)!.add(row.campaign_id);
+      }
+      for (const [phone, camps] of campaignMap) {
+        if (camps.size >= 2) repeatFailPhones.add(phone);
+      }
+    }
+
+    // Partition: filtered out vs to-send
+    const filteredRows: Array<Record<string, unknown>> = [];
+    const toSend: Contact[] = [];
+    for (const contact of recipients) {
+      const phone = sanitizePhone(contact.phone);
+      const realId = contact.id && !contact.id.startsWith('manual-') ? contact.id : null;
+      const base = {
+        campaign_id: campaignId, workspace_id: campaign.workspace_id,
+        contact_id: realId, phone: contact.phone, name: contact.name ?? null,
+        status: 'filtered', sent_at: new Date().toISOString(),
+      };
+      if (cachedInvalidPhones.has(phone)) {
+        filteredRows.push({ ...base, filtered_reason: 'no_whatsapp' });
+      } else if (repeatFailPhones.has(phone)) {
+        filteredRows.push({ ...base, filtered_reason: 'repeat_campaign_fail' });
+      } else {
+        toSend.push(contact);
+      }
+    }
+
+    // Bulk-insert filtered records
+    if (filteredRows.length > 0) {
+      const FLUSH = 200;
+      for (let i = 0; i < filteredRows.length; i += FLUSH) {
+        await db.from('campaign_recipients').insert(filteredRows.slice(i, i + FLUSH));
+      }
+      filteredCount = filteredRows.length;
+      recipients = toSend;
+      console.log(`[Campaign ${campaignId}] Pre-flight: filtered ${filteredCount} (${cachedInvalidPhones.size} no-WA, ${repeatFailPhones.size} repeat-fail)`);
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   await db.from('campaigns').update({
-    status: 'running', started_at: new Date().toISOString(), total_recipients: recipients.length,
+    status: 'running', started_at: new Date().toISOString(),
+    total_recipients: audienceSize,   // full audience including filtered
+    filtered_count: filteredCount,
   }).eq('id', campaignId);
 
   let sentCount = 0;
@@ -302,7 +396,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
       }
     }
 
-    await db.from('campaigns').update({ sent_count: sentCount, failed_count: failedCount }).eq('id', campaignId);
+    await db.from('campaigns').update({ sent_count: sentCount, failed_count: failedCount, filtered_count: filteredCount }).eq('id', campaignId);
   };
 
   const tmplHeaderType = template?.header_type?.toUpperCase();
@@ -343,10 +437,9 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
         continue;
       }
       const { contact, result } = settled.value;
+      const realContactId = contact.id && !contact.id.startsWith('manual-') ? contact.id : null;
       if (result.success) {
         sentCount++;
-        // contact.id may be a fake 'manual-<phone>' for manual-entry contacts — store null FK
-        const realContactId = contact.id && !contact.id.startsWith('manual-') ? contact.id : null;
         pendingRecipients.push({
           campaign_id:     campaignId,
           workspace_id:    campaign.workspace_id,
@@ -360,17 +453,23 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
       } else {
         failedCount++;
         console.error(`[Campaign ${campaignId}] Failed → ${contact.phone}:`, result.error);
-        const realContactIdF = contact.id && !contact.id.startsWith('manual-') ? contact.id : null;
         pendingRecipients.push({
           campaign_id:   campaignId,
           workspace_id:  campaign.workspace_id,
-          contact_id:    realContactIdF,
+          contact_id:    realContactId,
           phone:         contact.phone,
           name:          contact.name ?? null,
           status:        'failed',
           error_message: result.error ?? 'WhatsApp API error',
           sent_at:       new Date().toISOString(),
         });
+        // Cache as invalid WhatsApp number if Meta API says so — skip next campaign
+        if (result.error && isNotWhatsAppError(result.error)) {
+          void db.from('contacts')
+            .update({ whatsapp_valid: false, whatsapp_checked_at: new Date().toISOString() })
+            .eq('workspace_id', campaign.workspace_id)
+            .eq('phone', contact.phone);
+        }
       }
     }
 
@@ -390,8 +489,8 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
   await db.from('campaigns').update({
     status: 'completed', completed_at: new Date().toISOString(),
-    sent_count: sentCount, failed_count: failedCount,
+    sent_count: sentCount, failed_count: failedCount, filtered_count: filteredCount,
   }).eq('id', campaignId);
 
-  return { campaignId, total: recipients.length, sent: sentCount, failed: failedCount };
+  return { campaignId, total: audienceSize, sent: sentCount, failed: failedCount, filtered: filteredCount };
 }

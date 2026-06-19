@@ -296,11 +296,13 @@ export function CampaignList() {
                 ))
               : campaigns.map((c) => {
                   const total     = c.live_total     ?? c.total_recipients ?? 0;
+                  const sent      = (c as any).live_sent ?? c.sent_count ?? total;
                   const delivered = c.live_delivered ?? c.delivered_count  ?? 0;
                   const read      = c.live_read      ?? c.read_count       ?? 0;
 
-                  const deliveryPct = total > 0 ? Math.round((delivered / total) * 100) : 0;
-                  const readPct     = total > 0 ? Math.round((read      / total) * 100) : 0;
+                  // Delivery % relative to sent (API-accepted), not total (sent + failed + filtered)
+                  const deliveryPct = sent > 0 ? Math.round((delivered / sent) * 100) : 0;
+                  const readPct     = sent > 0 ? Math.round((read      / sent) * 100) : 0;
                   const isAB        = !!(c as any).ab_test_group;
 
                   return (
@@ -328,7 +330,11 @@ export function CampaignList() {
                         </span>
                       </TableCell>
                       <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
-                        {total > 0 ? `${total.toLocaleString()} (100%)` : '—'}
+                        {total > 0
+                          ? sent < total
+                            ? `${sent.toLocaleString()} / ${total.toLocaleString()}`
+                            : `${total.toLocaleString()} (100%)`
+                          : '—'}
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         <div className="flex items-center gap-2 min-w-24">

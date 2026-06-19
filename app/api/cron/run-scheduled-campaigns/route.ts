@@ -156,62 +156,8 @@ export async function GET(request: NextRequest) {
     console.error('[Cron] Error querying due sequences:', seqListErr);
   }
 
-  // ─── Mark undelivered contacts as Failed (24h timeout) ─────────────────────
-  // WhatsApp messages that were accepted by the API but never delivered after 24h
-  // are treated as failed — so clients can export and re-run for these contacts.
-  let expiredMarked = 0;
-  try {
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  // NOTE: 24h auto-fail removed. 'sent' contacts stay as 'sent' — WhatsApp delivers
+  // them when the user comes back online. Only immediate API rejections go to 'failed'.
 
-    // Find campaigns that have undelivered 'sent' rows older than 24h
-    const { data: expiredRows } = await db
-      .from('campaign_recipients')
-      .select('id, campaign_id')
-      .eq('status', 'sent')
-      .lt('sent_at', cutoff)
-      .limit(2000);
-
-    if (expiredRows && expiredRows.length > 0) {
-      const ids = (expiredRows as Array<{ id: string; campaign_id: string }>).map((r) => r.id);
-
-      // Bulk update to failed
-      const { error: updateErr } = await db
-        .from('campaign_recipients')
-        .update({
-          status:        'failed',
-          error_message: 'Message not delivered by WhatsApp (24h timeout)',
-        })
-        .in('id', ids);
-
-      if (!updateErr) {
-        expiredMarked = ids.length;
-
-        // Update campaigns table counts for each affected campaign
-        const affectedCampaignIds = [...new Set(
-          (expiredRows as Array<{ campaign_id: string }>).map((r) => r.campaign_id),
-        )];
-
-        for (const cid of affectedCampaignIds) {
-          const [sentRes, deliveredRes, readRes, failedRes] = await Promise.all([
-            db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).neq('status', 'failed'),
-            db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).in('status', ['delivered', 'read', 'replied']),
-            db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).in('status', ['read', 'replied']),
-            db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).eq('status', 'failed'),
-          ]);
-          await db.from('campaigns').update({
-            sent_count:      sentRes.count      ?? 0,
-            delivered_count: deliveredRes.count ?? 0,
-            read_count:      readRes.count      ?? 0,
-            failed_count:    failedRes.count    ?? 0,
-          }).eq('id', cid);
-        }
-
-        console.log(`[Cron] Marked ${expiredMarked} undelivered contacts as failed across ${affectedCampaignIds.length} campaign(s)`);
-      }
-    }
-  } catch (expiredErr) {
-    console.error('[Cron] Error marking expired sent as failed:', expiredErr);
-  }
-
-  return NextResponse.json({ ran: dueCampaigns.length, results: summary, sequencesProcessed, expiredMarked });
+  return NextResponse.json({ ran: dueCampaigns.length, results: summary, sequencesProcessed });
 }

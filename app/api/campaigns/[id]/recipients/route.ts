@@ -42,9 +42,12 @@ export async function GET(
     if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
 
     // ── Full stats via parallel count queries (bypass 1000-row default limit) ─
-    const [totalRes, deliveredRes, readRes, repliedRes, failedRes] = await Promise.all([
+    // Model: sent (API accepted) + failed (API rejected) + filtered (pre-filtered) = total
+    const [totalRes, sentRes, deliveredRes, readRes, repliedRes, failedRes, filteredRes] = await Promise.all([
       db.from('campaign_recipients').select('id', { count: 'exact', head: true })
         .eq('campaign_id', campaignId),
+      db.from('campaign_recipients').select('id', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId).in('status', ['sent', 'delivered', 'read', 'replied']),
       db.from('campaign_recipients').select('id', { count: 'exact', head: true })
         .eq('campaign_id', campaignId).in('status', ['delivered', 'read', 'replied']),
       db.from('campaign_recipients').select('id', { count: 'exact', head: true })
@@ -53,15 +56,18 @@ export async function GET(
         .eq('campaign_id', campaignId).eq('status', 'replied'),
       db.from('campaign_recipients').select('id', { count: 'exact', head: true })
         .eq('campaign_id', campaignId).eq('status', 'failed'),
+      db.from('campaign_recipients').select('id', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId).eq('status', 'filtered'),
     ]);
 
     const total     = totalRes.count     ?? 0;
-    const failed    = failedRes.count    ?? 0;
+    const sent      = sentRes.count      ?? 0;   // API accepted (may still deliver)
+    const failed    = failedRes.count    ?? 0;   // API immediately rejected
+    const filtered  = filteredRes.count  ?? 0;   // pre-filtered before send
     const delivered = deliveredRes.count ?? 0;
     const read      = readRes.count      ?? 0;
     const replied   = repliedRes.count   ?? 0;
-    // sent = total contacts the campaign was sent to (failed = those not delivered, not those not attempted)
-    const stats = { total, sent: total, delivered, read, replied, failed };
+    const stats = { total, sent, delivered, read, replied, failed, filtered };
 
     // ── Unique reply texts for dropdown ───────────────────────────────────────
     const { data: replyTextsRaw } = await db
@@ -83,15 +89,19 @@ export async function GET(
     let query = db
       .from('campaign_recipients')
       .select(
-        'id, phone, name, status, sent_at, delivered_at, read_at, replied_at, reply_type, reply_text, error_message, conversation_id, contact_id',
+        'id, phone, name, status, sent_at, delivered_at, read_at, replied_at, reply_type, reply_text, error_message, filtered_reason, conversation_id, contact_id',
         { count: 'exact' },
       )
       .eq('campaign_id', campaignId)
       .order('sent_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
-    // Status filter — sent = ALL contacts (total attempted); other tabs are subsets
-    if (status === 'delivered')      query = query.in('status', ['delivered', 'read', 'replied']);
+    // Status filter
+    // sent = API-accepted contacts (status in sent/delivered/read/replied — all non-rejected)
+    // failed = immediate API rejections only
+    // filtered = pre-filtered contacts (no_whatsapp cache or repeat_campaign_fail)
+    if (status === 'sent')           query = query.in('status', ['sent', 'delivered', 'read', 'replied']);
+    else if (status === 'delivered') query = query.in('status', ['delivered', 'read', 'replied']);
     else if (status === 'read')      query = query.in('status', ['read', 'replied']);
     else if (status !== 'all')       query = query.eq('status', status);
 
@@ -216,6 +226,10 @@ function buildCSV(status: string, rows: Array<Record<string, unknown>>, campaign
     case 'failed':
       header = ['Name', 'Mobile', 'Sent At', 'Error Reason'];
       rowFn  = (r) => [r.name, r.phone, fmt(r.sent_at), r.error_message];
+      break;
+    case 'filtered':
+      header = ['Name', 'Mobile', 'Filter Reason'];
+      rowFn  = (r) => [r.name, r.phone, r.filtered_reason === 'no_whatsapp' ? 'Not on WhatsApp' : 'Failed in 2+ previous campaigns'];
       break;
     case 'all':
       header = ['Name', 'Mobile', 'Status', 'Sent At', 'Delivered At', 'Read At', 'Replied At', 'Reply Type', 'Reply Text', 'Error'];

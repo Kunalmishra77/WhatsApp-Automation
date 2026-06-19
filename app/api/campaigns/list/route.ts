@@ -24,15 +24,16 @@ export async function GET(request: NextRequest) {
 
     // Use campaigns table aggregate columns directly — avoids the 1000-row Supabase default
     // limit that was causing the old live-scan approach to return wrong counts.
-    // Campaign executor and manual updates keep these columns accurate.
+    // Stats model: sent (API-accepted) + failed (API-rejected) + filtered (pre-filtered) = total
     const result = (campaigns ?? []).map((c: any) => ({
       ...c,
       live_total:     c.total_recipients ?? 0,
-      live_sent:      c.total_recipients ?? 0,   // sent = total contacts attempted
+      live_sent:      c.sent_count       ?? 0,   // API-accepted (excludes failed + filtered)
       live_delivered: c.delivered_count  ?? 0,
       live_read:      c.read_count       ?? 0,
       live_replied:   0,
       live_failed:    c.failed_count     ?? 0,
+      live_filtered:  c.filtered_count   ?? 0,
     }));
 
     return NextResponse.json(result);

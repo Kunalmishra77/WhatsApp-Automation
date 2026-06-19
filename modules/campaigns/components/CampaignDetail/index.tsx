@@ -51,8 +51,9 @@ interface Recipient {
   sent_at: string | null; delivered_at: string | null; read_at: string | null;
   replied_at: string | null; reply_type: string | null; reply_text: string | null;
   error_message: string | null; conversation_id: string | null;
+  filtered_reason: string | null;
 }
-interface Stats { total: number; sent: number; delivered: number; read: number; failed: number; replied: number; }
+interface Stats { total: number; sent: number; delivered: number; read: number; failed: number; replied: number; filtered: number; }
 interface Campaign {
   id: string; name: string; status: string; audience_type: string; audience_filter: Record<string, unknown> | null;
   total_recipients: number; sent_count: number; failed_count: number; delivered_count: number; read_count: number;
@@ -72,6 +73,7 @@ const STATUS_CFG = {
   read:      { label: 'Read',      icon: Eye,        color: 'text-violet-600',  bg: 'bg-violet-50',  badge: 'bg-violet-100 text-violet-700'  },
   replied:   { label: 'Replied',   icon: Reply,      color: 'text-emerald-600', bg: 'bg-emerald-50', badge: 'bg-emerald-100 text-emerald-700'},
   failed:    { label: 'Failed',    icon: XCircle,    color: 'text-red-600',     bg: 'bg-red-50',     badge: 'bg-red-100 text-red-700'        },
+  filtered:  { label: 'Filtered',  icon: Filter,     color: 'text-orange-600',  bg: 'bg-orange-50',  badge: 'bg-orange-100 text-orange-700'  },
 } as const;
 
 const CHART_COLORS = { sent: '#f59e0b', delivered: '#0ea5e9', read: '#8b5cf6', replied: '#10b981', failed: '#ef4444' };
@@ -135,9 +137,10 @@ function RecipientTable({ recipients, loading, tab, router, campaignId, workspac
 }) {
   const showDelivered = ['delivered', 'read', 'replied', 'all'].includes(tab);
   const showRead      = ['read', 'replied', 'all'].includes(tab);
-  const showReplied   = ['replied', 'all'].includes(tab);
-  const showError     = tab === 'failed';
-  const showReplyData = ['replied', 'all'].includes(tab);
+  const showReplied    = ['replied', 'all'].includes(tab);
+  const showError      = tab === 'failed';
+  const showReplyData  = ['replied', 'all'].includes(tab);
+  const showFiltered   = tab === 'filtered';
 
   if (loading) return (
     <div className="space-y-2 p-4">
@@ -163,7 +166,8 @@ function RecipientTable({ recipients, loading, tab, router, campaignId, workspac
           {showReplied   && <TableHead>Replied At</TableHead>}
           {showReplyData && <TableHead>Reply Type</TableHead>}
           {showReplyData && <TableHead>Reply Text</TableHead>}
-          {showError     && <TableHead>Error Reason</TableHead>}
+          {showError      && <TableHead>Error Reason</TableHead>}
+          {showFiltered   && <TableHead>Filter Reason</TableHead>}
           <TableHead className="w-8" />
         </TableRow>
       </TableHeader>
@@ -237,6 +241,15 @@ function RecipientTable({ recipients, loading, tab, router, campaignId, workspac
                   {r.error_message ? (
                     <span className="truncate block">{r.error_message}</span>
                   ) : '—'}
+                </TableCell>
+              )}
+              {showFiltered && (
+                <TableCell className="text-xs text-orange-600">
+                  {r.filtered_reason === 'no_whatsapp'
+                    ? 'Not on WhatsApp'
+                    : r.filtered_reason === 'repeat_campaign_fail'
+                    ? 'Failed in 2+ previous campaigns'
+                    : r.filtered_reason ?? '—'}
                 </TableCell>
               )}
               <TableCell>
@@ -336,10 +349,10 @@ function OverviewTab({ campaign, stats, daily, loading }: {
         {/* Big stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {loading ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />) : [
-            { label: 'Sent',      value: stats.total,     sub: `100% of audience`,                                  icon: Send,       color: 'text-blue-600'    },
-            { label: 'Delivered', value: stats.delivered, sub: `${pct(stats.delivered, stats.total)}% of sent`,     icon: CheckCheck, color: 'text-sky-600'     },
+            { label: 'Sent',      value: stats.sent,      sub: `${pct(stats.sent, stats.total)}% of audience`,      icon: Send,       color: 'text-blue-600'    },
+            { label: 'Delivered', value: stats.delivered, sub: `${pct(stats.delivered, stats.sent)}% of sent`,      icon: CheckCheck, color: 'text-sky-600'     },
             { label: 'Read',      value: stats.read,      sub: `${pct(stats.read, stats.delivered)}% of delivered`, icon: Eye,        color: 'text-violet-600'  },
-            { label: 'Replied',   value: stats.replied,   sub: `${pct(stats.replied, stats.total)}% of sent`,       icon: Reply,      color: 'text-emerald-600' },
+            { label: 'Replied',   value: stats.replied,   sub: `${pct(stats.replied, stats.sent)}% of sent`,        icon: Reply,      color: 'text-emerald-600' },
           ].map(({ label, value, sub, icon, color }) => (
             <MiniStat key={label} label={label} value={value.toLocaleString()} sub={sub} icon={icon} color={color} />
           ))}
@@ -349,11 +362,12 @@ function OverviewTab({ campaign, stats, daily, loading }: {
         <div className="rounded-xl border border-border bg-card p-5 space-y-3">
           <h3 className="text-sm font-semibold text-foreground">Delivery Funnel</h3>
           {[
-            { label: 'Sent',      value: stats.total,     total: stats.total, color: 'bg-blue-500'    },
-            { label: 'Delivered', value: stats.delivered, total: stats.total, color: 'bg-sky-500'     },
-            { label: 'Read',      value: stats.read,      total: stats.total, color: 'bg-violet-500'  },
-            { label: 'Replied',   value: stats.replied,   total: stats.total, color: 'bg-emerald-500' },
+            { label: 'Sent',      value: stats.sent,      total: stats.total, color: 'bg-blue-500'    },
+            { label: 'Delivered', value: stats.delivered, total: stats.sent,  color: 'bg-sky-500'     },
+            { label: 'Read',      value: stats.read,      total: stats.sent,  color: 'bg-violet-500'  },
+            { label: 'Replied',   value: stats.replied,   total: stats.sent,  color: 'bg-emerald-500' },
             { label: 'Failed',    value: stats.failed,    total: stats.total, color: 'bg-red-500'     },
+            { label: 'Filtered',  value: stats.filtered,  total: stats.total, color: 'bg-orange-500'  },
           ].map(({ label, value, total, color }) => {
             const p2 = pct(value, total);
             return (
@@ -469,7 +483,7 @@ function SmartSegBar({ repliedWithin, setRepliedWithin, replyFilter, setReplyFil
 // ── Main Component ─────────────────────────────────────────────────────────────
 interface CampaignDetailProps { campaignId: string }
 
-type TabKey = 'overview' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed';
+type TabKey = 'overview' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed' | 'filtered';
 
 export function CampaignDetail({ campaignId }: CampaignDetailProps) {
   const router      = useRouter();
@@ -539,7 +553,7 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
   });
 
   const campaign   = data?.campaign;
-  const stats      = data?.stats ?? { total: 0, sent: 0, delivered: 0, read: 0, failed: 0, replied: 0 };
+  const stats      = data?.stats ?? { total: 0, sent: 0, delivered: 0, read: 0, failed: 0, replied: 0, filtered: 0 };
   const recipients = data?.recipients ?? [];
   const uniqueReplyTexts = data?.unique_reply_texts ?? [];
 
@@ -550,6 +564,7 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
     { key: 'read',      label: 'Read',      icon: Eye,        count: stats.read      },
     { key: 'replied',   label: 'Replied',   icon: Reply,      count: stats.replied   },
     { key: 'failed',    label: 'Failed',    icon: XCircle,    count: stats.failed    },
+    { key: 'filtered',  label: 'Filtered',  icon: Filter,     count: stats.filtered  },
   ];
 
   return (
