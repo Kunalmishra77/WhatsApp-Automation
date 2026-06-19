@@ -112,7 +112,7 @@ export function TemplateList() {
                     ))}
                   </TableRow>
                 ))
-              : templates.map((t) => (
+              : templates.filter((t) => (t.status as string) !== 'deleted').map((t) => (
                   <TableRow key={t.id} className="hover:bg-accent">
                     <TableCell className="font-mono text-sm">{t.name}</TableCell>
                     <TableCell className="hidden sm:table-cell text-sm">{CATEGORY_LABELS[t.category] ?? t.category}</TableCell>
@@ -130,12 +130,12 @@ export function TemplateList() {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
-                        {t.status === 'pending' && (
+                        {(t.status === 'pending' || t.status === 'approved') && (
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-brand-600 hover:text-brand-700"
-                            title="Submit to Meta for approval"
+                            title={t.status === 'approved' ? 'Re-submit to Meta (use if template missing in Meta)' : 'Submit to Meta for approval'}
                             disabled={submit.isPending}
                             onClick={() => void handleSubmit(t)}
                           >
@@ -164,7 +164,7 @@ export function TemplateList() {
                 ))}
           </TableBody>
         </Table>
-        {!isLoading && templates.length === 0 && (
+        {!isLoading && templates.filter((t) => (t.status as string) !== 'deleted').length === 0 && (
           <div className="flex flex-col items-center justify-center h-64 gap-3 text-center px-4">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted">
               <FileText className="h-7 w-7 text-muted-foreground" />

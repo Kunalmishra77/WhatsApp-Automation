@@ -163,14 +163,22 @@ export async function POST(request: NextRequest) {
         updated_at:     new Date().toISOString(),
       };
 
-      // Check if already exists
-      const { data: existing } = await db
+      // Fetch ALL matching rows (same name+language+workspace) to handle duplicates
+      const { data: existingRows } = await db
         .from('templates')
         .select('id')
         .eq('workspace_id', workspaceId)
         .eq('name', mt.name)
         .eq('language', mt.language ?? 'en')
-        .maybeSingle();
+        .order('created_at', { ascending: true });
+
+      const existing = (existingRows ?? [])[0] ?? null;
+
+      // Remove duplicate rows (can happen if sync ran twice concurrently)
+      if (existingRows && existingRows.length > 1) {
+        const dupIds = existingRows.slice(1).map((r: { id: string }) => r.id);
+        await db.from('templates').delete().in('id', dupIds);
+      }
 
       if (existing?.id) {
         await db.from('templates').update(record).eq('id', existing.id);
