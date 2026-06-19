@@ -45,6 +45,7 @@ interface WizardState {
   mediaId:            string;
   mediaType:          string;
   mediaFileName:      string;
+  mediaPreviewUrl:    string;   // local blob URL or http URL for in-wizard preview only
   // LTO (Limited Time Offer) fields
   ltoCouponCode:      string;
   ltoExpiryAt:        string;   // datetime-local value
@@ -111,157 +112,200 @@ function mediaTypeIcon(type: string) {
   return <FileText className="h-4 w-4 text-muted-foreground" />;
 }
 
-// ── Inline Media URL Input (shown in step 2 when template has media header) ──
+// ── Media Picker — file upload (primary) + recent library + URL fallback ──
 
 interface MediaUrlInputProps {
   headerType: string;
   workspaceId: string;
   value: string;
-  onChange: (url: string, type: string, name: string) => void;
+  onChange: (mediaId: string, type: string, name: string, previewUrl?: string) => void;
+  allowUrl?: boolean;  // show URL fallback option (default hidden)
 }
 
-function MediaUrlInput({ headerType, workspaceId, value, onChange }: MediaUrlInputProps) {
-  const [inputVal, setInputVal] = useState(value);
-  const [recent, setRecent]     = useState<MediaLibraryItem[]>([]);
-  const [loadingR, setLoadingR] = useState(false);
-  const [savingUrl, setSavingUrl] = useState(false);
+const ACCEPT_BY_TYPE: Record<string, string> = {
+  IMAGE:    'image/jpeg,image/png,image/webp',
+  VIDEO:    'video/mp4',
+  DOCUMENT: 'application/pdf',
+};
+
+function MediaUrlInput({ headerType, workspaceId, value, onChange, allowUrl = false }: MediaUrlInputProps) {
+  const fileRef            = useRef<HTMLInputElement>(null);
+  const [recent, setRecent]       = useState<MediaLibraryItem[]>([]);
+  const [loadingR, setLoadingR]   = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [showUrl, setShowUrl]     = useState(false);
+  const [urlVal, setUrlVal]       = useState('');
+  const [dragOver, setDragOver]   = useState(false);
   const mediaType = headerType.toLowerCase() as 'image' | 'video' | 'document';
+
+  const refreshRecent = () => {
+    fetch(`/api/campaigns/upload-media?workspaceId=${workspaceId}`)
+      .then((r) => r.json())
+      .then((d: { items?: MediaLibraryItem[] }) =>
+        setRecent((d.items ?? []).filter((i) => i.media_type === mediaType)))
+      .catch(() => {});
+  };
 
   useEffect(() => {
     if (!workspaceId) return;
     setLoadingR(true);
     fetch(`/api/campaigns/upload-media?workspaceId=${workspaceId}`)
       .then((r) => r.json())
-      .then((d: { items?: MediaLibraryItem[] }) => {
-        // Only show items matching this media type
-        setRecent((d.items ?? []).filter((i) => i.media_type === mediaType));
-      })
+      .then((d: { items?: MediaLibraryItem[] }) =>
+        setRecent((d.items ?? []).filter((i) => i.media_type === mediaType)))
       .catch(() => {})
       .finally(() => setLoadingR(false));
   }, [workspaceId, mediaType]);
 
-  const handleApplyUrl = async () => {
-    const url = inputVal.trim();
-    if (!isValidUrl(url)) {
-      toast.error('Please enter a valid URL starting with https://');
-      return;
-    }
-    // Save to media library
-    setSavingUrl(true);
+  const uploadFile = async (file: File) => {
+    setUploading(true);
+    const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
     try {
-      await fetch('/api/media-library', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId, url, mediaType, filename: url.split('/').pop()?.split('?')[0] ?? 'media' }),
-      });
-    } catch { /* non-critical */ }
-    setSavingUrl(false);
-    const name = url.split('/').pop()?.split('?')[0] ?? url;
-    onChange(url, mediaType, name);
-    // Refresh recent
-    fetch(`/api/campaigns/upload-media?workspaceId=${workspaceId}`)
-      .then((r) => r.json())
-      .then((d: { items?: MediaLibraryItem[] }) => setRecent((d.items ?? []).filter((i) => i.media_type === mediaType)))
-      .catch(() => {});
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('workspaceId', workspaceId);
+      const res  = await fetch('/api/campaigns/upload-media', { method: 'POST', body: fd });
+      const data = await res.json() as { mediaId?: string; mediaType?: string; fileName?: string; error?: string };
+      if (!res.ok) { toast.error(data.error ?? 'Upload failed'); return; }
+      onChange(data.mediaId!, data.mediaType!, data.fileName!, previewUrl);
+      toast.success(`Uploaded: ${data.fileName}`);
+      refreshRecent();
+    } catch { toast.error('Upload failed'); }
+    finally { setUploading(false); }
+  };
+
+  const handleFiles = (files: FileList | null) => {
+    if (!files?.length) return;
+    void uploadFile(files[0]!);
   };
 
   const handleSelect = (item: MediaLibraryItem) => {
-    setInputVal(item.media_id);
-    onChange(item.media_id, item.media_type, item.filename);
+    // If stored as URL (old flow), use as preview; WhatsApp media IDs can't be shown in browser
+    const previewUrl = item.media_id.startsWith('http') ? item.media_id : undefined;
+    onChange(item.media_id, item.media_type, item.filename, previewUrl);
     toast.success(`Selected: ${item.filename}`);
   };
 
-  const isApplied = isValidUrl(value) || value.length > 10;
+  const handleApplyUrl = async () => {
+    const url = urlVal.trim();
+    if (!isValidUrl(url)) { toast.error('Enter a valid https:// URL'); return; }
+    try {
+      await fetch('/api/media-library', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId, url, mediaType, filename: url.split('/').pop()?.split('?')[0] ?? 'media' }),
+      });
+    } catch { /* non-critical */ }
+    const name = url.split('/').pop()?.split('?')[0] ?? url;
+    onChange(url, mediaType, name, url);  // URL is its own preview
+    refreshRecent();
+    setShowUrl(false);
+  };
+
+  const isSet = value.length > 6;
+  const selectedItem = recent.find((i) => i.media_id === value);
 
   return (
-    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-3">
-      {/* Required notice */}
-      <div className="flex items-start gap-2">
-        <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-        <p className="text-xs text-amber-800">
-          This template has a <strong>{headerType.toLowerCase()} header</strong> — paste a public URL below to set it.
-        </p>
-      </div>
+    <div className="mt-3 rounded-xl border border-brand-200 bg-brand-50/40 p-3 space-y-3">
+      <p className="text-xs font-semibold text-brand-800 flex items-center gap-1.5">
+        <Upload className="h-3.5 w-3.5" />
+        {headerType} Media <span className="text-red-500">*</span>
+      </p>
 
-      {/* URL input */}
-      <div className="space-y-1.5">
-        <Label className="text-xs font-medium flex items-center gap-1.5">
-          <Link className="h-3.5 w-3.5 text-muted-foreground" />
-          {headerType} URL <span className="text-red-500">*</span>
-        </Label>
-        <div className="flex gap-2">
-          <Input
-            value={inputVal}
-            onChange={(e) => setInputVal(e.target.value)}
-            placeholder={`https://example.com/banner.${mediaType === 'image' ? 'jpg' : mediaType === 'video' ? 'mp4' : 'pdf'}`}
-            className={cn('flex-1 text-sm', isApplied && 'border-green-400 bg-green-50/50')}
-            onKeyDown={(e) => e.key === 'Enter' && void handleApplyUrl()}
-          />
-          <Button
-            size="sm"
-            onClick={() => void handleApplyUrl()}
-            disabled={!inputVal.trim() || savingUrl}
-            className="gap-1.5 shrink-0"
-          >
-            {savingUrl ? <Spin className="h-3.5 w-3.5 animate-spin" /> : isApplied ? <Check className="h-3.5 w-3.5" /> : null}
-            {isApplied ? 'Applied ✓' : 'Apply'}
-          </Button>
+      {/* Success state */}
+      {isSet && (
+        <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2">
+          <Check className="h-4 w-4 text-green-600 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-green-800 truncate">
+              {selectedItem?.filename ?? (value.startsWith('http') ? value.split('/').pop() : 'Media set ✓')}
+            </p>
+          </div>
+          <button onClick={() => onChange('', mediaType, '', '')} className="text-[10px] text-green-600 hover:text-red-500 shrink-0">
+            Change
+          </button>
         </div>
-        {isApplied && (
-          <p className="text-[11px] text-green-700 flex items-center gap-1">
-            <Check className="h-3 w-3" /> URL set — preview updated
-          </p>
-        )}
-      </div>
+      )}
 
-      {/* Recent media */}
+      {/* Upload drop zone (shown when nothing selected) */}
+      {!isSet && (
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
+          onClick={() => !uploading && fileRef.current?.click()}
+          className={cn(
+            'flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-6 cursor-pointer transition-colors',
+            dragOver ? 'border-brand-500 bg-brand-100' : 'border-brand-300 hover:border-brand-500 hover:bg-brand-50',
+          )}
+        >
+          {uploading
+            ? <><Spin className="h-5 w-5 animate-spin text-brand-500" /><p className="text-xs text-brand-600">Uploading…</p></>
+            : <><Upload className="h-5 w-5 text-brand-500" />
+               <p className="text-xs font-medium text-brand-700">Click to upload or drag & drop</p>
+               <p className="text-[10px] text-muted-foreground">
+                 {mediaType === 'image' ? 'JPG, PNG, WebP' : mediaType === 'video' ? 'MP4' : 'PDF'} · Max 16 MB
+               </p></>
+          }
+        </div>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept={ACCEPT_BY_TYPE[headerType] ?? '*'}
+        className="hidden"
+        onChange={(e) => handleFiles(e.target.files)}
+      />
+
+      {/* Recent uploads */}
       {(loadingR || recent.length > 0) && (
         <div>
           <p className="text-[11px] text-muted-foreground font-medium flex items-center gap-1 mb-1.5">
-            <Clock className="h-3 w-3" /> Recent {headerType.toLowerCase()} URLs
+            <Clock className="h-3 w-3" /> Recent uploads
             {loadingR && <Spin className="h-3 w-3 animate-spin ml-1" />}
           </p>
           <div className="space-y-1.5">
             {recent.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => handleSelect(item)}
+              <button key={item.id} onClick={() => handleSelect(item)}
                 className={cn(
                   'w-full flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors',
-                  value === item.media_id
-                    ? 'border-green-400 bg-green-50'
-                    : 'border-border bg-white hover:border-brand-300 hover:bg-muted/30',
+                  value === item.media_id ? 'border-green-400 bg-green-50' : 'border-border bg-white hover:border-brand-300 hover:bg-muted/30',
                 )}
               >
-                <div className="h-7 w-7 rounded bg-muted flex items-center justify-center shrink-0">
-                  {mediaTypeIcon(item.media_type)}
-                </div>
+                <div className="h-7 w-7 rounded bg-muted flex items-center justify-center shrink-0">{mediaTypeIcon(item.media_type)}</div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium truncate">{item.filename}</p>
-                  <p className="text-[10px] text-muted-foreground truncate">{item.media_id}</p>
+                  <p className="text-[10px] text-muted-foreground">{timeAgo(item.created_at)}</p>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <span className="text-[10px] text-muted-foreground">{timeAgo(item.created_at)}</span>
-                  {value === item.media_id
-                    ? <Check className="h-3.5 w-3.5 text-green-500" />
-                    : <RotateCcw className="h-3 w-3 text-brand-500" />}
-                </div>
+                {value === item.media_id ? <Check className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <RotateCcw className="h-3 w-3 text-brand-500 shrink-0" />}
               </button>
             ))}
           </div>
         </div>
       )}
 
-      {/* Image preview if URL set */}
-      {isApplied && mediaType === 'image' && (
+      {/* URL fallback — shown only when allowUrl=true (template with media header) */}
+      {allowUrl && !showUrl && !isSet && (
+        <button onClick={() => setShowUrl(true)} className="text-[11px] text-muted-foreground hover:text-brand-600 underline">
+          Or paste a URL instead
+        </button>
+      )}
+      {showUrl && (
+        <div className="flex gap-2">
+          <Input value={urlVal} onChange={(e) => setUrlVal(e.target.value)}
+            placeholder={`https://example.com/file.${mediaType === 'image' ? 'jpg' : mediaType === 'video' ? 'mp4' : 'pdf'}`}
+            className="flex-1 text-sm"
+            onKeyDown={(e) => e.key === 'Enter' && void handleApplyUrl()}
+          />
+          <Button size="sm" onClick={() => void handleApplyUrl()} disabled={!urlVal.trim()}>Apply</Button>
+        </div>
+      )}
+
+      {/* Image preview */}
+      {isSet && value.startsWith('http') && mediaType === 'image' && (
         <div className="rounded-lg overflow-hidden border border-border">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={value}
-            alt="Header preview"
-            className="w-full h-28 object-cover"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-          />
+          <img src={value} alt="Preview" className="w-full h-28 object-cover"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
         </div>
       )}
     </div>
@@ -320,7 +364,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
     audienceType: 'all', audienceTag: '', audienceTags: '',
     selectedContactIds: [], manualPhones: '',
     scheduledAt: '',
-    mediaId: '', mediaType: '', mediaFileName: '',
+    mediaId: '', mediaType: '', mediaFileName: '', mediaPreviewUrl: '',
     ltoCouponCode: '', ltoExpiryAt: '', cardMediaUrls: [],
     campaignType: 'standard',
     locationLat: '', locationLng: '', locationName: '', locationAddress: '',
@@ -562,7 +606,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
       name: '', templateId: '', templateIdB: '', abTest: false,
       audienceType: 'all', audienceTag: '', audienceTags: '',
       selectedContactIds: [], manualPhones: '', scheduledAt: '',
-      mediaId: '', mediaType: '', mediaFileName: '',
+      mediaId: '', mediaType: '', mediaFileName: '', mediaPreviewUrl: '',
       ltoCouponCode: '', ltoExpiryAt: '', cardMediaUrls: [],
       campaignType: 'standard',
       locationLat: '', locationLng: '', locationName: '', locationAddress: '',
@@ -642,7 +686,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                 <div className="flex items-center justify-between">
                   <Label>Select Template <span className="text-muted-foreground text-xs font-normal">(optional)</span></Label>
                   {state.templateId && (
-                    <button onClick={() => setState((s) => ({ ...s, templateId: '', mediaId: '', mediaType: '', mediaFileName: '' }))} className="text-xs text-muted-foreground hover:text-destructive flex items-center gap-1">
+                    <button onClick={() => setState((s) => ({ ...s, templateId: '', mediaId: '', mediaType: '', mediaFileName: '', mediaPreviewUrl: '' }))} className="text-xs text-muted-foreground hover:text-destructive flex items-center gap-1">
                       <X className="h-3 w-3" /> Clear
                     </button>
                   )}
@@ -650,7 +694,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
 
                 {/* No template option */}
                 <button
-                  onClick={() => { setState((s) => ({ ...s, templateId: '', mediaId: '', mediaType: '', mediaFileName: '', campaignType: 'standard' })); setManualMediaType(null); }}
+                  onClick={() => { setState((s) => ({ ...s, templateId: '', mediaId: '', mediaType: '', mediaFileName: '', mediaPreviewUrl: '', campaignType: 'standard' })); setManualMediaType(null); }}
                   className={cn('w-full rounded-lg border p-2.5 text-left transition-colors', !state.templateId && state.campaignType === 'standard' ? 'border-brand-500 bg-brand-500/5' : 'border-border hover:border-brand-300')}
                 >
                   <p className="text-sm font-medium text-muted-foreground">📎 No template — media only</p>
@@ -712,7 +756,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   return (
                     <button
                       key={t.id}
-                      onClick={() => { setState((s) => ({ ...s, templateId: t.id, mediaId: '', mediaType: '', mediaFileName: '' })); setManualMediaType(null); }}
+                      onClick={() => { setState((s) => ({ ...s, templateId: t.id, mediaId: '', mediaType: '', mediaFileName: '', mediaPreviewUrl: '' })); setManualMediaType(null); }}
                       className={cn('w-full rounded-lg border p-2.5 text-left transition-colors', state.templateId === t.id ? 'border-brand-500 bg-brand-500/5' : 'border-border hover:border-brand-300')}
                     >
                       <div className="flex items-center gap-1.5 mb-0.5">
@@ -724,7 +768,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                         )}
                         {needsMedia && (
                           <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                            <AlertTriangle className="h-2.5 w-2.5" />URL needed
+                            <Upload className="h-2.5 w-2.5" />Media needed
                           </span>
                         )}
                       </div>
@@ -775,13 +819,14 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   </div>
                 )}
 
-                {/* Media URL input (standard templates with IMAGE/VIDEO/DOCUMENT header) */}
+                {/* Media picker (standard templates with IMAGE/VIDEO/DOCUMENT header) */}
                 {templateNeedsMedia && reqMediaType && reqMediaType !== 'NONE' && state.campaignType === 'standard' && (
                   <MediaUrlInput
                     headerType={reqMediaType}
                     workspaceId={workspaceId}
                     value={state.mediaId}
-                    onChange={(url, type, name) => setState((s) => ({ ...s, mediaId: url, mediaType: type, mediaFileName: name }))}
+                    allowUrl={!!state.templateId}
+                    onChange={(mediaId, type, name, previewUrl) => setState((s) => ({ ...s, mediaId, mediaType: type, mediaFileName: name, mediaPreviewUrl: previewUrl ?? '' }))}
                   />
                 )}
 
@@ -895,18 +940,15 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   <WhatsAppPreview
                     headerType={selectedTemplate.header_type ?? 'NONE'}
                     headerText={selectedTemplate.header_type === 'TEXT' ? selectedTemplate.header_content ?? '' : undefined}
-                    mediaFileName={
-                      state.mediaId
-                        ? state.mediaFileName || state.mediaId.split('/').pop()
-                        : undefined
-                    }
+                    mediaFileName={state.mediaFileName || undefined}
+                    mediaPreviewUrl={state.mediaPreviewUrl || undefined}
                     body={selectedTemplate.body}
                     footer={selectedTemplate.footer ?? undefined}
                     buttons={templateButtons}
                   />
                   {templateNeedsMedia && !state.mediaId && (
                     <p className="text-center text-[11px] text-amber-600 mt-2 flex items-center justify-center gap-1">
-                      <AlertTriangle className="h-3 w-3" /> Paste URL to see header image
+                      <AlertTriangle className="h-3 w-3" /> Upload media to see header preview
                     </p>
                   )}
                 </div>
@@ -1188,7 +1230,8 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                     <WhatsAppPreview
                       headerType={selectedTemplate.header_type ?? 'NONE'}
                       headerText={selectedTemplate.header_type === 'TEXT' ? selectedTemplate.header_content ?? '' : undefined}
-                      mediaFileName={state.mediaFileName || state.mediaId.split('/').pop()}
+                      mediaFileName={state.mediaFileName || undefined}
+                      mediaPreviewUrl={state.mediaPreviewUrl || undefined}
                       body={selectedTemplate.body}
                       footer={selectedTemplate.footer ?? undefined}
                       buttons={templateButtons}

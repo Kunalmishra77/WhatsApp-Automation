@@ -209,7 +209,7 @@ export function extractButtonLabel(message: string): string | null {
 }
 
 // ── Programmatic language detection — injected into user message so AI cannot ignore ──
-export function detectReplyLanguage(text: string): 'english' | 'hindi' | null {
+export function detectReplyLanguage(text: string): 'english' | 'hindi' | 'hinglish' | null {
   // Strip button/system tags before checking
   const clean = text.replace(/\[.*?\]/g, '').trim();
   if (!clean) return null;
@@ -228,7 +228,12 @@ export function detectReplyLanguage(text: string): 'english' | 'hindi' | null {
   // already substantial Latin text competing with it — not an automatic override.
   if (devanagariChars >= 1 && latinLetters <= 3) return 'hindi';
 
-  return null; // Hinglish / ambiguous — let AI decide
+  // Hinglish detection: Latin script with Roman Hindi markers (no English-only words found)
+  const hasHindiRoman = /\b(kya|hai|nahi|nahin|nai|haan|han|kaise|kab|kahan|kaun|kyun|kyunki|tha|thi|the|ho|hoga|hogi|honge|karo|karna|karta|karti|raha|rahi|rahe|chahiye|chahie|chaiye|mujhe|tumhe|aapko|usse|inhe|unhe|aap|tum|hum|mein|pe|se|ko|ka|ki|ke|aur|bhi|phir|fir|sab|ek|do|koi|kuch|bahut|thoda|jaldi|abhi|aaj|kal|yahan|wahan|bhai|yaar|bolo|btao|batao|dekho|sunlo|theek|thik|accha|acha|sahi|galat|zyada|kam|lena|dena|dedo|lelo|bhejo|bhej|milega|milegi|hogya|hogyi|krdiya|krdega|krna|krke|krlo|mt|nhi|toh|tou|par\b|matlab|samjha|samjho|pata|malum|bata|batao|kitna|kitni|kuch|koi)\b/i.test(clean);
+
+  if (latinLetters > 3 && hasHindiRoman) return 'hinglish';
+
+  return null; // truly ambiguous — let AI decide
 }
 
 const HOT_KEYWORDS  = ['buy', 'purchase', 'price', 'cost', 'how much', 'interested', 'want', 'need', 'demo', 'trial', 'order', 'book', 'plan', 'pricing', 'quote', 'kharidna', 'lena hai', 'chahiye', 'kitna', 'rate'];
@@ -403,9 +408,11 @@ Identify the language of the customer's CURRENT message (the last message they s
     // Programmatically detect language and append an instruction the AI cannot ignore
     const detectedLang = detectReplyLanguage(customerMessage);
     const langInstruction = detectedLang === 'english'
-      ? '\n\n[SYSTEM OVERRIDE: Customer wrote in English. You MUST reply in English only. No Hindi.]'
+      ? '\n\n[SYSTEM OVERRIDE: Customer wrote in English. You MUST reply in English only. No Hindi words.]'
       : detectedLang === 'hindi'
       ? '\n\n[SYSTEM OVERRIDE: Customer wrote in Hindi. You MUST reply in Hindi only. No English sentences.]'
+      : detectedLang === 'hinglish'
+      ? '\n\n[SYSTEM OVERRIDE: Customer wrote in Hinglish (Roman-script Hindi mixed with English). You MUST reply in Hinglish — write Hindi words in Roman script (not Devanagari), mix in English words naturally, exactly as the customer wrote. Do NOT reply in pure English.]'
       : '';
     const userContent = customerMessage + langInstruction;
 

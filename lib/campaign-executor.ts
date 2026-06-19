@@ -119,6 +119,9 @@ async function sendMediaMessage(
   mediaType: string,
 ): Promise<{ success: boolean; waMessageId?: string; error?: string }> {
   try {
+    const mType = mediaType.toLowerCase(); // WhatsApp API requires lowercase ("image", not "IMAGE")
+    const isUrl = mediaId.startsWith('http://') || mediaId.startsWith('https://');
+    const mediaPayload = isUrl ? { link: mediaId } : { id: mediaId };
     const res = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
       method: 'POST',
       headers: {
@@ -129,8 +132,8 @@ async function sendMediaMessage(
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
         to: toPhone,
-        type: mediaType,
-        [mediaType]: { id: mediaId },
+        type: mType,
+        [mType]: mediaPayload,
       }),
     });
     const data = await res.json() as { messages?: Array<{ id: string }>; error?: { message: string } };

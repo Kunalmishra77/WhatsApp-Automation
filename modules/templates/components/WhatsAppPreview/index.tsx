@@ -1,20 +1,22 @@
 import { Image, Video, FileText, Timer, Copy } from 'lucide-react';
 
 interface WhatsAppPreviewProps {
-  headerType?:    string;
-  headerText?:    string;
-  mediaFileName?: string;
-  header?:        string;       // legacy — treated as TEXT
-  body:           string;
-  footer?:        string;
-  buttons?:       Array<{ type: string; text: string }>;
-  hasLTO?:        boolean;      // Limited Time Offer — shows countdown banner
+  headerType?:      string;
+  headerText?:      string;
+  mediaFileName?:   string;
+  mediaPreviewUrl?: string;   // blob URL or https URL — shows actual image/file in preview
+  header?:          string;   // legacy — treated as TEXT
+  body:             string;
+  footer?:          string;
+  buttons?:         Array<{ type: string; text: string }>;
+  hasLTO?:          boolean;  // Limited Time Offer — shows countdown banner
 }
 
 export function WhatsAppPreview({
   headerType,
   headerText,
   mediaFileName,
+  mediaPreviewUrl,
   header,
   body,
   footer,
@@ -29,6 +31,13 @@ export function WhatsAppPreview({
 
   const MediaPlaceholder = () => {
     if (resolvedHeaderType === 'IMAGE') {
+      if (mediaPreviewUrl) {
+        return (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={mediaPreviewUrl} alt="Header" className="mb-1.5 w-full h-28 object-cover rounded-lg"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        );
+      }
       return (
         <div className="mb-1.5 flex h-28 w-full items-center justify-center rounded-lg bg-[#f0f2f5]">
           <Image className="h-8 w-8 text-[#8696a0]" />
