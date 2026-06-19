@@ -41,22 +41,26 @@ export async function GET(
 
     if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
 
-    // ── Full stats ────────────────────────────────────────────────────────────
-    const { data: statsRaw } = await db
-      .from('campaign_recipients')
-      .select('status')
-      .eq('campaign_id', campaignId);
+    // ── Full stats via parallel count queries (bypass 1000-row default limit) ─
+    const [totalRes, deliveredRes, readRes, repliedRes, failedRes] = await Promise.all([
+      db.from('campaign_recipients').select('id', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId),
+      db.from('campaign_recipients').select('id', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId).in('status', ['delivered', 'read', 'replied']),
+      db.from('campaign_recipients').select('id', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId).in('status', ['read', 'replied']),
+      db.from('campaign_recipients').select('id', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId).eq('status', 'replied'),
+      db.from('campaign_recipients').select('id', { count: 'exact', head: true })
+        .eq('campaign_id', campaignId).eq('status', 'failed'),
+    ]);
 
-    const stats = { total: 0, sent: 0, delivered: 0, read: 0, failed: 0, replied: 0 };
-    for (const r of (statsRaw ?? [])) {
-      stats.total++;
-      const s = r.status as string;
-      if (['sent', 'delivered', 'read', 'replied'].includes(s)) stats.sent++;
-      if (['delivered', 'read', 'replied'].includes(s))         stats.delivered++;
-      if (['read', 'replied'].includes(s))                      stats.read++;
-      if (s === 'replied') stats.replied++;
-      if (s === 'failed')  stats.failed++;
-    }
+    const total     = totalRes.count     ?? 0;
+    const failed    = failedRes.count    ?? 0;
+    const delivered = deliveredRes.count ?? 0;
+    const read      = readRes.count      ?? 0;
+    const replied   = repliedRes.count   ?? 0;
+    const stats = { total, sent: total - failed, delivered, read, replied, failed };
 
     // ── Unique reply texts for dropdown ───────────────────────────────────────
     const { data: replyTextsRaw } = await db
@@ -78,7 +82,7 @@ export async function GET(
     let query = db
       .from('campaign_recipients')
       .select(
-        'id, phone, name, status, sent_at, delivered_at, read_at, replied_at, reply_type, reply_text, error_message, conversation_id',
+        'id, phone, name, status, sent_at, delivered_at, read_at, replied_at, reply_type, reply_text, error_message, conversation_id, contact_id',
         { count: 'exact' },
       )
       .eq('campaign_id', campaignId)
@@ -114,9 +118,11 @@ export async function GET(
       });
     }
 
+    // ── Enrich missing names from contacts table ──────────────────────────────
+    recipients = await enrichNames(db, workspaceId, recipients);
+
     // ── Export CSV ────────────────────────────────────────────────────────────
     if (isExport) {
-      // For export fetch all (already limit=10000), apply replied_within filter already done above
       const csv = buildCSV(status, recipients, campaign.name);
       return new NextResponse(csv, {
         headers: {
@@ -140,6 +146,42 @@ export async function GET(
     console.error('[Campaign Recipients]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
+}
+
+// Enrich campaign_recipients rows that have null names by looking up contacts by phone
+async function enrichNames(
+  db: any,
+  workspaceId: string,
+  rows: Array<Record<string, unknown>>,
+): Promise<Array<Record<string, unknown>>> {
+  const nullNamePhones = rows
+    .filter((r) => !r.name)
+    .map((r) => r.phone as string)
+    .filter(Boolean);
+
+  if (nullNamePhones.length === 0) return rows;
+
+  // Batch lookup in contacts (max 400 per query to stay under URL limit)
+  const phoneNameMap = new Map<string, string>();
+  const BATCH = 400;
+  for (let i = 0; i < nullNamePhones.length; i += BATCH) {
+    const batch = nullNamePhones.slice(i, i + BATCH);
+    const { data } = await db
+      .from('contacts')
+      .select('phone, name')
+      .eq('workspace_id', workspaceId)
+      .in('phone', batch) as { data: Array<{ phone: string; name: string }> | null };
+    for (const c of data ?? []) {
+      if (c.name) phoneNameMap.set(c.phone, c.name);
+    }
+  }
+
+  if (phoneNameMap.size === 0) return rows;
+
+  return rows.map((r) => ({
+    ...r,
+    name: r.name ?? phoneNameMap.get(r.phone as string) ?? null,
+  }));
 }
 
 // ── CSV builder per tab ───────────────────────────────────────────────────────
@@ -168,8 +210,8 @@ function buildCSV(status: string, rows: Array<Record<string, unknown>>, campaign
       rowFn  = (r) => [r.name, r.phone, fmt(r.delivered_at), fmt(r.read_at), diff(r.delivered_at, r.read_at), r.status === 'replied' ? 'Yes' : 'No'];
       break;
     case 'replied':
-      header = ['Name', 'Mobile', 'Sent At', 'Replied At', 'Time to Reply', 'Reply Type', 'Reply Text'];
-      rowFn  = (r) => [r.name, r.phone, fmt(r.sent_at), fmt(r.replied_at), diff(r.sent_at, r.replied_at), r.reply_type, r.reply_text];
+      header = ['Name', 'Mobile', 'Sent At', 'Delivered At', 'Read At', 'Replied At', 'Time to Reply', 'Reply Type', 'Reply Text'];
+      rowFn  = (r) => [r.name, r.phone, fmt(r.sent_at), fmt(r.delivered_at), fmt(r.read_at), fmt(r.replied_at), diff(r.sent_at, r.replied_at), r.reply_type, r.reply_text];
       break;
     case 'failed':
       header = ['Name', 'Mobile', 'Sent At', 'Error Reason'];
@@ -180,8 +222,8 @@ function buildCSV(status: string, rows: Array<Record<string, unknown>>, campaign
       rowFn  = (r) => [r.name, r.phone, r.status, fmt(r.sent_at), fmt(r.delivered_at), fmt(r.read_at), fmt(r.replied_at), r.reply_type, r.reply_text, r.error_message];
       break;
     default: // sent
-      header = ['Name', 'Mobile', 'Sent At', 'Current Status'];
-      rowFn  = (r) => [r.name, r.phone, fmt(r.sent_at), r.status];
+      header = ['Name', 'Mobile', 'Sent At', 'Delivered At', 'Current Status'];
+      rowFn  = (r) => [r.name, r.phone, fmt(r.sent_at), fmt(r.delivered_at), r.status];
   }
 
   const lines = [
