@@ -17,8 +17,10 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Check, ChevronRight, Paperclip, X, Loader2 as Spin, FlaskConical,
   ImageIcon, Video, FileText, AlertTriangle, Clock, RotateCcw, Link,
-  Search, Users, Phone, Upload, Timer, MapPin, Music, LayoutGrid,
+  Search, Users, Phone, Upload, Timer, MapPin, Music, LayoutGrid, ChevronsUpDown,
 } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { cn } from '@/lib/utils';
 import { useTemplates } from '@/modules/templates/hooks/useTemplates';
 import { useCreateCampaign } from '../../hooks/useCampaigns';
@@ -386,7 +388,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const create          = useCreateCampaign();
 
   const [manualMediaType,  setManualMediaType]  = useState<string | null>(null);
-  const [templateSearch,   setTemplateSearch]   = useState('');
+  const [templateOpen,     setTemplateOpen]     = useState(false);
 
   // CSV import handler for Manual audience type
   const handleCsvImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -447,9 +449,6 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const templateCards       = (selectedTemplateAny?.cards ?? []) as Array<{ body: string; header_type: string }>;
   const progress            = ((step + 1) / STEPS.length) * 100;
   const approvedTemplates   = templates.filter((t) => t.status === 'approved');
-  const filteredTemplates   = templateSearch.trim()
-    ? approvedTemplates.filter((t) => t.name.toLowerCase().includes(templateSearch.toLowerCase()))
-    : approvedTemplates;
 
   const canProceed = () => {
     if (step === 0) return state.name.trim().length > 0;
@@ -755,50 +754,77 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   <p className="text-xs text-muted-foreground mt-0.5">Voice note or audio file — session contacts only</p>
                 </button>
 
-                {/* Template search */}
-                {approvedTemplates.length > 4 && (
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                    <Input
-                      value={templateSearch}
-                      onChange={(e) => setTemplateSearch(e.target.value)}
-                      placeholder="Search templates…"
-                      className="h-8 pl-8 text-sm"
-                    />
-                  </div>
-                )}
-
-                {/* Template cards */}
-                {filteredTemplates.map((t) => {
-                  const ht   = t.header_type?.toUpperCase() as string | undefined;
+                {/* Template combobox dropdown */}
+                {(() => {
+                  const ht   = selectedTemplate?.header_type?.toUpperCase() as string | undefined;
                   const meta = ht && ht !== 'NONE' ? MEDIA_TYPE_MAP[ht] : null;
-                  const needsMedia = ht && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(ht);
                   return (
-                    <button
-                      key={t.id}
-                      onClick={() => { setState((s) => ({ ...s, templateId: t.id, mediaId: '', mediaType: '', mediaFileName: '', mediaPreviewUrl: '' })); setManualMediaType(null); }}
-                      className={cn('w-full rounded-lg border p-2.5 text-left transition-colors', state.templateId === t.id ? 'border-brand-500 bg-brand-500/5' : 'border-border hover:border-brand-300')}
-                    >
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <p className="text-sm font-medium font-mono flex-1 truncate">{t.name}</p>
-                        {meta && (
-                          <span className={cn('inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border', meta.color)}>
-                            {meta.icon}{meta.label}
-                          </span>
-                        )}
-                        {needsMedia && (
-                          <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                            <Upload className="h-2.5 w-2.5" />Media needed
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground line-clamp-2">{t.body}</p>
-                    </button>
+                    <Popover open={templateOpen} onOpenChange={setTemplateOpen}>
+                      <PopoverTrigger asChild>
+                        <button className={cn(
+                          'w-full rounded-lg border p-2.5 text-left transition-colors flex items-center gap-2',
+                          state.templateId ? 'border-brand-500 bg-brand-500/5' : 'border-border hover:border-brand-300 bg-background',
+                        )}>
+                          {state.templateId && selectedTemplate ? (
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-sm font-medium font-mono truncate flex-1">{selectedTemplate.name}</p>
+                                {meta && (
+                                  <span className={cn('inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border shrink-0', meta.color)}>
+                                    {meta.icon}{meta.label}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{selectedTemplate.body}</p>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground flex-1">Select a template…</span>
+                          )}
+                          <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[320px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Search templates…" className="h-9" />
+                          <CommandList>
+                            <CommandEmpty>No templates found.</CommandEmpty>
+                            <CommandGroup>
+                              {approvedTemplates.map((t) => {
+                                const tht  = t.header_type?.toUpperCase() as string | undefined;
+                                const tmeta = tht && tht !== 'NONE' ? MEDIA_TYPE_MAP[tht] : null;
+                                const needsMedia = tht && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(tht);
+                                return (
+                                  <CommandItem
+                                    key={t.id}
+                                    value={t.name}
+                                    onSelect={() => { setState((s) => ({ ...s, templateId: t.id, mediaId: '', mediaType: '', mediaFileName: '', mediaPreviewUrl: '' })); setManualMediaType(null); setTemplateOpen(false); }}
+                                    className="flex flex-col items-start gap-0.5 py-2 cursor-pointer"
+                                  >
+                                    <div className="flex items-center gap-1.5 w-full">
+                                      <Check className={cn('h-3.5 w-3.5 shrink-0', state.templateId === t.id ? 'text-brand-500' : 'opacity-0')} />
+                                      <span className="text-sm font-medium font-mono flex-1 truncate">{t.name}</span>
+                                      {tmeta && (
+                                        <span className={cn('inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border', tmeta.color)}>
+                                          {tmeta.icon}{tmeta.label}
+                                        </span>
+                                      )}
+                                      {needsMedia && !tmeta && (
+                                        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                                          <Upload className="h-2.5 w-2.5" />Media
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground line-clamp-1 pl-5">{t.body}</p>
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                   );
-                })}
-                {filteredTemplates.length === 0 && templateSearch && (
-                  <p className="text-xs text-muted-foreground text-center py-4">No templates match "{templateSearch}"</p>
-                )}
+                })()}
 
                 {/* A/B Version B */}
                 {state.abTest && (
