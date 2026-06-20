@@ -46,6 +46,7 @@ interface WizardState {
   mediaType:          string;
   mediaFileName:      string;
   mediaPreviewUrl:    string;   // local blob URL or http URL for in-wizard preview only
+  mediaCaption:       string;   // optional caption for media-only campaigns
   // LTO (Limited Time Offer) fields
   ltoCouponCode:      string;
   ltoExpiryAt:        string;   // datetime-local value
@@ -364,7 +365,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
     audienceType: 'all', audienceTag: '', audienceTags: '',
     selectedContactIds: [], manualPhones: '',
     scheduledAt: '',
-    mediaId: '', mediaType: '', mediaFileName: '', mediaPreviewUrl: '',
+    mediaId: '', mediaType: '', mediaFileName: '', mediaPreviewUrl: '', mediaCaption: '',
     ltoCouponCode: '', ltoExpiryAt: '', cardMediaUrls: [],
     campaignType: 'standard',
     locationLat: '', locationLng: '', locationName: '', locationAddress: '',
@@ -384,7 +385,8 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const { data: templates = [] } = useTemplates();
   const create          = useCreateCampaign();
 
-  const [manualMediaType, setManualMediaType] = useState<string | null>(null); // fallback if header_type is null
+  const [manualMediaType,  setManualMediaType]  = useState<string | null>(null);
+  const [templateSearch,   setTemplateSearch]   = useState('');
 
   // CSV import handler for Manual audience type
   const handleCsvImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -445,6 +447,9 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   const templateCards       = (selectedTemplateAny?.cards ?? []) as Array<{ body: string; header_type: string }>;
   const progress            = ((step + 1) / STEPS.length) * 100;
   const approvedTemplates   = templates.filter((t) => t.status === 'approved');
+  const filteredTemplates   = templateSearch.trim()
+    ? approvedTemplates.filter((t) => t.name.toLowerCase().includes(templateSearch.toLowerCase()))
+    : approvedTemplates;
 
   const canProceed = () => {
     if (step === 0) return state.name.trim().length > 0;
@@ -575,8 +580,9 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
           audience_type:   state.audienceType,
           audience_filter: audienceFilter,
           scheduled_at:    scheduledAtIST,
-          media_id:        state.mediaId   || undefined,
-          media_type:      state.mediaType || undefined,
+          media_id:        state.mediaId      || undefined,
+          media_type:      state.mediaType    || undefined,
+          media_caption:   state.mediaCaption || undefined,
           ...extraFields,
         } as Parameters<typeof create.mutateAsync>[0]);
 
@@ -606,7 +612,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
       name: '', templateId: '', templateIdB: '', abTest: false,
       audienceType: 'all', audienceTag: '', audienceTags: '',
       selectedContactIds: [], manualPhones: '', scheduledAt: '',
-      mediaId: '', mediaType: '', mediaFileName: '', mediaPreviewUrl: '',
+      mediaId: '', mediaType: '', mediaFileName: '', mediaPreviewUrl: '', mediaCaption: '',
       ltoCouponCode: '', ltoExpiryAt: '', cardMediaUrls: [],
       campaignType: 'standard',
       locationLat: '', locationLng: '', locationName: '', locationAddress: '',
@@ -748,8 +754,21 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   <p className="text-xs text-muted-foreground mt-0.5">Voice note or audio file — session contacts only</p>
                 </button>
 
+                {/* Template search */}
+                {approvedTemplates.length > 4 && (
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    <Input
+                      value={templateSearch}
+                      onChange={(e) => setTemplateSearch(e.target.value)}
+                      placeholder="Search templates…"
+                      className="h-8 pl-8 text-sm"
+                    />
+                  </div>
+                )}
+
                 {/* Template cards */}
-                {approvedTemplates.map((t) => {
+                {filteredTemplates.map((t) => {
                   const ht   = t.header_type?.toUpperCase() as string | undefined;
                   const meta = ht && ht !== 'NONE' ? MEDIA_TYPE_MAP[ht] : null;
                   const needsMedia = ht && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(ht);
@@ -776,6 +795,9 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                     </button>
                   );
                 })}
+                {filteredTemplates.length === 0 && templateSearch && (
+                  <p className="text-xs text-muted-foreground text-center py-4">No templates match "{templateSearch}"</p>
+                )}
 
                 {/* A/B Version B */}
                 {state.abTest && (
@@ -821,13 +843,30 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
 
                 {/* Media picker (standard templates with IMAGE/VIDEO/DOCUMENT header) */}
                 {templateNeedsMedia && reqMediaType && reqMediaType !== 'NONE' && state.campaignType === 'standard' && (
-                  <MediaUrlInput
-                    headerType={reqMediaType}
-                    workspaceId={workspaceId}
-                    value={state.mediaId}
-                    allowUrl={!!state.templateId}
-                    onChange={(mediaId, type, name, previewUrl) => setState((s) => ({ ...s, mediaId, mediaType: type, mediaFileName: name, mediaPreviewUrl: previewUrl ?? '' }))}
-                  />
+                  <>
+                    <MediaUrlInput
+                      headerType={reqMediaType}
+                      workspaceId={workspaceId}
+                      value={state.mediaId}
+                      allowUrl={!!state.templateId}
+                      onChange={(mediaId, type, name, previewUrl) => setState((s) => ({ ...s, mediaId, mediaType: type, mediaFileName: name, mediaPreviewUrl: previewUrl ?? '' }))}
+                    />
+                    {/* Caption / text — only for media-only (no template), not for template headers */}
+                    {!state.templateId && state.mediaId && reqMediaType !== 'DOCUMENT' && (
+                      <div className="mt-2 space-y-1">
+                        <Label className="text-xs text-muted-foreground">Caption / Message Text (optional)</Label>
+                        <Textarea
+                          value={state.mediaCaption}
+                          onChange={(e) => setState((s) => ({ ...s, mediaCaption: e.target.value }))}
+                          placeholder="Add a message to send with the media…"
+                          rows={3}
+                          className="text-sm resize-none"
+                          maxLength={1024}
+                        />
+                        <p className="text-[10px] text-muted-foreground text-right">{state.mediaCaption.length}/1024</p>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* LTO fields (shown when selected template has_lto) */}

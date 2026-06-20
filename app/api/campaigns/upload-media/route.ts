@@ -2,13 +2,17 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const ALLOWED_TYPES: Record<string, string> = {
-  'image/jpeg': 'image',
-  'image/png':  'image',
-  'image/webp': 'image',
-  'video/mp4':  'video',
+  'image/jpeg':      'image',
+  'image/png':       'image',
+  'image/webp':      'image',
+  'image/jpg':       'image',
+  'video/mp4':       'video',
+  'video/quicktime': 'video',  // iPhone .mov files
+  'video/x-mp4':     'video',
+  'video/3gpp':      'video',
   'application/pdf': 'document',
 };
 

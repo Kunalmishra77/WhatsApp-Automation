@@ -17,7 +17,7 @@ export async function GET(
     const repliedWithin = sp.get('replied_within');   // '1' | '3' | '24' hours
     const replyFilter   = sp.get('reply_filter');     // exact reply_text value
     const search        = sp.get('search') ?? '';
-    const limit         = isExport ? 10000 : 50;
+    const limit         = isExport ? 1000 : 50;  // paginated in chunks below for export
     const offset        = (page - 1) * limit;
 
     if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
@@ -141,9 +141,32 @@ export async function GET(
     // ── Enrich missing names from contacts table ──────────────────────────────
     recipients = await enrichNames(db, workspaceId, recipients);
 
-    // ── Export CSV ────────────────────────────────────────────────────────────
+    // ── Export CSV — paginate to bypass Supabase 1000-row default limit ─────
     if (isExport) {
-      const csv = buildCSV(status, recipients, campaign.name);
+      let allRows: Array<Record<string, unknown>> = [];
+      let exportOffset = 0;
+      const CHUNK = 1000;
+      while (true) {
+        let q = db
+          .from('campaign_recipients')
+          .select('id, phone, name, status, sent_at, delivered_at, read_at, replied_at, reply_type, reply_text, error_message, filtered_reason, conversation_id, contact_id')
+          .eq('campaign_id', campaignId)
+          .order('sent_at', { ascending: false })
+          .range(exportOffset, exportOffset + CHUNK - 1);
+        if (status === 'sent')           q = q.in('status', ['sent', 'delivered', 'read', 'replied']);
+        else if (status === 'delivered') q = q.in('status', ['delivered', 'read', 'replied']);
+        else if (status === 'read')      q = q.in('status', ['read', 'replied']);
+        else if (status !== 'all')       q = q.eq('status', status);
+        if (status === 'replied' && replyFilter) q = q.eq('reply_text', replyFilter);
+        if (search.trim()) q = q.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
+        const { data: chunk } = await q;
+        if (!chunk || chunk.length === 0) break;
+        allRows = allRows.concat(chunk as Array<Record<string, unknown>>);
+        if (chunk.length < CHUNK) break;
+        exportOffset += CHUNK;
+      }
+      allRows = await enrichNames(db, workspaceId, allRows);
+      const csv = buildCSV(status, allRows, campaign.name);
       return new NextResponse(csv, {
         headers: {
           'Content-Type':        'text/csv; charset=utf-8',

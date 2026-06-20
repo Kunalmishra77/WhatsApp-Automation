@@ -117,11 +117,13 @@ async function sendMediaMessage(
   toPhone: string,
   mediaId: string,
   mediaType: string,
+  caption?: string,
 ): Promise<{ success: boolean; waMessageId?: string; error?: string }> {
   try {
     const mType = mediaType.toLowerCase(); // WhatsApp API requires lowercase ("image", not "IMAGE")
     const isUrl = mediaId.startsWith('http://') || mediaId.startsWith('https://');
-    const mediaPayload = isUrl ? { link: mediaId } : { id: mediaId };
+    const mediaPayload: Record<string, string> = isUrl ? { link: mediaId } : { id: mediaId };
+    if (caption?.trim() && mType !== 'document') mediaPayload.caption = caption.trim();
     const res = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
       method: 'POST',
       headers: {
@@ -666,7 +668,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
             return { contact, result, msgContent: template.body, msgType: 'template' as const };
           }
           // Media-only (image/video/document/audio)
-          const result = await sendMediaMessage(ws, sanitizePhone(contact.phone), campaign.media_id as string, campaign.media_type as string)
+          const result = await sendMediaMessage(ws, sanitizePhone(contact.phone), campaign.media_id as string, campaign.media_type as string, (campaign as any).media_caption ?? undefined)
             .catch((e: unknown) => ({ success: false, error: String(e) }));
           return { contact, result, msgContent: `[${campaign.media_type}]`, msgType: campaign.media_type as string ?? 'image' };
         } catch (e) {
