@@ -274,7 +274,21 @@ function MediaUrlInput({ headerType, workspaceId, value, onChange, allowUrl = fa
                   value === item.media_id ? 'border-green-400 bg-green-50' : 'border-border bg-white hover:border-brand-300 hover:bg-muted/30',
                 )}
               >
-                <div className="h-7 w-7 rounded bg-muted flex items-center justify-center shrink-0">{mediaTypeIcon(item.media_type)}</div>
+                {item.media_type === 'image' ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={item.media_id.startsWith('http') ? item.media_id : `/api/media/proxy?mediaId=${encodeURIComponent(item.media_id)}&workspaceId=${encodeURIComponent(workspaceId)}`}
+                    alt={item.filename}
+                    className="h-7 w-7 rounded object-cover shrink-0 bg-muted"
+                    onError={(e) => {
+                      const el = e.currentTarget;
+                      el.style.display = 'none';
+                      const fallback = el.nextSibling as HTMLElement | null;
+                      if (fallback) fallback.style.display = 'flex';
+                    }}
+                  />
+                ) : null}
+                <div className={`h-7 w-7 rounded bg-muted items-center justify-center shrink-0 ${item.media_type === 'image' ? 'hidden' : 'flex'}`}>{mediaTypeIcon(item.media_type)}</div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium truncate">{item.filename}</p>
                   <p className="text-[10px] text-muted-foreground">{timeAgo(item.created_at)}</p>
@@ -1008,6 +1022,8 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                     headerText={selectedTemplate.header_type === 'TEXT' ? selectedTemplate.header_content ?? '' : undefined}
                     mediaFileName={state.mediaFileName || undefined}
                     mediaPreviewUrl={state.mediaPreviewUrl || undefined}
+                    mediaId={state.mediaId || undefined}
+                    workspaceId={workspaceId}
                     body={selectedTemplate.body}
                     footer={selectedTemplate.footer ?? undefined}
                     buttons={templateButtons}
@@ -1298,6 +1314,8 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                       headerText={selectedTemplate.header_type === 'TEXT' ? selectedTemplate.header_content ?? '' : undefined}
                       mediaFileName={state.mediaFileName || undefined}
                       mediaPreviewUrl={state.mediaPreviewUrl || undefined}
+                      mediaId={state.mediaId || undefined}
+                      workspaceId={workspaceId}
                       body={selectedTemplate.body}
                       footer={selectedTemplate.footer ?? undefined}
                       buttons={templateButtons}

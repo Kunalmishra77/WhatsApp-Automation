@@ -270,8 +270,8 @@ function RecipientTable({ recipients, loading, tab, router, campaignId, workspac
 }
 
 // ── Overview Tab ──────────────────────────────────────────────────────────────
-function OverviewTab({ campaign, stats, daily, loading }: {
-  campaign: Campaign; stats: Stats; daily: DailyStatRow[]; loading: boolean;
+function OverviewTab({ campaign, stats, daily, loading, workspaceId }: {
+  campaign: Campaign; stats: Stats; daily: DailyStatRow[]; loading: boolean; workspaceId: string;
 }) {
   const tpl    = campaign.templates;
   const mType  = campaign.media_type;
@@ -328,10 +328,29 @@ function OverviewTab({ campaign, stats, daily, loading }: {
           <div className="rounded-xl border border-border bg-card p-4 space-y-2">
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Template Preview</h3>
             {campaign.media_id && (
-              <div className="rounded-lg bg-muted flex items-center justify-center h-20 border border-border">
-                <MediaIcon className="h-8 w-8 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground ml-2">{mType} attachment</span>
-              </div>
+              mType === 'image' ? (
+                <div className="rounded-lg overflow-hidden border border-border h-36 bg-muted">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={campaign.media_id.startsWith('http') ? campaign.media_id : `/api/media/proxy?mediaId=${encodeURIComponent(campaign.media_id)}&workspaceId=${encodeURIComponent(workspaceId)}`}
+                    alt="Campaign media"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      const el = e.currentTarget;
+                      el.style.display = 'none';
+                      const fb = el.parentElement;
+                      if (fb) {
+                        fb.innerHTML = `<div class="flex items-center justify-center h-full gap-2 text-muted-foreground"><svg class="h-8 w-8" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg><span class="text-xs">image attachment</span></div>`;
+                      }
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="rounded-lg bg-muted flex items-center justify-center h-20 border border-border gap-2">
+                  <MediaIcon className="h-8 w-8 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">{mType} attachment</span>
+                </div>
+              )
             )}
             <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed">{tpl.body}</p>
             {tpl.buttons && tpl.buttons.length > 0 && (
@@ -640,7 +659,7 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
         {tab === 'overview' && (
           isLoading || !campaign
             ? <div className="p-6 space-y-4">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-xl" />)}</div>
-            : <OverviewTab campaign={campaign} stats={stats} daily={dailyData?.daily ?? []} loading={false} />
+            : <OverviewTab campaign={campaign} stats={stats} daily={dailyData?.daily ?? []} loading={false} workspaceId={workspaceId} />
         )}
 
         {/* Sent / Delivered / Read tabs */}

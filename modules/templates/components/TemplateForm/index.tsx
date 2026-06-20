@@ -106,10 +106,11 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
 
   // Standard mode state
-  const [headerType,    setHeaderType]    = useState<HeaderType>('NONE');
-  const [mediaHandle,   setMediaHandle]   = useState('');
-  const [mediaFileName, setMediaFileName] = useState('');
-  const [isUploading,   setIsUploading]   = useState(false);
+  const [headerType,       setHeaderType]       = useState<HeaderType>('NONE');
+  const [mediaHandle,      setMediaHandle]      = useState('');
+  const [mediaFileName,    setMediaFileName]    = useState('');
+  const [mediaPreviewUrl,  setMediaPreviewUrl]  = useState('');
+  const [isUploading,      setIsUploading]      = useState(false);
   const [buttons,       setButtons]       = useState<TemplateButton[]>([]);
   const mediaInputRef = useRef<HTMLInputElement>(null);
 
@@ -192,6 +193,7 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
       setHeaderType(ht || 'NONE');
       setMediaHandle(ht !== 'TEXT' && ht !== 'NONE' ? (tpl?.header_content ?? '') : '');
       setMediaFileName('');
+      setMediaPreviewUrl('');
       const existingBtns = Array.isArray(tpl?.buttons) ? tpl.buttons as TemplateButton[] : [];
       setButtons(existingBtns);
 
@@ -222,6 +224,8 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
 
   const handleMediaUpload = async (file: File) => {
     setIsUploading(true);
+    // Blob URL for instant local preview; revoked when dialog closes
+    if (file.type.startsWith('image/')) setMediaPreviewUrl(URL.createObjectURL(file));
     try {
       const form = new FormData();
       form.append('file', file);
@@ -233,6 +237,7 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
       setMediaFileName(data.fileName ?? file.name);
       toast.success('Media uploaded');
     } catch (err) {
+      setMediaPreviewUrl('');
       toast.error(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setIsUploading(false);
@@ -411,7 +416,7 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
                       <button
                         key={t}
                         type="button"
-                        onClick={() => { setHeaderType(t); setMediaHandle(''); setMediaFileName(''); }}
+                        onClick={() => { setHeaderType(t); setMediaHandle(''); setMediaFileName(''); setMediaPreviewUrl(''); }}
                         className={cn(
                           'rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
                           headerType === t
@@ -432,7 +437,7 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
                       <div className="flex items-center gap-2 rounded-lg border border-brand-300 bg-brand-50 p-3">
                         {MediaIcon && <MediaIcon className="h-4 w-4 text-brand-600 shrink-0" />}
                         <span className="flex-1 text-sm text-brand-700 truncate">{mediaFileName || 'Uploaded'}</span>
-                        <button type="button" onClick={() => { setMediaHandle(''); setMediaFileName(''); }} className="text-muted-foreground hover:text-destructive">
+                        <button type="button" onClick={() => { setMediaHandle(''); setMediaFileName(''); setMediaPreviewUrl(''); }} className="text-muted-foreground hover:text-destructive">
                           <X className="h-4 w-4" />
                         </button>
                       </div>
@@ -801,6 +806,9 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
                 headerType={headerType}
                 headerText={headerType === 'TEXT' ? (headerTextValue || undefined) : undefined}
                 mediaFileName={isMeta && mediaHandle ? (mediaFileName || headerType) : undefined}
+                mediaPreviewUrl={mediaPreviewUrl || undefined}
+                mediaId={isMeta && mediaHandle ? mediaHandle : undefined}
+                workspaceId={workspaceId}
                 buttons={buttons.filter((b) => b.text.trim()).map((b) => ({ type: b.type, text: b.text }))}
                 body={bodyValue || ''}
                 footer={footerValue || undefined}
