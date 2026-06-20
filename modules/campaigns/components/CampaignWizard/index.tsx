@@ -480,7 +480,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
   };
 
   const handleTestSend = async () => {
-    if (!testPhone.trim() || !state.templateId) return;
+    if (!testPhone.trim() || (!state.templateId && !state.mediaId)) return;
     setTestSending(true);
     try {
       const res = await fetch('/api/campaigns/test-send', {
@@ -488,10 +488,11 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspaceId,
-          templateId: state.templateId,
-          toPhone:    testPhone.trim(),
-          mediaId:    state.mediaId   || undefined,
-          mediaType:  state.mediaType || undefined,
+          templateId:   state.templateId   || undefined,
+          toPhone:      testPhone.trim(),
+          mediaId:      state.mediaId      || undefined,
+          mediaType:    state.mediaType    || undefined,
+          mediaCaption: state.mediaCaption || undefined,
         }),
       });
       const data = await res.json() as { ok?: boolean; error?: string };
@@ -1253,7 +1254,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   />
                   <Button
                     size="sm" variant="outline" className="h-8 text-xs shrink-0 border-brand-300 text-brand-700 hover:bg-brand-100"
-                    disabled={!testPhone.trim() || !state.templateId || testSending}
+                    disabled={!testPhone.trim() || (!state.templateId && !state.mediaId) || testSending}
                     onClick={() => void handleTestSend()}
                   >
                     {testSending ? <Spin className="h-3.5 w-3.5 animate-spin" /> : 'Send Test'}

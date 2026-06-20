@@ -16,6 +16,7 @@ export async function GET(
     const isExport      = sp.get('export') === '1';
     const repliedWithin = sp.get('replied_within');   // '1' | '3' | '24' hours
     const replyFilter   = sp.get('reply_filter');     // exact reply_text value
+    const replyType     = sp.get('reply_type');       // 'button' | 'text' — filter by reply_type
     const search        = sp.get('search') ?? '';
     const limit         = isExport ? 1000 : 50;  // paginated in chunks below for export
     const offset        = (page - 1) * limit;
@@ -87,13 +88,16 @@ export async function GET(
       .eq('status', 'replied')
       .not('reply_text', 'is', null);
 
-    const uniqueReplyTexts: string[] = [
-      ...new Set(
-        (replyTextsRaw ?? [])
-          .map((r: { reply_text: string }) => r.reply_text)
-          .filter(Boolean),
-      ),
-    ] as string[];
+    // Build unique reply texts with server-side counts
+    const replyTextCountMap: Record<string, number> = {};
+    for (const r of (replyTextsRaw ?? []) as Array<{ reply_text: string }>) {
+      if (r.reply_text) {
+        replyTextCountMap[r.reply_text] = (replyTextCountMap[r.reply_text] ?? 0) + 1;
+      }
+    }
+    const uniqueReplyTexts: Array<{ text: string; count: number }> = Object.entries(replyTextCountMap)
+      .sort((a, b) => b[1] - a[1])
+      .map(([text, count]) => ({ text, count }));
 
     // ── Recipients list ───────────────────────────────────────────────────────
     let query = db
@@ -115,9 +119,14 @@ export async function GET(
     else if (status === 'read')      query = query.in('status', ['read', 'replied']);
     else if (status !== 'all')       query = query.eq('status', status);
 
-    // Reply text filter (Replied tab dropdown)
+    // Reply text filter
     if (status === 'replied' && replyFilter) {
       query = query.eq('reply_text', replyFilter);
+    }
+
+    // Reply type filter (button | text)
+    if (status === 'replied' && replyType) {
+      query = query.eq('reply_type', replyType);
     }
 
     // Name / phone search
@@ -158,6 +167,7 @@ export async function GET(
         else if (status === 'read')      q = q.in('status', ['read', 'replied']);
         else if (status !== 'all')       q = q.eq('status', status);
         if (status === 'replied' && replyFilter) q = q.eq('reply_text', replyFilter);
+        if (status === 'replied' && replyType) q = q.eq('reply_type', replyType);
         if (search.trim()) q = q.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
         const { data: chunk } = await q;
         if (!chunk || chunk.length === 0) break;

@@ -4,20 +4,24 @@ import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/aut
 import { normalizePhone } from '@/lib/phone';
 
 // POST /api/campaigns/test-send
-// Sends a single test message using the selected template to a specific phone number.
-// Used in the campaign wizard's review step before launching.
+// Sends a single test message to a specific phone number.
+// Supports both template campaigns and media-only campaigns (no template).
 export async function POST(request: NextRequest) {
   try {
-    const { workspaceId, templateId, toPhone, mediaId, mediaType } = await request.json() as {
-      workspaceId?: string;
-      templateId?:  string;
-      toPhone?:     string;
-      mediaId?:     string;
-      mediaType?:   string;
+    const { workspaceId, templateId, toPhone, mediaId, mediaType, mediaCaption } = await request.json() as {
+      workspaceId?:  string;
+      templateId?:   string;
+      toPhone?:      string;
+      mediaId?:      string;
+      mediaType?:    string;
+      mediaCaption?: string;
     };
 
-    if (!workspaceId || !templateId || !toPhone) {
-      return NextResponse.json({ error: 'workspaceId, templateId, toPhone required' }, { status: 400 });
+    if (!workspaceId || !toPhone) {
+      return NextResponse.json({ error: 'workspaceId and toPhone required' }, { status: 400 });
+    }
+    if (!templateId && !mediaId) {
+      return NextResponse.json({ error: 'templateId or mediaId required' }, { status: 400 });
     }
 
     await requireWorkspacePermission(workspaceId, 'create_campaigns');
@@ -35,7 +39,45 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'WhatsApp not configured for this workspace' }, { status: 400 });
     }
 
-    // Fetch template
+    const phone = normalizePhone(toPhone);
+    if (!phone) return NextResponse.json({ error: 'Invalid phone number' }, { status: 400 });
+
+    const accessToken = (workspace.access_token as string).replace(/﻿/g, '').trim();
+
+    // ── Media-only campaign (no template) ────────────────────────────────────
+    if (!templateId && mediaId && mediaType) {
+      const mType = mediaType.toLowerCase();
+      const isUrl = mediaId.startsWith('http://') || mediaId.startsWith('https://');
+      const mediaPayload: Record<string, string> = isUrl ? { link: mediaId } : { id: mediaId };
+      if (mediaCaption?.trim() && mType !== 'document') {
+        mediaPayload.caption = mediaCaption.trim();
+      }
+
+      const res = await fetch(
+        `https://graph.facebook.com/v19.0/${workspace.phone_number_id as string}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            to: phone,
+            type: mType,
+            [mType]: mediaPayload,
+          }),
+        },
+      );
+
+      const data = await res.json() as { messages?: Array<{ id: string }>; error?: { message: string } };
+      if (!res.ok) {
+        return NextResponse.json({ error: data?.error?.message ?? 'WhatsApp API error' }, { status: 400 });
+      }
+      return NextResponse.json({ ok: true, messageId: data?.messages?.[0]?.id });
+    }
+
+    // ── Template campaign ─────────────────────────────────────────────────────
     const { data: template } = await db
       .from('templates')
       .select('name, language, header_type')
@@ -44,10 +86,6 @@ export async function POST(request: NextRequest) {
 
     if (!template) return NextResponse.json({ error: 'Template not found' }, { status: 404 });
 
-    const phone = normalizePhone(toPhone);
-    if (!phone) return NextResponse.json({ error: 'Invalid phone number' }, { status: 400 });
-
-    const accessToken = (workspace.access_token as string).replace(/﻿/g, '').trim();
     const components: Array<Record<string, unknown>> = [];
 
     // Include media header if provided
@@ -66,7 +104,7 @@ export async function POST(request: NextRequest) {
     }
 
     const res = await fetch(
-      `https://graph.facebook.com/v19.0/${workspace.phone_number_id}/messages`,
+      `https://graph.facebook.com/v19.0/${workspace.phone_number_id as string}/messages`,
       {
         method: 'POST',
         headers: {

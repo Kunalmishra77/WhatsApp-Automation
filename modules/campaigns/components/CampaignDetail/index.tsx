@@ -62,7 +62,7 @@ interface Campaign {
   templates: { id: string; name: string; header_type: string | null; body: string | null; buttons: Array<{ type: string; text: string }> | null } | null;
 }
 interface DetailData {
-  campaign: Campaign; stats: Stats; unique_reply_texts: string[];
+  campaign: Campaign; stats: Stats; unique_reply_texts: Array<{ text: string; count: number }>;
   recipients: Recipient[]; total: number; page: number; pages: number;
 }
 
@@ -123,10 +123,11 @@ function MiniStat({ label, value, sub, icon: Icon, color }: { label: string; val
 }
 
 // ── Download CSV helper ───────────────────────────────────────────────────────
-function downloadTab(campaignId: string, workspaceId: string, status: string, repliedWithin?: string, replyFilter?: string) {
+function downloadTab(campaignId: string, workspaceId: string, status: string, repliedWithin?: string, replyFilter?: string, replyType?: string) {
   const p = new URLSearchParams({ workspaceId, status, export: '1', page: '1' });
   if (repliedWithin) p.set('replied_within', repliedWithin);
   if (replyFilter)   p.set('reply_filter', replyFilter);
+  if (replyType)     p.set('reply_type', replyType);
   window.open(`/api/campaigns/${campaignId}/recipients?${p}`, '_blank');
 }
 
@@ -441,7 +442,7 @@ function ErrorBreakdown({ recipients }: { recipients: Recipient[] }) {
 function SmartSegBar({ repliedWithin, setRepliedWithin, replyFilter, setReplyFilter, uniqueReplyTexts, onBroadcast, onDownload }: {
   repliedWithin: string; setRepliedWithin: (v: string) => void;
   replyFilter: string;   setReplyFilter:   (v: string) => void;
-  uniqueReplyTexts: string[]; onBroadcast: () => void; onDownload: () => void;
+  uniqueReplyTexts: Array<{ text: string; count: number }>; onBroadcast: () => void; onDownload: () => void;
 }) {
   return (
     <div className="border-b border-border px-5 py-3 bg-muted/20">
@@ -463,7 +464,7 @@ function SmartSegBar({ repliedWithin, setRepliedWithin, replyFilter, setReplyFil
               className="text-xs border border-border rounded-md px-2 py-1 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-brand-500"
             >
               <option value="">All Replies</option>
-              {uniqueReplyTexts.map((t) => <option key={t} value={t}>{t}</option>)}
+              {uniqueReplyTexts.map(({ text, count }) => <option key={text} value={text}>{text} ({count})</option>)}
             </select>
           </>
         )}
@@ -493,10 +494,11 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
   const [search,          setSearch]          = useState('');
   const [repliedWithin,   setRepliedWithin]   = useState('');
   const [replyFilter,     setReplyFilter]     = useState('');
+  const [replyTypeFilter, setReplyTypeFilter] = useState('');
   const [cancelling,      setCancelling]      = useState(false);
   const [resuming,        setResuming]        = useState(false);
 
-  const switchTab = useCallback((t: TabKey) => { setTab(t); setPage(1); setSearch(''); }, []);
+  const switchTab = useCallback((t: TabKey) => { setTab(t); setPage(1); setSearch(''); setReplyTypeFilter(''); setReplyFilter(''); setRepliedWithin(''); }, []);
 
   const handleCancel = useCallback(async () => {
     if (!confirm('Cancel this campaign? Its status will be set to failed.\n\nWARNING: If you cancel and create a new campaign for the same contacts, those contacts will be messaged again (double-charge). Use "Resume" instead to continue from where it left off.')) return;
@@ -527,12 +529,13 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
 
   // Main recipients + stats query
   const { data, isLoading } = useQuery({
-    queryKey: ['campaign-detail', campaignId, workspaceId, tab, page, search, repliedWithin, replyFilter],
+    queryKey: ['campaign-detail', campaignId, workspaceId, tab, page, search, repliedWithin, replyFilter, replyTypeFilter],
     queryFn: async (): Promise<DetailData> => {
       const p = new URLSearchParams({ workspaceId, status: tab === 'overview' ? 'all' : tab, page: String(page) });
-      if (search)        p.set('search', search);
-      if (repliedWithin) p.set('replied_within', repliedWithin);
-      if (replyFilter)   p.set('reply_filter', replyFilter);
+      if (search)          p.set('search', search);
+      if (repliedWithin)   p.set('replied_within', repliedWithin);
+      if (replyFilter)     p.set('reply_filter', replyFilter);
+      if (replyTypeFilter) p.set('reply_type', replyTypeFilter);
       const res = await fetch(`/api/campaigns/${campaignId}/recipients?${p}`);
       if (!res.ok) throw new Error('Failed to fetch');
       return res.json();
@@ -689,29 +692,42 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
         {/* Replied tab */}
         {tab === 'replied' && (
           <div>
-            {/* Stats */}
+            {/* Stats — clickable to filter */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-5 border-b border-border">
               {[
-                { label: 'Total Replied', value: stats.replied,        icon: Reply,        color: 'text-emerald-600', sub: `${pct(stats.replied, stats.sent)}% reply rate` },
-                { label: 'Button Clicks', value: stats.button_replies, icon: Filter,       color: 'text-blue-600',    sub: 'tapped a template button' },
-                { label: 'Text Replies',  value: stats.text_replies,   icon: MessageSquare,color: 'text-violet-600',  sub: 'typed a reply' },
-                { label: 'Unique Replies',value: uniqueReplyTexts.length, icon: CheckCheck,color: 'text-sky-600',     sub: 'distinct messages' },
-              ].map((s) => <MiniStat key={s.label} {...s} value={String(s.value)} />)}
+                { label: 'Total Replied', value: String(stats.replied),        icon: Reply,         color: 'text-emerald-600', sub: `${pct(stats.replied, stats.sent)}% reply rate`,   filterVal: '' },
+                { label: 'Button Clicks', value: String(stats.button_replies), icon: Filter,        color: 'text-blue-600',    sub: 'tapped a template button',                        filterVal: 'button' },
+                { label: 'Text Replies',  value: String(stats.text_replies),   icon: MessageSquare, color: 'text-violet-600',  sub: 'typed a reply',                                   filterVal: 'text' },
+                { label: 'Unique Replies',value: String(uniqueReplyTexts.length), icon: CheckCheck, color: 'text-sky-600',     sub: 'distinct messages',                               filterVal: null },
+              ].map((s) => {
+                const isClickable = s.filterVal !== null;
+                const isActive = isClickable && replyTypeFilter === s.filterVal;
+                return isClickable ? (
+                  <button key={s.label} onClick={() => { setReplyTypeFilter(s.filterVal as string); setReplyFilter(''); setPage(1); }}
+                    className={cn('rounded-xl border p-4 text-left transition-all', isActive ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-400' : 'border-border bg-card hover:border-brand-300 hover:bg-brand-50/40')}>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <s.icon className={cn('h-4 w-4', s.color)} />
+                      <span className="text-xs text-muted-foreground">{s.label}</span>
+                    </div>
+                    <p className="text-xl font-bold text-foreground">{s.value}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{s.sub}</p>
+                  </button>
+                ) : (
+                  <MiniStat key={s.label} label={s.label} value={s.value} icon={s.icon} color={s.color} sub={s.sub} />
+                );
+              })}
             </div>
 
             {/* Reply breakdown pills */}
             {uniqueReplyTexts.length > 0 && (
               <div className="flex flex-wrap gap-2 px-5 py-3 border-b border-border">
-                {uniqueReplyTexts.map((t) => {
-                  const n = recipients.filter((r) => r.reply_text === t).length;
-                  return (
-                    <button key={t} onClick={() => setReplyFilter(replyFilter === t ? '' : t)}
-                      className={cn('text-xs rounded-full px-3 py-1 border font-medium transition-all',
-                        replyFilter === t ? 'bg-emerald-500 text-white border-emerald-500' : 'border-border text-muted-foreground hover:border-emerald-400')}>
-                      {t} <span className="opacity-70">({n})</span>
-                    </button>
-                  );
-                })}
+                {uniqueReplyTexts.map(({ text, count }) => (
+                  <button key={text} onClick={() => { setReplyFilter(replyFilter === text ? '' : text); setReplyTypeFilter(''); setPage(1); }}
+                    className={cn('text-xs rounded-full px-3 py-1 border font-medium transition-all',
+                      replyFilter === text ? 'bg-emerald-500 text-white border-emerald-500' : 'border-border text-muted-foreground hover:border-emerald-400')}>
+                    {text} <span className="opacity-70">({count})</span>
+                  </button>
+                ))}
               </div>
             )}
 
@@ -724,7 +740,7 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
                 const phones = recipients.map((r) => r.phone).join(',');
                 router.push(`/campaigns?broadcast_to=${encodeURIComponent(phones)}`);
               }}
-              onDownload={() => downloadTab(campaignId, workspaceId, 'replied', repliedWithin || undefined, replyFilter || undefined)}
+              onDownload={() => downloadTab(campaignId, workspaceId, 'replied', repliedWithin || undefined, replyFilter || undefined, replyTypeFilter || undefined)}
             />
 
             <RecipientTable recipients={recipients} loading={isLoading} tab="replied" router={router} campaignId={campaignId} workspaceId={workspaceId} />
