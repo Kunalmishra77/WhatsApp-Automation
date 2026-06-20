@@ -49,6 +49,7 @@ export async function createCampaign(
     media_id?: string;
     media_type?: string;
     media_caption?: string;
+    text_content?: string;
   },
 ): Promise<CampaignRow> {
   const supabase = createClient() as any;
@@ -66,6 +67,7 @@ export async function createCampaign(
       media_id:        payload.media_id      ?? null,
       media_type:      payload.media_type    ?? null,
       media_caption:   payload.media_caption ?? null,
+      text_content:    payload.text_content  ?? null,
     })
     .select()
     .single();

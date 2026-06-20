@@ -17,7 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Check, ChevronRight, Paperclip, X, Loader2 as Spin, FlaskConical,
   ImageIcon, Video, FileText, AlertTriangle, Clock, RotateCcw, Link,
-  Search, Users, Phone, Upload, Timer, MapPin, Music, LayoutGrid, ChevronsUpDown,
+  Search, Users, Phone, Upload, Timer, MapPin, Music, LayoutGrid, ChevronsUpDown, MessageSquare,
 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
@@ -54,8 +54,11 @@ interface WizardState {
   ltoExpiryAt:        string;   // datetime-local value
   // Carousel card media URLs — one per card
   cardMediaUrls:      string[];
+  // Campaign type
+  campaignType:       'standard' | 'location' | 'audio' | 'text';
+  // Text / link campaign
+  textContent:        string;
   // Location campaign
-  campaignType:       'standard' | 'location' | 'audio';
   locationLat:        string;
   locationLng:        string;
   locationName:       string;
@@ -126,9 +129,10 @@ interface MediaUrlInputProps {
 }
 
 const ACCEPT_BY_TYPE: Record<string, string> = {
-  IMAGE:    'image/jpeg,image/png,image/webp',
-  VIDEO:    'video/mp4',
+  IMAGE:    'image/jpeg,image/png,image/webp,image/jpg',
+  VIDEO:    'video/mp4,video/quicktime,video/x-mp4,video/3gpp',
   DOCUMENT: 'application/pdf',
+  ALL:      'image/jpeg,image/png,image/webp,image/jpg,video/mp4,video/quicktime,video/x-mp4,video/3gpp,application/pdf',
 };
 
 function MediaUrlInput({ headerType, workspaceId, value, onChange, allowUrl = false }: MediaUrlInputProps) {
@@ -139,13 +143,14 @@ function MediaUrlInput({ headerType, workspaceId, value, onChange, allowUrl = fa
   const [showUrl, setShowUrl]     = useState(false);
   const [urlVal, setUrlVal]       = useState('');
   const [dragOver, setDragOver]   = useState(false);
-  const mediaType = headerType.toLowerCase() as 'image' | 'video' | 'document';
+  const isAll     = headerType === 'ALL';
+  const mediaType = isAll ? undefined : headerType.toLowerCase() as 'image' | 'video' | 'document';
 
   const refreshRecent = () => {
     fetch(`/api/campaigns/upload-media?workspaceId=${workspaceId}`)
       .then((r) => r.json())
       .then((d: { items?: MediaLibraryItem[] }) =>
-        setRecent((d.items ?? []).filter((i) => i.media_type === mediaType)))
+        setRecent(isAll ? (d.items ?? []) : (d.items ?? []).filter((i) => i.media_type === mediaType)))
       .catch(() => {});
   };
 
@@ -155,10 +160,10 @@ function MediaUrlInput({ headerType, workspaceId, value, onChange, allowUrl = fa
     fetch(`/api/campaigns/upload-media?workspaceId=${workspaceId}`)
       .then((r) => r.json())
       .then((d: { items?: MediaLibraryItem[] }) =>
-        setRecent((d.items ?? []).filter((i) => i.media_type === mediaType)))
+        setRecent(isAll ? (d.items ?? []) : (d.items ?? []).filter((i) => i.media_type === mediaType)))
       .catch(() => {})
       .finally(() => setLoadingR(false));
-  }, [workspaceId, mediaType]);
+  }, [workspaceId, mediaType, isAll]);
 
   const uploadFile = async (file: File) => {
     setUploading(true);
@@ -199,7 +204,7 @@ function MediaUrlInput({ headerType, workspaceId, value, onChange, allowUrl = fa
       });
     } catch { /* non-critical */ }
     const name = url.split('/').pop()?.split('?')[0] ?? url;
-    onChange(url, mediaType, name, url);  // URL is its own preview
+    onChange(url, mediaType ?? 'image', name, url);  // URL is its own preview
     refreshRecent();
     setShowUrl(false);
   };
@@ -223,7 +228,7 @@ function MediaUrlInput({ headerType, workspaceId, value, onChange, allowUrl = fa
               {selectedItem?.filename ?? (value.startsWith('http') ? value.split('/').pop() : 'Media set ✓')}
             </p>
           </div>
-          <button onClick={() => onChange('', mediaType, '', '')} className="text-[10px] text-green-600 hover:text-red-500 shrink-0">
+          <button onClick={() => onChange('', mediaType ?? '', '', '')} className="text-[10px] text-green-600 hover:text-red-500 shrink-0">
             Change
           </button>
         </div>
@@ -384,6 +389,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
     mediaId: '', mediaType: '', mediaFileName: '', mediaPreviewUrl: '', mediaCaption: '',
     ltoCouponCode: '', ltoExpiryAt: '', cardMediaUrls: [],
     campaignType: 'standard',
+    textContent: '',
     locationLat: '', locationLng: '', locationName: '', locationAddress: '',
     audioUrl: '',
   });
@@ -482,7 +488,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
       if (state.audienceType === 'tag')      return state.audienceTag.trim().length > 0;
     }
     if (step === STEPS.length - 1) {
-      return !!(state.templateId || state.mediaId || state.campaignType !== 'standard');
+      return !!(state.templateId || state.mediaId || state.campaignType !== 'standard' || state.textContent.trim());
     }
     return true;
   };
@@ -578,6 +584,9 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
         } else if (state.campaignType === 'audio') {
           extraFields.media_id   = state.audioUrl || undefined;
           extraFields.media_type = 'audio';
+        } else if (state.campaignType === 'text') {
+          extraFields.media_type    = 'text';
+          extraFields.text_content  = state.textContent.trim() || undefined;
         }
         if (selectedTemplateAny?.has_lto && state.ltoCouponCode) {
           const expiryIST = state.ltoExpiryAt ? state.ltoExpiryAt + ':00+05:30' : undefined;
@@ -629,6 +638,7 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
       mediaId: '', mediaType: '', mediaFileName: '', mediaPreviewUrl: '', mediaCaption: '',
       ltoCouponCode: '', ltoExpiryAt: '', cardMediaUrls: [],
       campaignType: 'standard',
+      textContent: '',
       locationLat: '', locationLng: '', locationName: '', locationAddress: '',
       audioUrl: '',
     });
@@ -767,6 +777,33 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">Voice note or audio file — session contacts only</p>
                 </button>
+
+                {/* Text / Link option */}
+                <button
+                  onClick={() => setState((s) => ({ ...s, templateId: '', mediaId: '', mediaType: '', mediaFileName: '', mediaPreviewUrl: '', campaignType: 'text' }))}
+                  className={cn('w-full rounded-lg border p-2.5 text-left transition-colors', state.campaignType === 'text' ? 'border-sky-500 bg-sky-500/5' : 'border-border hover:border-sky-300')}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <MessageSquare className="h-3.5 w-3.5 text-sky-600" />
+                    <p className="text-sm font-medium">💬 Text / Link</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">Plain text message or URL — session contacts only</p>
+                </button>
+
+                {/* Text message input */}
+                {state.campaignType === 'text' && (
+                  <div className="rounded-xl border border-sky-200 bg-sky-50/40 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-sky-800">Message text</p>
+                    <Textarea
+                      placeholder="Type your message here… Links will auto-preview in WhatsApp."
+                      value={state.textContent}
+                      onChange={(e) => setState((s) => ({ ...s, textContent: e.target.value }))}
+                      rows={4}
+                      className="text-sm resize-none"
+                    />
+                    <p className="text-[11px] text-sky-700">{state.textContent.length}/4096 chars</p>
+                  </div>
+                )}
 
                 {/* Template combobox dropdown */}
                 {(() => {

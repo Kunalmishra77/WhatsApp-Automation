@@ -179,6 +179,35 @@ async function sendLocationMessage(
   }
 }
 
+// Sends a plain text / link message (session contacts only)
+async function sendTextMessage(
+  ws: Workspace,
+  toPhone: string,
+  text: string,
+): Promise<{ success: boolean; waMessageId?: string; error?: string }> {
+  try {
+    const res = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${ws.access_token.replace(/﻿/g, '').trim()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type:    'individual',
+        to:                toPhone,
+        type:              'text',
+        text:              { body: text, preview_url: true },
+      }),
+    });
+    const data = await res.json() as { messages?: Array<{ id: string }>; error?: { message: string } };
+    if (!res.ok) return { success: false, error: data?.error?.message ?? 'WhatsApp API error' };
+    return { success: true, waMessageId: data?.messages?.[0]?.id };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
 // Sends an interactive list message (session-only)
 async function sendInteractiveListMessage(
   ws: Workspace,
@@ -344,9 +373,10 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   }) | null;
 
   const isLocationCampaign = campaign.media_type === 'location';
+  const isTextCampaign     = campaign.media_type === 'text';
 
-  // Require at least template OR media OR location — can't run an empty campaign
-  if (!template && !campaign.media_id && !isLocationCampaign) throw new Error(`Campaign ${campaignId} has no template or media`);
+  // Require at least template OR media OR location OR text content
+  if (!template && !campaign.media_id && !isLocationCampaign && !isTextCampaign) throw new Error(`Campaign ${campaignId} has no template, media, or text content`);
 
   const { data: workspace } = await db
     .from('workspaces')
@@ -640,6 +670,13 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
     const results = await Promise.allSettled(
       batch.map(async (contact) => {
         try {
+          // Text / link campaign
+          if (isTextCampaign) {
+            const textBody = (campaign as any).text_content as string | undefined;
+            if (!textBody?.trim()) throw new Error('Text campaign has no text_content');
+            const result = await sendTextMessage(ws, sanitizePhone(contact.phone), textBody);
+            return { contact, result, msgContent: textBody, msgType: 'text' };
+          }
           // Location campaign
           if (isLocationCampaign && locationLat !== null && locationLng !== null) {
             const result = await sendLocationMessage(ws, sanitizePhone(contact.phone), locationLat, locationLng, locationName ?? undefined, locationAddr ?? undefined);
