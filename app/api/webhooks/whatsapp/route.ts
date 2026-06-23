@@ -946,32 +946,66 @@ async function sendAutoReply(
   }
 
   // \u2500\u2500 Image Intent Detection \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  // ── Payment Intent Detection ─────────────────────────────────────────────────
+  // When customer ready to pay → send scanner image from media library
+  if (!isEscalation && detectPaymentIntent(customerMessage)) {
+    const scannerItems = await searchMediaLibrary(supabase, workspaceId, ['scanner', 'payment', 'qr']);
+    if (scannerItems.length > 0) {
+      const scanner = scannerItems[0]!;
+      const scanUrl = scanner.public_url ?? scanner.media_id;
+      if (scanUrl?.startsWith('http')) {
+        const token = ws.access_token.replace(/﻿/g, '').trim();
+        const scanRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: toPhone, type: 'image', image: { link: scanUrl, caption: 'Payment QR / Scanner 📲' } }),
+        });
+        const scanData = await scanRes.json() as { messages?: Array<{ id: string }> };
+        await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, {
+          type: 'image', content: 'Payment QR / Scanner', media_url: scanUrl,
+          whatsapp_msg_id: (scanData as any)?.messages?.[0]?.id,
+        });
+      }
+      const paymentPrompt = `${customerMessage}\n\n[SYSTEM: Scanner/QR image has been sent. Now tell customer: exact amount to pay, scan QR and pay via UPI, send screenshot of payment confirmation. Also confirm order is placed and will be delivered in 5-6 working days after team verifies payment.]`;
+      const payMsg = await getAIReply(paymentPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+      if (payMsg) {
+        await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, payMsg);
+        await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: payMsg });
+      }
+      return;
+    }
+  }
+
+  // ── Image Intent Detection ────────────────────────────────────────────────────
   // If customer asks for photos/images, search media library and send matching images
   const imageIntent = detectImageIntent(customerMessage);
   if (!isEscalation && imageIntent) {
     const mediaItems = await searchMediaLibrary(supabase, workspaceId, imageIntent.keywords);
     if (mediaItems.length > 0) {
-      await sendMediaImages(ws.phone_number_id, ws.access_token, toPhone, mediaItems.slice(0, 3));
-      // Also send a text message
-      const textMsg = `Here are ${mediaItems.length > 1 ? mediaItems.length + ' images' : 'an image'} for "${imageIntent.query}" \uD83D\uDCF8`;
-      await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, textMsg);
-      // Save to DB
-      if (conversationId && contactId) {
-        await (supabase as any).from('messages').insert({
-          conversation_id: conversationId,
-          workspace_id:    workspaceId,
-          contact_id:      contactId,
-          direction:       'outbound',
-          content:         textMsg,
-          msg_type:        'text',
-          status:          'sent',
-          sender_type:     'bot',
-          created_at:      new Date().toISOString(),
+      // Send each image and save to DB so they appear in the conversation chat
+      const token = ws.access_token.replace(/﻿/g, '').trim();
+      for (const item of mediaItems.slice(0, 3)) {
+        const imgUrl = item.public_url ?? item.media_id;
+        if (!imgUrl?.startsWith('http')) continue;
+        const imgRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: toPhone, type: 'image', image: { link: imgUrl } }),
+        });
+        const imgData = await imgRes.json() as { messages?: Array<{ id: string }> };
+        await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, {
+          type: 'image', content: item.filename, media_url: imgUrl,
+          whatsapp_msg_id: (imgData as any)?.messages?.[0]?.id,
         });
       }
+      const aiReply = await getAIReply(customerMessage, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+      const textMsg = aiReply ?? 'Ye hamare products hain 📸 Aapko kaunsa size/variant chahiye?';
+      await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, textMsg);
+      await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: textMsg });
       return;
     }
   }
+  // ── End Image/Payment Intent ──────────────────────────────────────────────────
   // \u2500\u2500 End Image Intent \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
   const message = isEscalation
@@ -1623,6 +1657,51 @@ interface WAStatus {
 
 // ── Image Intent Detection ────────────────────────────────────────────────────
 
+// ── Shared helper: save an outbound bot message to DB ────────────────────────
+async function saveOutboundMessage(
+  supabase: AdminClient,
+  conversationId: string | undefined,
+  workspaceId: string,
+  contactId: string | undefined,
+  fields: { type: string; content: string; media_url?: string | null; whatsapp_msg_id?: string },
+  createdAt?: string,
+): Promise<void> {
+  if (!conversationId) return;
+  try {
+    await (supabase as any).from('messages').insert({
+      conversation_id: conversationId,
+      workspace_id:    workspaceId,
+      contact_id:      contactId ?? null,
+      direction:       'outbound',
+      sender_type:     'bot',
+      type:            fields.type,
+      content:         fields.content,
+      media_url:       fields.media_url ?? null,
+      whatsapp_msg_id: fields.whatsapp_msg_id ?? null,
+      status:          'sent',
+      created_at:      createdAt ?? new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[saveOutboundMessage] failed:', err);
+  }
+}
+
+// ── Payment Intent Detection ──────────────────────────────────────────────────
+const PAYMENT_KEYWORDS = [
+  'payment karna', 'payment kar', 'pay kar', 'bhugtan', 'paisa bhej',
+  'payment bhej', 'upi', 'scanner', 'qr code', 'qr bhejo', 'scanner bhejo',
+  'payment kaise', 'kaise pay', 'order karna hai', 'order confirm',
+  'buy karna', 'purchase karna', 'khareedna', 'le lena', 'book karna',
+  'payment details', 'account number', 'gpay', 'phonepe', 'paytm',
+  'payment kru', 'payment krta', 'payment krdu', 'abhi pay',
+];
+
+function detectPaymentIntent(message: string): boolean {
+  const lower = message.toLowerCase();
+  return PAYMENT_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+// ── Image Intent Detection ────────────────────────────────────────────────────
 const IMAGE_KEYWORDS = [
   'photo', 'photos', 'image', 'images', 'picture', 'pictures', 'pic', 'pics',
   'dikhao', 'dikha', 'dekh', 'dekhna', 'dekho', 'show', 'send photo', 'photo bhejo',

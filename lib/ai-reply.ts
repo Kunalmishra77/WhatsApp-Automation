@@ -30,10 +30,11 @@ export async function categorizeMessage(content: string): Promise<string | null>
   }
 }
 
-// Knowledge-base relevance threshold for the AI agent's reply context. Below this,
-// retrieved chunks are noise more often than not and confuse the model into blending
-// unrelated facts (see project-ai-agent-accuracy memory for the investigation).
-export const KB_MIN_SIMILARITY = 0.45;
+// Knowledge-base relevance threshold for the AI agent's reply context.
+// 0.35 is a good balance: strict enough to filter noise, lenient enough to work when
+// customer writes in Hindi/Hinglish against English KB content (cross-language embeddings
+// score slightly lower than same-language pairs even when semantically identical).
+export const KB_MIN_SIMILARITY = 0.35;
 
 export function dedupeChunks(chunks: string[]): string[] {
   const seen = new Set<string>();
