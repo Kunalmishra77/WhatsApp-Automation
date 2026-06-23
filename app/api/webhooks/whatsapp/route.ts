@@ -288,6 +288,13 @@ async function handleIncomingMessage(
   const messageType = toMessageType(msg.type);
   const createdAt = new Date(parseInt(msg.timestamp, 10) * 1000).toISOString();
 
+  // For inbound media, save proxy URL so the UI can display it directly.
+  // The proxy fetches fresh download URLs from Meta on each request (media IDs are permanent).
+  const inboundMediaId = msg.image?.id ?? msg.video?.id ?? msg.audio?.id ?? msg.document?.id ?? null;
+  const inboundMediaUrl = inboundMediaId
+    ? `/api/media/proxy?mediaId=${encodeURIComponent(inboundMediaId)}&workspaceId=${encodeURIComponent(workspaceId)}`
+    : null;
+
   const { error: messageError } = await (supabase as any).from('messages').insert({
     conversation_id: conversation.id,
     workspace_id: workspaceId,
@@ -298,6 +305,7 @@ async function handleIncomingMessage(
     type: messageType,
     content,
     status: 'delivered',
+    media_url: inboundMediaUrl,
     media_filename: msg.document?.filename ?? null,
     caption: msg.image?.caption ?? msg.video?.caption ?? null,
     metadata: {
