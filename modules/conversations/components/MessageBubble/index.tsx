@@ -32,6 +32,18 @@ interface InteractivePayload {
   };
 }
 
+interface TemplateMetadata {
+  template_name?: string;
+  header_type?: string;
+  header_content?: string;
+  footer?: string;
+  buttons?: Array<{ type?: string; text?: string; url?: string; phone?: string }>;
+}
+
+interface ButtonReplyMetadata {
+  button_reply?: { text?: string; payload?: string };
+}
+
 interface InteractiveMetadata {
   interactive_type?: 'button' | 'list';
   payload?: InteractivePayload;
@@ -50,9 +62,11 @@ function parseInteractiveMeta(meta: Json): InteractiveMetadata | null {
 }
 
 export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
-  const isOutbound = message.direction === 'outbound';
-  const isNote = message.type === 'internal_note';
+  const isOutbound    = message.direction === 'outbound';
+  const isNote        = message.type === 'internal_note';
   const isInteractive = message.type === 'interactive';
+  const isTemplate    = message.type === 'template';
+  const isButtonReply = message.type === 'button_reply';
   const time = format(new Date(message.created_at), 'HH:mm');
 
   const [translated, setTranslated] = useState<string | null>(null);
@@ -115,6 +129,8 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
   const isDocMsg      = message.type === 'document' || mediaMime.startsWith('application/');
   const hasMedia      = !!(mediaUrl && (isImageMsg || isVideoMsg || isAudioMsg || isDocMsg));
 
+  const templateMeta    = isTemplate    ? (message.metadata as unknown as TemplateMetadata | null) : null;
+  const buttonReplyMeta = isButtonReply ? (message.metadata as unknown as ButtonReplyMetadata | null) : null;
   const interactiveMeta = isInteractive ? parseInteractiveMeta(message.metadata) : null;
   const interactiveType    = interactiveMeta?.interactive_type;
   const interactivePayload = interactiveMeta?.payload;
@@ -131,12 +147,68 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
           isNote && 'rounded-br-sm bg-amber-50 border border-amber-200 text-amber-900',
           isInteractive && isOutbound && 'px-0 py-0 overflow-hidden bg-brand-500',
           isInteractive && !isOutbound && 'px-0 py-0 overflow-hidden',
+          isTemplate && 'px-0 py-0 overflow-hidden',
         )}
       >
         {isNote && (
           <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-amber-600">
             Internal Note
           </p>
+        )}
+
+        {/* ── Template message card (outbound) ── */}
+        {isTemplate && (
+          <>
+            {templateMeta?.header_type === 'TEXT' && templateMeta.header_content && (
+              <div className={cn('px-3.5 pt-2.5 pb-1 font-semibold text-[13px] border-b', isOutbound ? 'text-white border-white/20' : 'text-foreground border-border')}>
+                {templateMeta.header_content}
+              </div>
+            )}
+            <div className="px-3.5 py-2">
+              <p className="whitespace-pre-wrap break-words text-[13px]">{message.content}</p>
+            </div>
+            {templateMeta?.footer && (
+              <div className={cn('px-3.5 pb-1 text-[11px]', isOutbound ? 'text-white/60' : 'text-muted-foreground')}>
+                {templateMeta.footer}
+              </div>
+            )}
+            <div className={cn('px-3.5 pb-2 flex items-center justify-end gap-1', isOutbound ? 'text-white/70' : 'text-muted-foreground')}>
+              <span className="text-[10px]">{time}</span>
+              {isOutbound && STATUS_ICON[message.status]}
+            </div>
+            {templateMeta?.buttons && templateMeta.buttons.length > 0 && (
+              <div className={cn('border-t', isOutbound ? 'border-white/20' : 'border-border')}>
+                {templateMeta.buttons.map((btn, idx) => (
+                  <div
+                    key={idx}
+                    className={cn(
+                      'px-3.5 py-2 text-center text-[13px] font-medium',
+                      idx < (templateMeta.buttons?.length ?? 0) - 1 && (isOutbound ? 'border-b border-white/20' : 'border-b border-border'),
+                      isOutbound ? 'text-white/90' : 'text-brand-500',
+                    )}
+                  >
+                    {btn.text ?? ''}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Inbound: customer tapped a template quick-reply button ── */}
+        {isButtonReply && (
+          <div className="px-3.5 py-2.5 space-y-1">
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold text-brand-500 uppercase tracking-wide">
+              <MousePointerClick className="h-3 w-3" />
+              Button tapped
+            </div>
+            <p className="text-[13px] font-medium">
+              {buttonReplyMeta?.button_reply?.text ?? message.content}
+            </p>
+            <div className="flex items-center justify-end gap-1 text-muted-foreground">
+              <span className="text-[10px]">{time}</span>
+            </div>
+          </div>
         )}
 
         {/* ── Media preview ── */}
@@ -287,7 +359,7 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
               </div>
             )}
           </>
-        ) : (
+        ) : !isTemplate && !isButtonReply ? (
           <>
             {displayContent && (
               <p className="whitespace-pre-wrap break-words">{displayContent}</p>
@@ -307,7 +379,7 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
               {isOutbound && !isNote && STATUS_ICON[message.status]}
             </div>
           </>
-        )}
+        ) : null}
       </div>
 
       {/* Image lightbox */}

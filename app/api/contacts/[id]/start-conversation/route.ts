@@ -33,7 +33,7 @@ export async function POST(
     // Load template (include header_type for media headers)
     const { data: template, error: templateError } = await db
       .from('templates')
-      .select('name, language, body, variables, status, header_type')
+      .select('name, language, body, variables, status, header_type, header_content, footer, buttons')
       .eq('id', templateId)
       .eq('workspace_id', contact.workspace_id)
       .single();
@@ -144,7 +144,7 @@ export async function POST(
       return NextResponse.json({ error: 'Failed to create conversation' }, { status: 500 });
     }
 
-    // Save outbound message record
+    // Save outbound message record with full template structure for UI display
     await db.from('messages').insert({
       conversation_id: conversation.id,
       workspace_id:    contact.workspace_id,
@@ -155,6 +155,13 @@ export async function POST(
       status:          'sent',
       whatsapp_msg_id: waMessageId,
       created_at:      now,
+      metadata: {
+        template_name:   template.name,
+        header_type:     template.header_type ?? null,
+        header_content:  template.header_content ?? null,
+        footer:          template.footer ?? null,
+        buttons:         template.buttons ?? [],
+      },
     });
 
     return NextResponse.json({ success: true, conversationId: conversation.id });

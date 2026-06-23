@@ -9,7 +9,7 @@ export type Json =
 // ─── Enums ────────────────────────────────────────────
 export type UserRole           = 'super_admin' | 'admin' | 'manager' | 'agent';
 export type ConversationStatus = 'open' | 'assigned' | 'resolved' | 'pending' | 'snoozed';
-export type MessageType        = 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'sticker' | 'interactive' | 'template' | 'internal_note';
+export type MessageType        = 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'sticker' | 'interactive' | 'template' | 'button_reply' | 'internal_note';
 export type MessageStatus      = 'queued' | 'sent' | 'delivered' | 'read' | 'failed';
 export type MessageDirection   = 'inbound' | 'outbound';
 export type LeadStage          = 'new' | 'contacted' | 'follow_up' | 'interested' | 'converted' | 'lost';

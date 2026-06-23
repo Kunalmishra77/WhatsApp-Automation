@@ -285,7 +285,8 @@ async function handleIncomingMessage(
   }
 
   const content = extractMessageContent(msg);
-  const messageType = toMessageType(msg.type);
+  // 'button' = customer tapped a quick-reply button on a template → save as button_reply type
+  const messageType = msg.type === 'button' ? 'button_reply' : toMessageType(msg.type);
   const createdAt = new Date(parseInt(msg.timestamp, 10) * 1000).toISOString();
 
   // For inbound media, save proxy URL so the UI can display it directly.
@@ -311,7 +312,14 @@ async function handleIncomingMessage(
     metadata: {
       whatsapp: msg,
       display_phone_number: metadata.display_phone_number,
-      // Store interactive reply details for UI display and flow branching
+      // Template button tap — store button text + payload for UI display
+      ...(msg.type === 'button' && msg.button && {
+        button_reply: {
+          text:    msg.button.text,
+          payload: msg.button.payload,
+        },
+      }),
+      // Interactive list/button reply
       ...(msg.interactive && {
         interactive_reply: {
           type: msg.interactive.type,
@@ -1433,6 +1441,7 @@ function toMessageType(type: string) {
     'sticker',
     'interactive',
     'template',
+    'button_reply',
     'internal_note',
   ] as const;
 
