@@ -952,7 +952,7 @@ async function sendAutoReply(
     const scannerItems = await searchMediaLibrary(supabase, workspaceId, ['scanner', 'payment', 'qr']);
     if (scannerItems.length > 0) {
       const scanner = scannerItems[0]!;
-      const scanUrl = scanner.public_url ?? scanner.media_id;
+      const scanUrl = toWhatsAppImageUrl(scanner.public_url ?? scanner.media_id ?? '');
       if (scanUrl?.startsWith('http')) {
         const token = ws.access_token.replace(/﻿/g, '').trim();
         const scanRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
@@ -993,7 +993,7 @@ async function sendAutoReply(
       const token = ws.access_token.replace(/﻿/g, '').trim();
       let sentCount = 0;
       for (const item of mediaItems.slice(0, 3)) {
-        const imgUrl = item.public_url ?? item.media_id;
+        const imgUrl = toWhatsAppImageUrl(item.public_url ?? item.media_id ?? '');
         if (!imgUrl?.startsWith('http')) { console.log(`[ImageIntent] skip no-url item: ${item.filename}`); continue; }
         try {
           const imgRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
@@ -1679,6 +1679,14 @@ interface WAStatus {
 // ── Image Intent Detection ────────────────────────────────────────────────────
 
 // ── Shared helper: save an outbound bot message to DB ────────────────────────
+// WhatsApp only accepts JPEG/PNG for type:'image'. Convert Supabase WebP → JPEG via render API.
+function toWhatsAppImageUrl(url: string): string {
+  if (!url.endsWith('.webp') && !url.endsWith('.WEBP')) return url;
+  return url
+    .replace('/storage/v1/object/public/', '/storage/v1/render/image/public/')
+    + '?format=jpeg&quality=85';
+}
+
 async function saveOutboundMessage(
   supabase: AdminClient,
   conversationId: string | undefined,
