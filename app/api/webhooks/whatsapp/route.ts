@@ -977,12 +977,15 @@ async function sendAutoReply(
   }
 
   // ── Image Intent Detection ────────────────────────────────────────────────────
-  // If customer asks for photos/images, search media library and send matching images
-  const imageIntent = detectImageIntent(customerMessage);
-  if (!isEscalation && imageIntent) {
-    const mediaItems = await searchMediaLibrary(supabase, workspaceId, imageIntent.keywords);
+  // Triggered only when customer explicitly asks for images/photos with a request phrase.
+  // Uses product keywords from conversation history so we show the RIGHT product images.
+  if (!isEscalation && detectImageIntent(customerMessage)) {
+    // Build keywords from conversation context (product name being discussed) + customer message
+    const productKeywords = extractProductKeywords(conversationHistory, customerMessage);
+    const searchKeywords = productKeywords.length > 0 ? productKeywords : ['product', 'catalog'];
+    const mediaItems = await searchMediaLibrary(supabase, workspaceId, searchKeywords, true);
     if (mediaItems.length > 0) {
-      // Send each image and save to DB so they appear in the conversation chat
+      // Send each product image and save to DB so they appear in the conversation chat
       const token = ws.access_token.replace(/﻿/g, '').trim();
       for (const item of mediaItems.slice(0, 3)) {
         const imgUrl = item.public_url ?? item.media_id;
@@ -1702,34 +1705,69 @@ function detectPaymentIntent(message: string): boolean {
 }
 
 // ── Image Intent Detection ────────────────────────────────────────────────────
-const IMAGE_KEYWORDS = [
-  'photo', 'photos', 'image', 'images', 'picture', 'pictures', 'pic', 'pics',
-  'dikhao', 'dikha', 'dekh', 'dekhna', 'dekho', 'show', 'send photo', 'photo bhejo',
-  'image bhejo', 'photo send', 'catalog', 'catalogue', 'gallery', 'brochure',
-  'product dikhao', 'products dikhao', 'product dekh', 'kya kya hai', 'kya kya products',
-  'sab products', 'all products', 'product list', 'item list', 'sab items',
+// These MUST appear together with context (not standalone) to trigger image intent.
+// Single-word "image" / "Image" alone does NOT trigger — requires request phrasing.
+const IMAGE_REQUEST_PHRASES = [
+  'photo dikhao', 'photo bhejo', 'photo send', 'photo chahiye', 'photos dikhao',
+  'pic bhejo', 'pic dikhao', 'pic chahiye', 'pics bhejo',
+  'picture dikhao', 'picture bhejo', 'picture send',
+  'image bhejo', 'image send', 'image chahiye',
+  'show me', 'send photo', 'send image', 'send pic',
+  'product dikhao', 'products dikhao', 'product dekh', 'products dekh',
+  'catalog dikhao', 'catalog bhejo', 'catalogue', 'gallery dikhao',
+  'kya kya hai', 'kya kya products', 'sab products', 'all products',
+  'product list', 'item list', 'sab items',
+  'dikhao', 'dikha do', 'dikha de',
 ];
 
-function detectImageIntent(message: string): { query: string; keywords: string[] } | null {
-  const lower = message.toLowerCase();
-  const hasImageRequest = IMAGE_KEYWORDS.some((kw) => lower.includes(kw));
-  if (!hasImageRequest) return null;
+// Known product name keywords — used to extract product context from message
+const PRODUCT_NAME_KEYWORDS = [
+  'mamo plus', 'mamo firm', 'b-reduce', 'breduce', 'nip-lyte', 'niplyte',
+  'soft-nip', 'softnip', 'vg mist', 'vgmist', 'vg tone', 'vgtone',
+  'vg-lyte', 'vglyte', 'vagilyte', 'inlyte', 'butt-shape', 'buttshape',
+  'butt-lyte', 'buttlyte', 'acnezyl', 'fair-u', 'fairu', 'nurum plus',
+  'neck-lyte', 'necklyte', 'eye-lyte', 'eyelyte', 'simlar', 'geluslim',
+  'volumm', 'arula', 'rejuve', 'revital',
+  'breast', 'mamo', 'nipple', 'vaginal', 'intimate', 'slimming', 'hair',
+  'acne', 'neck', 'eye', 'stretch',
+];
 
-  // Extract what they want (remove image keywords to get the subject)
-  const cleaned = lower
-    .replace(/show me|send|bhejo|dikha|dikhao|dekho|please|hi|hello|the|a |an /g, '')
-    .replace(/photos?|images?|pictures?|pics?|catalog(?:ue)?|gallery/g, '')
-    .trim();
-
-  const words = cleaned.split(/\s+/).filter((w) => w.length > 2);
-  return { query: cleaned || message, keywords: words.length > 0 ? words : ['product'] };
+function detectImageIntent(message: string): true | null {
+  const lower = message.toLowerCase().trim();
+  // Must match at least one multi-word request phrase (not just standalone "image")
+  return IMAGE_REQUEST_PHRASES.some((phrase) => lower.includes(phrase)) ? true : null;
 }
+
+// Extract product keywords from recent conversation history (last few bot messages)
+function extractProductKeywords(
+  history: Array<{ role: 'user' | 'assistant'; content: string }>,
+  customerMessage: string,
+): string[] {
+  const combined = [
+    customerMessage,
+    ...history.slice(-6).map((m) => m.content),
+  ].join(' ').toLowerCase();
+
+  const found = PRODUCT_NAME_KEYWORDS.filter((kw) => combined.includes(kw));
+  return found.length > 0 ? found : [];
+}
+
+// Tags that identify payment/scanner images — never show these as product images
+const PAYMENT_IMAGE_TAGS = ['scanner', 'payment', 'qr'];
 
 async function searchMediaLibrary(
   supabase: AdminClient,
   workspaceId: string,
   keywords: string[],
-): Promise<Array<{ media_id: string; public_url: string | null; filename: string; media_type: string }>> {
+  excludePaymentImages = true,
+): Promise<Array<{ media_id: string; public_url: string | null; filename: string; media_type: string; tags?: string[] }>> {
+  type MediaRow = { media_id: string; public_url: string | null; filename: string; media_type: string; tags?: string[] };
+  // Helper to filter out scanner/payment images when searching for products
+  const filterOut = (rows: MediaRow[] | null): MediaRow[] => {
+    if (!excludePaymentImages || !rows) return rows ?? [];
+    return rows.filter((r) => !PAYMENT_IMAGE_TAGS.some((pt) => (r.tags ?? []).includes(pt)));
+  };
+
   try {
     // 1. Tag-based search (only works if images have tags set)
     if (keywords.length > 0) {
@@ -1742,34 +1780,35 @@ async function searchMediaLibrary(
         .order('created_at', { ascending: false })
         .limit(5);
 
-      if (tagResults?.length) return tagResults;
+      const filtered = filterOut(tagResults);
+      if (filtered.length) return filtered;
 
       // 2. Filename keyword search (each keyword tried separately)
       for (const kw of keywords) {
         const { data: nameResults } = await (supabase as any)
           .from('media_library')
-          .select('media_id, public_url, filename, media_type')
+          .select('media_id, public_url, filename, media_type, tags')
           .eq('workspace_id', workspaceId)
           .eq('media_type', 'image')
           .ilike('filename', `%${kw}%`)
           .order('created_at', { ascending: false })
           .limit(3);
 
-        if (nameResults?.length) return nameResults;
+        const filteredName = filterOut(nameResults);
+        if (filteredName.length) return filteredName;
       }
     }
 
-    // 3. Final fallback: return all catalog images for this workspace (up to 3)
-    // Handles the common case where images are uploaded without tags.
+    // 3. Final fallback: return all non-scanner images for this workspace (up to 5)
     const { data: allImages } = await (supabase as any)
       .from('media_library')
-      .select('media_id, public_url, filename, media_type')
+      .select('media_id, public_url, filename, media_type, tags')
       .eq('workspace_id', workspaceId)
       .eq('media_type', 'image')
       .order('created_at', { ascending: false })
-      .limit(3);
+      .limit(20);
 
-    return allImages ?? [];
+    return filterOut(allImages).slice(0, 5);
   } catch {
     return [];
   }
