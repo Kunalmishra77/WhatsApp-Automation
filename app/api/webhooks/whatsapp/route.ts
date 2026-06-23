@@ -902,7 +902,9 @@ async function sendAutoReply(
 
   const wsSettings = (ws?.settings ?? {}) as Record<string, unknown>;
 
-  // Fetch last 6 messages for conversation history context (skip current = last inserted)
+  // Fetch last 20 messages for conversation history context (skip current = last inserted)
+  // Razorveda consultation forms can span 10+ Q&A pairs — 6 was too few, causing
+  // the bot to forget early answers (age, concern) and re-ask them mid-conversation.
   let conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   if (conversationId) {
     try {
@@ -911,7 +913,7 @@ async function sendAutoReply(
         .select('content, sender_type, direction')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
-        .limit(7);
+        .limit(21);
       if (recentMsgs && recentMsgs.length > 1) {
         conversationHistory = (recentMsgs as Array<{ content: string; sender_type: string }>)
           .slice(1)        // skip the just-inserted current message
