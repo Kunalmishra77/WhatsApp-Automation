@@ -561,7 +561,10 @@ async function handleIncomingMessage(
     return;
   }
 
-  // ── Bot-pause guard — if agent has paused the bot, skip all AI processing ───
+  // ── Bot-pause guard — if agent has manually paused the bot, skip AI ─────────
+  // Note: bot_paused is only set by human agents via the dashboard toggle,
+  // NOT automatically after escalation — that was causing customers to be
+  // left with no reply after a false escalation with no agent available.
   if ((conversation as any).bot_paused === true) {
     console.log(`[Webhook] Bot paused for conversation ${conversation.id} — skipping AI`);
     return;
@@ -705,7 +708,7 @@ async function detectNegativeSentiment(message: string): Promise<boolean> {
         {
           role: 'system',
           content:
-            'Analyze if this customer message shows GENUINE anger, frustration, a complaint, or an urgent demand for human help (e.g. "this is fraud", "I want a refund", "you cheated me", "this is urgent"). Simple disinterest like "not interested", "nahi chahiye", "no thanks", or "mujhe interest nhi" should return false. Reply with ONLY "true" or "false".',
+            'Analyze if this customer message shows GENUINE anger, a serious complaint, or an urgent demand for a human agent. Reply ONLY "true" or "false".\n\nReturn TRUE only for: explicit threats ("I will complain"), accusations of fraud/cheating ("you cheated me", "fraud hai", "thagi"), demand for refund on a purchased product, or explicit request for a human agent ("connect me to agent", "human se baat karo").\n\nReturn FALSE for: asking about price ("price kya hai", "kitna price hai", "bina price jane"), sales objections ("why should I order", "kyu order karu"), asking for more information, expressing doubt about a product, saying not interested, or any normal sales conversation.',
         },
         { role: 'user', content: message },
       ],
@@ -866,7 +869,7 @@ function buildAiPrompt(msg: WAMessage, textContent: string): string {
 }
 
 const ESCALATION_REPLY =
-  "I understand you need assistance. Let me connect you with one of our agents right away. Please hold on.";
+  "Hum aapki baat samajhte hain 🙏 Hamari team aapki madad ke liye available hai.\n\nPlease call karein: 📞 93191 35065\nYa email karein: care.razorveda@gmail.com\n\nYa phir www.razorveda.in visit karein — team turant help karegi! 😊";
 
 async function sendAutoReply(
   supabase: AdminClient,
@@ -1003,10 +1006,9 @@ async function sendAutoReply(
         last_message:    message,
         last_message_at: now,
       };
-      // Stop bot from looping after escalation — human agent takes over
-      if (isEscalation) {
-        updatePayload.bot_paused = true;
-      }
+      // Do NOT auto-pause bot after escalation — if no human agent is available,
+      // customer would be left with zero replies. Human agents can manually
+      // pause the bot from the dashboard when they take over.
       await (supabase as any).from('conversations').update(updatePayload).eq('id', conversationId);
 
       // Detect booking/callback events and log them (non-blocking)
