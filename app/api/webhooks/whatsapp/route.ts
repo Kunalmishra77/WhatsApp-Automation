@@ -952,19 +952,26 @@ async function sendAutoReply(
     const scannerItems = await searchMediaLibrary(supabase, workspaceId, ['scanner', 'payment', 'qr']);
     if (scannerItems.length > 0) {
       const scanner = scannerItems[0]!;
-      const scanUrl = toWhatsAppImageUrl(scanner.public_url ?? scanner.media_id ?? '');
-      if (scanUrl?.startsWith('http')) {
+      const scanRawUrl = scanner.public_url ?? scanner.media_id ?? '';
+      if (scanRawUrl.startsWith('http')) {
         const token = ws.access_token.replace(/﻿/g, '').trim();
-        const scanRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: toPhone, type: 'image', image: { link: scanUrl, caption: 'Payment QR / Scanner 📲' } }),
-        });
-        const scanData = await scanRes.json() as { messages?: Array<{ id: string }> };
-        await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, {
-          type: 'image', content: 'Payment QR / Scanner', media_url: scanUrl,
-          whatsapp_msg_id: (scanData as any)?.messages?.[0]?.id,
-        });
+        const uploaded = await uploadMediaToWhatsApp(ws.phone_number_id, token, scanRawUrl);
+        if (uploaded) {
+          const scanRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messaging_product: 'whatsapp', recipient_type: 'individual', to: toPhone,
+              type: uploaded.waType,
+              [uploaded.waType]: { id: uploaded.mediaId, caption: 'Payment QR / Scanner 📲' },
+            }),
+          });
+          const scanData = await scanRes.json() as { messages?: Array<{ id: string }> };
+          await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, {
+            type: 'image', content: 'Payment QR / Scanner', media_url: scanRawUrl,
+            whatsapp_msg_id: (scanData as any)?.messages?.[0]?.id,
+          });
+        }
       }
       const paymentPrompt = `${customerMessage}\n\n[SYSTEM: Scanner/QR image has been sent. Now tell customer: exact amount to pay, scan QR and pay via UPI, send screenshot of payment confirmation. Also confirm order is placed and will be delivered in 5-6 working days after team verifies payment.]`;
       const payMsg = await getAIReply(paymentPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
@@ -993,22 +1000,28 @@ async function sendAutoReply(
       const token = ws.access_token.replace(/﻿/g, '').trim();
       let sentCount = 0;
       for (const item of mediaItems.slice(0, 3)) {
-        const imgUrl = toWhatsAppImageUrl(item.public_url ?? item.media_id ?? '');
-        if (!imgUrl?.startsWith('http')) { console.log(`[ImageIntent] skip no-url item: ${item.filename}`); continue; }
+        const rawUrl = item.public_url ?? item.media_id ?? '';
+        if (!rawUrl.startsWith('http')) { console.log(`[ImageIntent] skip no-url: ${item.filename}`); continue; }
         try {
-          const imgRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+          const uploaded = await uploadMediaToWhatsApp(ws.phone_number_id, token, rawUrl);
+          if (!uploaded) { console.error(`[ImageIntent] upload failed: ${item.filename}`); continue; }
+          const msgRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: toPhone, type: 'image', image: { link: imgUrl } }),
+            body: JSON.stringify({
+              messaging_product: 'whatsapp', recipient_type: 'individual', to: toPhone,
+              type: uploaded.waType,
+              [uploaded.waType]: { id: uploaded.mediaId },
+            }),
           });
-          const imgData = await imgRes.json() as { messages?: Array<{ id: string }>; error?: { message: string } };
-          if ((imgData as any).error) { console.error(`[ImageIntent] WA error sending ${item.filename}:`, (imgData as any).error.message); continue; }
+          const msgData = await msgRes.json() as { messages?: Array<{ id: string }>; error?: { message: string } };
+          if ((msgData as any).error) { console.error(`[ImageIntent] send error: ${item.filename}:`, (msgData as any).error.message); continue; }
           await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, {
-            type: 'image', content: item.filename, media_url: imgUrl,
-            whatsapp_msg_id: imgData?.messages?.[0]?.id,
+            type: uploaded.waType, content: item.filename, media_url: rawUrl,
+            whatsapp_msg_id: msgData?.messages?.[0]?.id,
           });
           sentCount++;
-        } catch (e) { console.error('[ImageIntent] fetch error:', e); }
+        } catch (e) { console.error('[ImageIntent] exception:', e); }
       }
       console.log(`[ImageIntent] sent ${sentCount} images`);
       const aiReply = await getAIReply(customerMessage, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
@@ -1679,12 +1692,64 @@ interface WAStatus {
 // ── Image Intent Detection ────────────────────────────────────────────────────
 
 // ── Shared helper: save an outbound bot message to DB ────────────────────────
-// WhatsApp only accepts JPEG/PNG for type:'image'. Convert Supabase WebP → JPEG via render API.
-function toWhatsAppImageUrl(url: string): string {
-  if (!url.endsWith('.webp') && !url.endsWith('.WEBP')) return url;
-  return url
-    .replace('/storage/v1/object/public/', '/storage/v1/render/image/public/')
-    + '?format=jpeg&quality=85';
+// Fetch a media URL, convert WebP→JPEG via sharp, upload to WhatsApp Media API.
+// Returns { mediaId, waType } to use in the messages payload, or null on failure.
+// Supports: jpeg/png (image), webp→jpeg (image), mp4/3gp (video), others→document.
+async function uploadMediaToWhatsApp(
+  phoneNumberId: string,
+  token: string,
+  mediaUrl: string,
+): Promise<{ mediaId: string; waType: 'image' | 'video' | 'document' } | null> {
+  try {
+    const resp = await fetch(mediaUrl);
+    if (!resp.ok) { console.error('[uploadMedia] fetch failed:', resp.status, mediaUrl); return null; }
+    const arrayBuf = await resp.arrayBuffer();
+    const buffer = Buffer.from(arrayBuf) as Buffer<ArrayBuffer>;
+
+    const lower = (mediaUrl.toLowerCase().split('?')[0] ?? '');
+    let mimeType: string;
+    let waType: 'image' | 'video' | 'document';
+    let filename: string;
+    let finalBuffer: Buffer<ArrayBuffer> = buffer;
+
+    if (lower.endsWith('.webp') || lower.endsWith('.gif')) {
+      // Convert WebP/GIF → JPEG using sharp (bundled with Next.js)
+      const sharp = (await import('sharp')).default;
+      const converted = await sharp(buffer).jpeg({ quality: 85 }).toBuffer();
+      finalBuffer = Buffer.from(converted) as Buffer<ArrayBuffer>;
+      mimeType = 'image/jpeg'; waType = 'image'; filename = 'image.jpg';
+    } else if (lower.endsWith('.png')) {
+      mimeType = 'image/png'; waType = 'image'; filename = 'image.png';
+    } else if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+      mimeType = 'image/jpeg'; waType = 'image'; filename = 'image.jpg';
+    } else if (lower.endsWith('.mp4')) {
+      mimeType = 'video/mp4'; waType = 'video'; filename = 'video.mp4';
+    } else if (lower.endsWith('.3gp') || lower.endsWith('.3gpp')) {
+      mimeType = 'video/3gpp'; waType = 'video'; filename = 'video.3gp';
+    } else {
+      // Unknown format — send as document
+      const ext = lower.split('.').pop() ?? 'bin';
+      mimeType = 'application/octet-stream'; waType = 'document'; filename = `file.${ext}`;
+    }
+
+    const formData = new FormData();
+    formData.append('messaging_product', 'whatsapp');
+    formData.append('type', mimeType);
+    formData.append('file', new Blob([finalBuffer], { type: mimeType }), filename);
+
+    const uploadRes = await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/media`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    const uploadData = await uploadRes.json() as { id?: string; error?: { message: string } };
+    if (uploadData.error) { console.error('[uploadMedia] WA error:', uploadData.error.message); return null; }
+    if (!uploadData.id) return null;
+    return { mediaId: uploadData.id, waType };
+  } catch (e) {
+    console.error('[uploadMedia] exception:', e);
+    return null;
+  }
 }
 
 async function saveOutboundMessage(
