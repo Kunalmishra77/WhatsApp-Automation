@@ -12,7 +12,8 @@ function getRedis(): Redis | null {
   return redis;
 }
 
-// Auto-reply rate limiter: max 1 reply per 30 seconds per contact
+// Auto-reply rate limiter: max 1 reply per 5 seconds per contact
+// 30s was too aggressive — caused missing replies when customer sends multiple messages in a conversation
 let autoReplyLimiter: Ratelimit | null = null;
 function getAutoReplyLimiter(): Ratelimit | null {
   if (autoReplyLimiter) return autoReplyLimiter;
@@ -20,7 +21,7 @@ function getAutoReplyLimiter(): Ratelimit | null {
   if (!r) return null;
   autoReplyLimiter = new Ratelimit({
     redis: r,
-    limiter: Ratelimit.slidingWindow(1, '30 s'),
+    limiter: Ratelimit.slidingWindow(1, '5 s'),
     prefix: 'agentix:autoreply',
     analytics: false,
   });

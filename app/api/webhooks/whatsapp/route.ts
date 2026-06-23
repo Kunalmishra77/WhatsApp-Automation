@@ -567,10 +567,12 @@ async function handleIncomingMessage(
     return;
   }
 
-  // ── Auto-categorization — awaited so the same intent label can also shape the
-  // AI reply below (billing vs sales vs complaint need different framing), not just
-  // the dashboard `conversations.labels` field it previously only fed.
-  const intentLabel = await categorizeMessage(content);
+  // ── Auto-categorization — 2s timeout so it never blocks the reply
+  // intentLabel shapes the AI reply framing (billing vs sales vs complaint)
+  const intentLabel = await Promise.race([
+    categorizeMessage(content),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+  ]);
   if (intentLabel) {
     const supabaseForCat = supabase;
     const convIdForCat = conversation.id;
@@ -604,10 +606,10 @@ async function handleIncomingMessage(
 
     console.log(`[Webhook] Keyword escalation detected for conversation ${conversation.id}`);
   } else if (content.length > 20) {
-    // AI sentiment escalation with 3-second timeout
+    // AI sentiment escalation with 1.5-second timeout (reduced from 3s to cut reply latency)
     const aiEscalation = await Promise.race([
       detectNegativeSentiment(content),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 3000)),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500)),
     ]);
 
     if (aiEscalation) {
