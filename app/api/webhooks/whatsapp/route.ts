@@ -1158,7 +1158,7 @@ async function detectAndLogEvent(
 const ORDER_PATTERN = /(?:order|ord(?:er)?\s*(?:no\.?|#|id)?)\s*[:#]?\s*([A-Za-z0-9_-]{3,30})/i;
 
 const STOP_WORDS  = ['stop', 'unsubscribe', 'cancel', 'quit', 'opt out', 'optout', 'remove me', 'end'];
-const START_WORDS = ['start', 'subscribe', 'yes', 'opt in', 'optin', 'resume'];
+const START_WORDS = ['start', 'subscribe', 'opt in', 'optin', 'resume'];
 
 async function handleOptInOut(
   supabase: AdminClient,
