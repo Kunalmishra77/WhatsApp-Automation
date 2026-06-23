@@ -1441,7 +1441,7 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
   const ts = new Date(parseInt(status.timestamp, 10) * 1000).toISOString();
   if (status.status === 'delivered') patch.delivered_at = ts;
   if (status.status === 'read')      patch.read_at      = ts;
-  if (status.status === 'failed')    patch.failed_at    = ts;
+  // failed_at column not yet in DB schema — status='failed' is tracked via status field above
 
   const db = supabase as any;
 
