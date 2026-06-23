@@ -82,6 +82,32 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// DELETE /api/media-library — remove a media library entry from DB
+export async function DELETE(request: NextRequest) {
+  try {
+    const { workspaceId, id } = await request.json() as { workspaceId?: string; id?: string };
+    if (!workspaceId || !id) {
+      return NextResponse.json({ error: 'workspaceId and id required' }, { status: 400 });
+    }
+
+    await requireWorkspacePermission(workspaceId, 'create_campaigns');
+    const db = createAdminClient() as any;
+
+    const { error } = await db
+      .from('media_library')
+      .delete()
+      .eq('id', id)
+      .eq('workspace_id', workspaceId);
+
+    if (error) throw error;
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    if (error instanceof AuthzError) return authzResponse(error);
+    console.error('[media-library DELETE]', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
 // PATCH /api/media-library — update tags/description or mark as recently used
 export async function PATCH(request: NextRequest) {
   try {
