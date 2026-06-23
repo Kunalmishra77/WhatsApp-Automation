@@ -996,8 +996,12 @@ async function sendAutoReply(
     console.log(`[ImageIntent] found ${mediaItems.length} items from workspace ${workspaceId}`);
 
     if (mediaItems.length > 0) {
-      // Send each product image and save to DB so they appear in the conversation chat
       const token = ws.access_token.replace(/﻿/g, '').trim();
+
+      // Start AI reply generation in parallel with image uploads — saves 2-4 seconds
+      const aiReplyPromise = getAIReply(customerMessage, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+
+      // Upload + send images (while AI is thinking in parallel)
       let sentCount = 0;
       for (const item of mediaItems.slice(0, 3)) {
         const rawUrl = item.public_url ?? item.media_id ?? '';
@@ -1024,7 +1028,9 @@ async function sendAutoReply(
         } catch (e) { console.error('[ImageIntent] exception:', e); }
       }
       console.log(`[ImageIntent] sent ${sentCount} images`);
-      const aiReply = await getAIReply(customerMessage, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+
+      // AI reply is likely ready by now (was running in parallel)
+      const aiReply = await aiReplyPromise;
       const textMsg = aiReply ?? 'Ye hamare products hain 📸 Aapko kaunsa size chahiye?';
       await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, textMsg);
       await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: textMsg });
@@ -1930,7 +1936,7 @@ async function sendMediaImages(
   }
 }
 
-// Strip markdown image syntax and bare URLs the AI sometimes adds — WhatsApp renders neither.
+// Strip AI artifacts that break WhatsApp UX — markdown, URLs, image references.
 function sanitizeWhatsAppText(text: string): string {
   return text
     // Remove markdown image syntax: ![alt](url)
@@ -1939,8 +1945,13 @@ function sanitizeWhatsAppText(text: string): string {
     .replace(/\[([^\]]+)\]\(https?:\/\/[^)]*\)/g, '$1')
     // Remove bare razorveda.in URLs
     .replace(/https?:\/\/(?:www\.)?razorveda\.in\S*/g, '')
-    // Remove bare www.razorveda.in links
     .replace(/(?:www\.)?razorveda\.in\S*/g, '')
+    // Remove "Here's/Here is the image of [product]:" — image already sent before this text
+    .replace(/^here[''’]?s the image of[^:\n]*:?\s*$/gim, '')
+    .replace(/^here is the image of[^:\n]*:?\s*$/gim, '')
+    .replace(/^here[''’]?s the image:?\s*$/gim, '')
+    .replace(/^here is the image:?\s*$/gim, '')
+    .replace(/^as you can see (in|from) the image[^:\n]*:?\s*$/gim, '')
     // Clean up extra blank lines left behind
     .replace(/\n{3,}/g, '\n\n')
     .trim();
