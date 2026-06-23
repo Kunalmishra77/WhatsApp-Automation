@@ -1627,6 +1627,8 @@ const IMAGE_KEYWORDS = [
   'photo', 'photos', 'image', 'images', 'picture', 'pictures', 'pic', 'pics',
   'dikhao', 'dikha', 'dekh', 'dekhna', 'dekho', 'show', 'send photo', 'photo bhejo',
   'image bhejo', 'photo send', 'catalog', 'catalogue', 'gallery', 'brochure',
+  'product dikhao', 'products dikhao', 'product dekh', 'kya kya hai', 'kya kya products',
+  'sab products', 'all products', 'product list', 'item list', 'sab items',
 ];
 
 function detectImageIntent(message: string): { query: string; keywords: string[] } | null {
@@ -1650,29 +1652,45 @@ async function searchMediaLibrary(
   keywords: string[],
 ): Promise<Array<{ media_id: string; public_url: string | null; filename: string; media_type: string }>> {
   try {
-    // Try tag-based search first
-    const { data: tagResults } = await (supabase as any)
-      .from('media_library')
-      .select('media_id, public_url, filename, media_type, tags')
-      .eq('workspace_id', workspaceId)
-      .eq('media_type', 'image')
-      .overlaps('tags', keywords)
-      .order('created_at', { ascending: false })
-      .limit(5);
+    // 1. Tag-based search (only works if images have tags set)
+    if (keywords.length > 0) {
+      const { data: tagResults } = await (supabase as any)
+        .from('media_library')
+        .select('media_id, public_url, filename, media_type, tags')
+        .eq('workspace_id', workspaceId)
+        .eq('media_type', 'image')
+        .overlaps('tags', keywords)
+        .order('created_at', { ascending: false })
+        .limit(5);
 
-    if (tagResults?.length) return tagResults;
+      if (tagResults?.length) return tagResults;
 
-    // Fallback: search by filename
-    const { data: nameResults } = await (supabase as any)
+      // 2. Filename keyword search (each keyword tried separately)
+      for (const kw of keywords) {
+        const { data: nameResults } = await (supabase as any)
+          .from('media_library')
+          .select('media_id, public_url, filename, media_type')
+          .eq('workspace_id', workspaceId)
+          .eq('media_type', 'image')
+          .ilike('filename', `%${kw}%`)
+          .order('created_at', { ascending: false })
+          .limit(3);
+
+        if (nameResults?.length) return nameResults;
+      }
+    }
+
+    // 3. Final fallback: return all catalog images for this workspace (up to 3)
+    // Handles the common case where images are uploaded without tags.
+    const { data: allImages } = await (supabase as any)
       .from('media_library')
       .select('media_id, public_url, filename, media_type')
       .eq('workspace_id', workspaceId)
       .eq('media_type', 'image')
-      .ilike('filename', `%${keywords[0] ?? ''}%`)
       .order('created_at', { ascending: false })
       .limit(3);
 
-    return nameResults ?? [];
+    return allImages ?? [];
   } catch {
     return [];
   }
