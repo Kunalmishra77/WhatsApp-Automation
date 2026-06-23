@@ -902,9 +902,9 @@ async function sendAutoReply(
 
   const wsSettings = (ws?.settings ?? {}) as Record<string, unknown>;
 
-  // Fetch last 20 messages for conversation history context (skip current = last inserted)
-  // Razorveda consultation forms can span 10+ Q&A pairs — 6 was too few, causing
-  // the bot to forget early answers (age, concern) and re-ask them mid-conversation.
+  // Fetch last 40 messages for conversation history context (skip current = last inserted)
+  // 40 covers the longest real WhatsApp sales conversations (20 Q&A turns).
+  // Each message is ~20-50 tokens so 40 msgs ≈ 1500 extra tokens — negligible cost.
   let conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   if (conversationId) {
     try {
@@ -913,7 +913,7 @@ async function sendAutoReply(
         .select('content, sender_type, direction')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
-        .limit(21);
+        .limit(41);
       if (recentMsgs && recentMsgs.length > 1) {
         conversationHistory = (recentMsgs as Array<{ content: string; sender_type: string }>)
           .slice(1)        // skip the just-inserted current message
