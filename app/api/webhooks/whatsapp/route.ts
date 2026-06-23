@@ -1930,6 +1930,22 @@ async function sendMediaImages(
   }
 }
 
+// Strip markdown image syntax and bare URLs the AI sometimes adds — WhatsApp renders neither.
+function sanitizeWhatsAppText(text: string): string {
+  return text
+    // Remove markdown image syntax: ![alt](url)
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '')
+    // Remove markdown link syntax: [text](url) → keep just the text
+    .replace(/\[([^\]]+)\]\(https?:\/\/[^)]*\)/g, '$1')
+    // Remove bare razorveda.in URLs
+    .replace(/https?:\/\/(?:www\.)?razorveda\.in\S*/g, '')
+    // Remove bare www.razorveda.in links
+    .replace(/(?:www\.)?razorveda\.in\S*/g, '')
+    // Clean up extra blank lines left behind
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 async function sendWhatsAppText(
   phoneNumberId: string,
   accessToken: string,
@@ -1937,6 +1953,7 @@ async function sendWhatsAppText(
   text: string,
 ): Promise<void> {
   const token = accessToken.replace(/﻿/g, '').trim();
+  const cleanText = sanitizeWhatsAppText(text);
   await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -1945,7 +1962,7 @@ async function sendWhatsAppText(
       recipient_type:    'individual',
       to:                toPhone,
       type:              'text',
-      text:              { preview_url: false, body: text },
+      text:              { preview_url: false, body: cleanText },
     }),
   });
 }
