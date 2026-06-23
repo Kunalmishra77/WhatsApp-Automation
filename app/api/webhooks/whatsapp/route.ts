@@ -977,36 +977,54 @@ async function sendAutoReply(
   }
 
   // ── Image Intent Detection ────────────────────────────────────────────────────
-  // Triggered only when customer explicitly asks for images/photos with a request phrase.
+  // Triggered when customer asks for images/photos (requires ≥2 words in message).
   // Uses product keywords from conversation history so we show the RIGHT product images.
   if (!isEscalation && detectImageIntent(customerMessage)) {
+    console.log(`[ImageIntent] triggered for: "${customerMessage.slice(0, 60)}"`);
     // Build keywords from conversation context (product name being discussed) + customer message
     const productKeywords = extractProductKeywords(conversationHistory, customerMessage);
     const searchKeywords = productKeywords.length > 0 ? productKeywords : ['product', 'catalog'];
+    console.log(`[ImageIntent] searching with keywords: ${JSON.stringify(searchKeywords)}`);
     const mediaItems = await searchMediaLibrary(supabase, workspaceId, searchKeywords, true);
+    console.log(`[ImageIntent] found ${mediaItems.length} items from workspace ${workspaceId}`);
+
     if (mediaItems.length > 0) {
       // Send each product image and save to DB so they appear in the conversation chat
       const token = ws.access_token.replace(/﻿/g, '').trim();
+      let sentCount = 0;
       for (const item of mediaItems.slice(0, 3)) {
         const imgUrl = item.public_url ?? item.media_id;
-        if (!imgUrl?.startsWith('http')) continue;
-        const imgRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: toPhone, type: 'image', image: { link: imgUrl } }),
-        });
-        const imgData = await imgRes.json() as { messages?: Array<{ id: string }> };
-        await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, {
-          type: 'image', content: item.filename, media_url: imgUrl,
-          whatsapp_msg_id: (imgData as any)?.messages?.[0]?.id,
-        });
+        if (!imgUrl?.startsWith('http')) { console.log(`[ImageIntent] skip no-url item: ${item.filename}`); continue; }
+        try {
+          const imgRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: toPhone, type: 'image', image: { link: imgUrl } }),
+          });
+          const imgData = await imgRes.json() as { messages?: Array<{ id: string }>; error?: { message: string } };
+          if ((imgData as any).error) { console.error(`[ImageIntent] WA error sending ${item.filename}:`, (imgData as any).error.message); continue; }
+          await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, {
+            type: 'image', content: item.filename, media_url: imgUrl,
+            whatsapp_msg_id: imgData?.messages?.[0]?.id,
+          });
+          sentCount++;
+        } catch (e) { console.error('[ImageIntent] fetch error:', e); }
       }
+      console.log(`[ImageIntent] sent ${sentCount} images`);
       const aiReply = await getAIReply(customerMessage, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
-      const textMsg = aiReply ?? 'Ye hamare products hain 📸 Aapko kaunsa size/variant chahiye?';
+      const textMsg = aiReply ?? 'Ye hamare products hain 📸 Aapko kaunsa size chahiye?';
       await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, textMsg);
       await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: textMsg });
       return;
     }
+
+    // Images triggered but nothing found — ask which product instead of letting AI say "I can't"
+    const noImgMsg = productKeywords.length > 0
+      ? `Kaunse product ki image chahiye? Jaise "MAMO PLUS", "VG TONE", "INLYTE" etc. 😊`
+      : `Hamare paas kai products hain! Kaunse category ki images chahiye?\n\n1️⃣ Breast Care\n2️⃣ Intimate Care\n3️⃣ Hair Care\n4️⃣ Skin / Face Care\n5️⃣ Slimming`;
+    await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, noImgMsg);
+    await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: noImgMsg });
+    return;
   }
   // ── End Image/Payment Intent ──────────────────────────────────────────────────
   // \u2500\u2500 End Image Intent \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -1705,19 +1723,14 @@ function detectPaymentIntent(message: string): boolean {
 }
 
 // ── Image Intent Detection ────────────────────────────────────────────────────
-// These MUST appear together with context (not standalone) to trigger image intent.
-// Single-word "image" / "Image" alone does NOT trigger — requires request phrasing.
-const IMAGE_REQUEST_PHRASES = [
-  'photo dikhao', 'photo bhejo', 'photo send', 'photo chahiye', 'photos dikhao',
-  'pic bhejo', 'pic dikhao', 'pic chahiye', 'pics bhejo',
-  'picture dikhao', 'picture bhejo', 'picture send',
-  'image bhejo', 'image send', 'image chahiye',
-  'show me', 'send photo', 'send image', 'send pic',
-  'product dikhao', 'products dikhao', 'product dekh', 'products dekh',
-  'catalog dikhao', 'catalog bhejo', 'catalogue', 'gallery dikhao',
-  'kya kya hai', 'kya kya products', 'sab products', 'all products',
-  'product list', 'item list', 'sab items',
-  'dikhao', 'dikha do', 'dikha de',
+// Require ≥2 words OR a specific phrase — single "Image" alone does NOT trigger.
+const IMAGE_KEYWORDS_LIST = [
+  'photo', 'photos', 'pic', 'pics', 'picture', 'pictures',
+  'image', 'images', 'dikhao', 'dikha', 'dekho', 'dekhna',
+  'show', 'catalog', 'catalogue', 'gallery', 'brochure',
+  'product dikhao', 'products dikhao', 'image dikhao', 'image bhejo',
+  'photo dikhao', 'photo bhejo', 'photo chahiye',
+  'pic dikhao', 'pic bhejo', 'kya kya hai', 'all products', 'sab products',
 ];
 
 // Known product name keywords — used to extract product context from message
@@ -1734,8 +1747,10 @@ const PRODUCT_NAME_KEYWORDS = [
 
 function detectImageIntent(message: string): true | null {
   const lower = message.toLowerCase().trim();
-  // Must match at least one multi-word request phrase (not just standalone "image")
-  return IMAGE_REQUEST_PHRASES.some((phrase) => lower.includes(phrase)) ? true : null;
+  const wordCount = lower.split(/\s+/).filter((w) => w.length > 0).length;
+  // Require at least 2 words OR a specific multi-word phrase — blocks single "Image" alone
+  if (wordCount < 2) return null;
+  return IMAGE_KEYWORDS_LIST.some((phrase) => lower.includes(phrase)) ? true : null;
 }
 
 // Extract product keywords from recent conversation history (last few bot messages)
