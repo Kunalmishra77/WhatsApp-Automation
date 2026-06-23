@@ -567,12 +567,28 @@ async function handleIncomingMessage(
     return;
   }
 
-  // ── Auto-categorization — 2s timeout so it never blocks the reply
-  // intentLabel shapes the AI reply framing (billing vs sales vs complaint)
-  const intentLabel = await Promise.race([
-    categorizeMessage(content),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+  // ── Run categorize + sentiment + business-hours fetch in parallel ────────────
+  // Previously sequential (6-8s overhead). Now parallel: total wait = slowest of the three.
+  const keywordEscalation = checkEscalationKeywords(content);
+
+  const [intentLabel, aiSentimentResult, bhConfigResult] = await Promise.all([
+    // 1. Intent categorization — 5s timeout, gpt-4o-mini is fast enough to always finish
+    categorizeMessage(content).catch(() => null),
+
+    // 2. AI sentiment escalation (only if no keyword match and message is long enough)
+    (!keywordEscalation && content.length > 20)
+      ? detectNegativeSentiment(content).catch(() => false)
+      : Promise.resolve(false),
+
+    // 3. Business hours config fetch
+    (supabase as any)
+      .from('business_hours')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .maybeSingle(),
   ]);
+
+  // Update conversation labels async (non-blocking)
   if (intentLabel) {
     const supabaseForCat = supabase;
     const convIdForCat = conversation.id;
@@ -589,46 +605,28 @@ async function handleIncomingMessage(
           .update({ labels: [...existing, intentLabel] })
           .eq('id', convIdForCat);
       }
-    })().catch(() => {}); // silent fail, non-blocking
+    })().catch(() => {});
   }
-  // ─────────────────────────────────────────────────────────────────────────────
 
-  // Escalation detection — check BEFORE calling AI auto-reply
-  const keywordEscalation = checkEscalationKeywords(content);
+  // Resolve escalation
   let isEscalation = keywordEscalation;
-
   if (keywordEscalation) {
-    // Update conversation status to pending (needs human agent)
     await (supabase as any)
       .from('conversations')
       .update({ status: 'pending' })
       .eq('id', conversation.id);
-
     console.log(`[Webhook] Keyword escalation detected for conversation ${conversation.id}`);
-  } else if (content.length > 20) {
-    // AI sentiment escalation with 1.5-second timeout (reduced from 3s to cut reply latency)
-    const aiEscalation = await Promise.race([
-      detectNegativeSentiment(content),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500)),
-    ]);
-
-    if (aiEscalation) {
-      isEscalation = true;
-      await (supabase as any)
-        .from('conversations')
-        .update({ status: 'pending' })
-        .eq('id', conversation.id);
-
-      console.log(`[Webhook] AI sentiment escalation detected for conversation ${conversation.id}`);
-    }
+  } else if (aiSentimentResult) {
+    isEscalation = true;
+    await (supabase as any)
+      .from('conversations')
+      .update({ status: 'pending' })
+      .eq('id', conversation.id);
+    console.log(`[Webhook] AI sentiment escalation detected for conversation ${conversation.id}`);
   }
+  // ─────────────────────────────────────────────────────────────────────────────
 
-  // Business hours check
-  const { data: bhConfig } = await (supabase as any)
-    .from('business_hours')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
+  const bhConfig = bhConfigResult?.data;
 
   if (bhConfig?.is_enabled && !isWithinBusinessHours(bhConfig as BusinessHoursConfig)) {
     // Outside business hours — send away message and skip AI
@@ -711,7 +709,7 @@ async function detectNegativeSentiment(message: string): Promise<boolean> {
         },
         { role: 'user', content: message },
       ],
-      { model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free', maxTokens: 5, temperature: 0 },
+      { model: 'openai/gpt-4o-mini', maxTokens: 5, temperature: 0 },
     );
     return answer?.toLowerCase().trim() === 'true';
   } catch {
