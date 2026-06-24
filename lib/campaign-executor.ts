@@ -777,7 +777,8 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   // Campaign executor never wrote to messages table, so conversations appeared
   // empty in the platform. We batch-create them here after the send loop.
   try {
-    const templateBody: string = (template as any)?.body ?? `[Campaign: ${campaign.name ?? campaignId}]`;
+    // For text campaigns, content is in text_content; for template campaigns it's in template.body
+    const templateBody: string = (campaign as any).text_content ?? (template as any)?.body ?? `[Campaign: ${campaign.name ?? campaignId}]`;
 
     // Re-fetch successfully sent recipients to get contact_id + phone + whatsapp_msg_id
     const { data: sentRows } = await db
@@ -786,7 +787,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
       .eq('campaign_id', campaignId)
       .eq('status', 'sent')
       .not('contact_id', 'is', null)
-      .limit(2000);
+      .limit(5000);
 
     if (sentRows && sentRows.length > 0) {
       // Batch upsert conversations (50 at a time)

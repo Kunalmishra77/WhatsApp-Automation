@@ -403,10 +403,10 @@ async function handleIncomingMessage(
           // Get campaign body to use as message content
           const { data: camp } = await (supabase as any)
             .from('campaigns')
-            .select('name, templates(body)')
+            .select('name, text_content, templates(body)')
             .eq('id', pendingCr.campaign_id)
             .maybeSingle();
-          const campaignBody: string = (camp as any)?.templates?.body ?? `[Campaign: ${(camp as any)?.name ?? 'message'}]`;
+          const campaignBody: string = (camp as any)?.text_content ?? (camp as any)?.templates?.body ?? `[Campaign: ${(camp as any)?.name ?? 'message'}]`;
           const sentAt = pendingCr.sent_at ?? new Date(Date.now() - 60000).toISOString();
 
           await (supabase as any).from('messages').insert({
@@ -1977,11 +1977,19 @@ function sanitizeWhatsAppText(text: string): string {
     .replace(/https?:\/\/(?:www\.)?razorveda\.in\S*/g, '')
     .replace(/(?:www\.)?razorveda\.in\S*/g, '')
     // Remove "Here's/Here is the image of [product]:" — image already sent before this text
-    .replace(/^here[''’]?s the image of[^:\n]*:?\s*$/gim, '')
+    .replace(/^here[''']?s the image of[^:\n]*:?\s*$/gim, '')
     .replace(/^here is the image of[^:\n]*:?\s*$/gim, '')
-    .replace(/^here[''’]?s the image:?\s*$/gim, '')
+    .replace(/^here[''']?s the image:?\s*$/gim, '')
     .replace(/^here is the image:?\s*$/gim, '')
     .replace(/^as you can see (in|from) the image[^:\n]*:?\s*$/gim, '')
+    // Remove "please hold on / ek second / ruko" filler lines
+    .replace(/^please hold on\.?\s*$/gim, '')
+    .replace(/^ek second\.?\s*$/gim, '')
+    .replace(/^just a (moment|second)\.?\s*$/gim, '')
+    // Remove "I'm sending/bhej rahi hun" lines — images are sent before text, not "being sent"
+    .replace(/^(i[''']?m |main )?(sending|bhej rahi? hun?|send kar rahi? hun?)[^.\n]*\.?\s*$/gim, '')
+    // Remove "for images visit / for more info visit" lines
+    .replace(/^for (images?|more info|details?) (visit|see|check)[^.\n]*\.?\s*$/gim, '')
     // Clean up extra blank lines left behind
     .replace(/\n{3,}/g, '\n\n')
     .trim();
