@@ -1501,11 +1501,14 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
 
   if (error) throw new Error(error.message);
 
-  // Mirror status to campaign_recipients and sync aggregate counts on campaigns table
+  // Mirror status to campaign_recipients and sync aggregate counts on campaigns table.
+  // IMPORTANT: Never overwrite 'replied' or 'filtered' — a late 'delivered'/'read' receipt
+  // from Meta must not downgrade a record that already reached a terminal state.
   const { data: updatedCr } = await db
     .from('campaign_recipients')
     .update(patch)
     .eq('whatsapp_msg_id', status.id)
+    .not('status', 'in', '(replied,filtered)')
     .select('campaign_id')
     .maybeSingle();
 
