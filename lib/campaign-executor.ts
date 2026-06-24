@@ -773,6 +773,88 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   // Final flush in case anything remains
   await flushRecipients();
 
+  // ── Create conversations + save outbound campaign messages ──────────────────
+  // Campaign executor never wrote to messages table, so conversations appeared
+  // empty in the platform. We batch-create them here after the send loop.
+  try {
+    const templateBody: string = (template as any)?.body ?? `[Campaign: ${campaign.name ?? campaignId}]`;
+
+    // Re-fetch successfully sent recipients to get contact_id + phone + whatsapp_msg_id
+    const { data: sentRows } = await db
+      .from('campaign_recipients')
+      .select('contact_id, phone, whatsapp_msg_id, sent_at')
+      .eq('campaign_id', campaignId)
+      .eq('status', 'sent')
+      .not('contact_id', 'is', null)
+      .limit(2000);
+
+    if (sentRows && sentRows.length > 0) {
+      // Batch upsert conversations (50 at a time)
+      const CONV_BATCH = 50;
+      for (let ci = 0; ci < sentRows.length; ci += CONV_BATCH) {
+        const batch = sentRows.slice(ci, ci + CONV_BATCH);
+        const convRows = batch.map((r: { contact_id: string; phone: string; sent_at: string }) => ({
+          workspace_id:     campaign.workspace_id,
+          contact_id:       r.contact_id,
+          status:           'open',
+          channel:          'whatsapp',
+          last_message:     templateBody.slice(0, 200),
+          last_message_at:  r.sent_at ?? new Date().toISOString(),
+        }));
+
+        const { data: upserted } = await db
+          .from('conversations')
+          .upsert(convRows, { onConflict: 'workspace_id,contact_id', ignoreDuplicates: false })
+          .select('id, contact_id');
+
+        if (!upserted?.length) continue;
+
+        // Map contact_id → { conversation_id, sent_at, whatsapp_msg_id }
+        const crMap = new Map(batch.map((r: { contact_id: string; phone: string; sent_at: string; whatsapp_msg_id: string | null }) => [r.contact_id, r]));
+
+        // Insert outbound campaign messages
+        const msgRows = upserted
+          .map((conv: { id: string; contact_id: string }) => {
+            const cr = crMap.get(conv.contact_id) as { contact_id: string; sent_at: string; whatsapp_msg_id: string | null } | undefined;
+            if (!cr) return null;
+            return {
+              conversation_id: conv.id,
+              workspace_id:    campaign.workspace_id,
+              contact_id:      conv.contact_id,
+              direction:       'outbound',
+              sender_type:     'campaign',
+              type:            'text',
+              content:         templateBody,
+              whatsapp_msg_id: cr.whatsapp_msg_id ?? null,
+              status:          'sent',
+              created_at:      cr.sent_at ?? new Date().toISOString(),
+            };
+          })
+          .filter(Boolean);
+
+        if (msgRows.length > 0) {
+          // Rows with a whatsapp_msg_id: use upsert to skip duplicates (unique index on whatsapp_msg_id)
+          const withId  = msgRows.filter((r: Record<string, unknown>) => r.whatsapp_msg_id);
+          const withoutId = msgRows.filter((r: Record<string, unknown>) => !r.whatsapp_msg_id);
+          if (withId.length)    await db.from('messages').upsert(withId,    { onConflict: 'whatsapp_msg_id', ignoreDuplicates: true });
+          if (withoutId.length) await db.from('messages').insert(withoutId);
+        }
+
+        // Update campaign_recipients with conversation_id
+        for (const conv of upserted) {
+          void db.from('campaign_recipients')
+            .update({ conversation_id: conv.id })
+            .eq('campaign_id', campaignId)
+            .eq('contact_id', conv.contact_id);
+        }
+      }
+      console.log(`[Campaign ${campaignId}] Created/updated conversations for ${sentRows.length} sent contacts`);
+    }
+  } catch (e) {
+    console.error(`[Campaign ${campaignId}] Failed to create conversations:`, e);
+  }
+  // ────────────────────────────────────────────────────────────────────────────
+
   await db.from('campaigns').update({
     status: 'completed', completed_at: new Date().toISOString(),
     sent_count: sentCount, failed_count: failedCount, filtered_count: filteredCount,

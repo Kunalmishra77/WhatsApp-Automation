@@ -366,13 +366,12 @@ async function handleIncomingMessage(
   // `return` early — any inbound message should still count as a campaign reply
   // regardless of what other feature also handles it.
   {
-    // Primary lookup: by contact_id (works for contact-list campaigns)
+    // Primary lookup: by contact_id — fetch sent_at + whatsapp_msg_id to save campaign msg retroactively
     let { data: pendingCr, error: crFindErr } = await (supabase as any)
       .from('campaign_recipients')
-      .select('id')
+      .select('id, sent_at, whatsapp_msg_id, campaign_id, conversation_id')
       .eq('contact_id', contactId)
       .eq('workspace_id', workspaceId)
-      // Correct PostgREST not-in syntax: no quotes around text values
       .not('status', 'in', '(failed,replied,filtered)')
       .order('sent_at', { ascending: false })
       .limit(1)
@@ -384,7 +383,7 @@ async function handleIncomingMessage(
     if (!pendingCr && waId) {
       const { data: phoneCr, error: phoneCrErr } = await (supabase as any)
         .from('campaign_recipients')
-        .select('id')
+        .select('id, sent_at, whatsapp_msg_id, campaign_id, conversation_id')
         .eq('phone', waId)
         .eq('workspace_id', workspaceId)
         .not('status', 'in', '(failed,replied,filtered)')
@@ -396,6 +395,37 @@ async function handleIncomingMessage(
     }
 
     if (pendingCr) {
+      // ── Retroactively save the campaign outbound message to messages table ───
+      // Campaign executor never saves to messages — so conversations appear empty.
+      // On first reply, we insert the original campaign message so the thread makes sense.
+      if (!pendingCr.conversation_id && conversation?.id) {
+        try {
+          // Get campaign body to use as message content
+          const { data: camp } = await (supabase as any)
+            .from('campaigns')
+            .select('name, templates(body)')
+            .eq('id', pendingCr.campaign_id)
+            .maybeSingle();
+          const campaignBody: string = (camp as any)?.templates?.body ?? `[Campaign: ${(camp as any)?.name ?? 'message'}]`;
+          const sentAt = pendingCr.sent_at ?? new Date(Date.now() - 60000).toISOString();
+
+          await (supabase as any).from('messages').insert({
+            conversation_id: conversation.id,
+            workspace_id:    workspaceId,
+            contact_id:      contactId ?? null,
+            direction:       'outbound',
+            sender_type:     'campaign',
+            type:            'text',
+            content:         campaignBody,
+            whatsapp_msg_id: pendingCr.whatsapp_msg_id ?? null,
+            status:          'delivered',
+            created_at:      sentAt,
+          });
+        } catch (e) {
+          console.error('[Webhook] Failed to retroactively save campaign message:', e);
+        }
+      }
+
       // msg.type='button'  → template quick-reply button tap (most common from campaigns)
       // msg.type='interactive' → interactive list/button (rich menus)
       const isButton = msg.type === 'button' || msg.type === 'interactive';
