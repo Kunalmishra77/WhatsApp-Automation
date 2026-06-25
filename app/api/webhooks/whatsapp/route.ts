@@ -914,8 +914,6 @@ function buildAiPrompt(msg: WAMessage, textContent: string): string {
   }
 }
 
-const ESCALATION_REPLY =
-  "Hum aapki baat samajhte hain 🙏 Hamari team aapki madad ke liye available hai.\n\nPlease call karein: 📞 93191 35065\nYa email karein: care.razorveda@gmail.com\n\nYa phir www.razorveda.in visit karein — team turant help karegi! 😊";
 
 async function sendAutoReply(
   supabase: AdminClient,
@@ -1067,21 +1065,19 @@ async function sendAutoReply(
       return;
     }
 
-    // Images triggered but nothing found — ask which product instead of letting AI say "I can't"
-    const noImgMsg = productKeywords.length > 0
-      ? `Kaunse product ki image chahiye? Jaise "MAMO PLUS", "VG TONE", "INLYTE" etc. 😊`
-      : `Hamare paas kai products hain! Kaunse category ki images chahiye?\n\n1️⃣ Breast Care\n2️⃣ Intimate Care\n3️⃣ Hair Care\n4️⃣ Skin / Face Care\n5️⃣ Slimming`;
-    await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, noImgMsg);
-    await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: noImgMsg });
-    return;
+    // No matching images found — fall through to AI so workspace-specific persona handles it
   }
   // ── End Image/Payment Intent ──────────────────────────────────────────────────
   // \u2500\u2500 End Image Intent \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
-  const message = isEscalation
-    ? ESCALATION_REPLY
-    : (await getAIReply(customerMessage, name, kbContext, imageUrl, wsSettings, businessName, conversationHistory, intentLabel)
-      ?? `Thanks for reaching out to ${businessName}! Our team received your message and will get back to you shortly.`);
+  // For escalations, inject context so the AI uses this workspace's own contact details from its persona
+  const escalationPrefix = isEscalation
+    ? `[ESCALATION: Customer is frustrated and requesting human support or manager callback. Empathetically acknowledge their concern, share your team contact details (phone/email/website) exactly as specified in your persona, and assure them someone will follow up. Do NOT continue with sales pitch or product info.]\n\n`
+    : '';
+  const message = (await getAIReply(
+    escalationPrefix + customerMessage,
+    name, kbContext, imageUrl, wsSettings, businessName, conversationHistory, intentLabel,
+  )) ?? `Thanks for reaching out to ${businessName}! Our team received your message and will get back to you shortly.`;
 
   try {
     const response = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
