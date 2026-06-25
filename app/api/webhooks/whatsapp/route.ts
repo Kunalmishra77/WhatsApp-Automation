@@ -198,6 +198,13 @@ async function handleIncomingMessage(
   const contactInfo = contacts.find((c) => c.wa_id === waId);
   const customerName = contactInfo?.profile?.name ?? waId;
 
+  // Log every inbound event so button taps / messages are always traceable even if later steps fail
+  if (msg.type === 'button') {
+    console.log(`[Webhook] BUTTON_TAP phone=${waId} button="${msg.button?.text}" payload="${msg.button?.payload}" wa_msg_id=${msg.id}`);
+  } else {
+    console.log(`[Webhook] INBOUND type=${msg.type} phone=${waId} wa_msg_id=${msg.id}`);
+  }
+
   const { data: workspace, error: workspaceError } = await supabase
     .from('workspaces')
     .select('id, access_token')
