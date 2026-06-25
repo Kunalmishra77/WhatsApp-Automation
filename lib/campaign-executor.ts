@@ -1,4 +1,4 @@
-import { createAdminClient } from '@/services/supabase/admin';
+﻿import { createAdminClient } from '@/services/supabase/admin';
 
 interface Contact {
   id: string;
@@ -30,6 +30,21 @@ function buildVariables(template: Template, contact: Contact): string[] {
 function sanitizePhone(phone: string): string {
   // Strip everything except digits and leading +, producing E.164 format
   return phone.replace(/[^\d+]/g, '');
+}
+
+// Wraps fetch with a 15-second timeout and 1 automatic retry on network failure.
+// "TypeError: fetch failed" on Coolify is caused by connection drops to graph.facebook.com
+// â€” timeout + retry recovers most transient failures without marking messages as failed.
+async function metaFetch(url: string, init: RequestInit): Promise<Response> {
+  const attempt = async () =>
+    fetch(url, { ...init, signal: AbortSignal.timeout(15000) });
+  try {
+    return await attempt();
+  } catch (e) {
+    // One retry after a short pause for transient network errors
+    await new Promise((r) => setTimeout(r, 1000));
+    return await attempt();
+  }
 }
 
 async function sendTemplateMessage(
@@ -80,12 +95,12 @@ async function sendTemplateMessage(
     });
   }
 
-  const res = await fetch(
+  const res = await metaFetch(
     `https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`,
     {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${ws.access_token.replace(/﻿/g, '').trim()}`,
+        Authorization: `Bearer ${ws.access_token.replace(/ï»¿/g, '').trim()}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -124,10 +139,10 @@ async function sendMediaMessage(
     const isUrl = mediaId.startsWith('http://') || mediaId.startsWith('https://');
     const mediaPayload: Record<string, string> = isUrl ? { link: mediaId } : { id: mediaId };
     if (caption?.trim() && mType !== 'document') mediaPayload.caption = caption.trim();
-    const res = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+    const res = await metaFetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${ws.access_token.replace(/﻿/g, '').trim()}`,
+        Authorization: `Bearer ${ws.access_token.replace(/ï»¿/g, '').trim()}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -142,12 +157,12 @@ async function sendMediaMessage(
     if (!res.ok) return { success: false, error: data?.error?.message ?? 'WhatsApp API error' };
     return { success: true, waMessageId: data?.messages?.[0]?.id };
   } catch (err) {
-    console.error(`[Campaign] Media send failed → ${toPhone}:`, err);
+    console.error(`[Campaign] Media send failed â†’ ${toPhone}:`, err);
     return { success: false, error: String(err) };
   }
 }
 
-// Sends a location pin (session-only — contact must have active 24h window)
+// Sends a location pin (session-only â€” contact must have active 24h window)
 async function sendLocationMessage(
   ws: Workspace,
   toPhone: string,
@@ -157,10 +172,10 @@ async function sendLocationMessage(
   address?: string,
 ): Promise<{ success: boolean; waMessageId?: string; error?: string }> {
   try {
-    const res = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+    const res = await metaFetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${ws.access_token.replace(/﻿/g, '').trim()}`,
+        Authorization: `Bearer ${ws.access_token.replace(/ï»¿/g, '').trim()}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -186,10 +201,10 @@ async function sendTextMessage(
   text: string,
 ): Promise<{ success: boolean; waMessageId?: string; error?: string }> {
   try {
-    const res = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+    const res = await metaFetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${ws.access_token.replace(/﻿/g, '').trim()}`,
+        Authorization: `Bearer ${ws.access_token.replace(/ï»¿/g, '').trim()}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -217,10 +232,10 @@ async function sendInteractiveListMessage(
   sections: Array<{ title: string; rows: Array<{ id: string; title: string; description: string }> }>,
 ): Promise<{ success: boolean; waMessageId?: string; error?: string }> {
   try {
-    const res = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+    const res = await metaFetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${ws.access_token.replace(/﻿/g, '').trim()}`,
+        Authorization: `Bearer ${ws.access_token.replace(/ï»¿/g, '').trim()}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -295,10 +310,10 @@ async function sendCarouselTemplateMessage(
   });
 
   try {
-    const res = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+    const res = await metaFetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${ws.access_token.replace(/﻿/g, '').trim()}`,
+        Authorization: `Bearer ${ws.access_token.replace(/ï»¿/g, '').trim()}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -395,7 +410,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   // Pre-flight: verify template exists in Meta before starting the campaign.
   // Catches misconfigurations (template not submitted, wrong WABA) before wasting send quota.
   if (template && wabaId) {
-    const cleanToken = accessToken.replace(/﻿/g, '').trim();
+    const cleanToken = accessToken.replace(/ï»¿/g, '').trim();
     const verifyUrl  = `https://graph.facebook.com/v19.0/${wabaId}/message_templates` +
       `?name=${encodeURIComponent(template.name)}&fields=name,status,language&access_token=${cleanToken}`;
     try {
@@ -421,7 +436,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   let recipients: Contact[] = [];
 
   if (campaign.audience_type === 'contacts' && Array.isArray(campaign.audience_filter?.contact_ids) && campaign.audience_filter.contact_ids.length > 0) {
-    // Specific contacts — batch the .in() queries to avoid URL length limit (PostgREST GET max ~8KB)
+    // Specific contacts â€” batch the .in() queries to avoid URL length limit (PostgREST GET max ~8KB)
     const allIds = campaign.audience_filter.contact_ids as string[];
     const ID_BATCH = 400;
     for (let b = 0; b < allIds.length; b += ID_BATCH) {
@@ -435,7 +450,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
       recipients.push(...(data ?? []));
     }
   } else if (campaign.audience_type === 'manual' && Array.isArray(campaign.audience_filter?.phones) && campaign.audience_filter.phones.length > 0) {
-    // Manually entered phone numbers — look up in contacts first, fall back to bare phone
+    // Manually entered phone numbers â€” look up in contacts first, fall back to bare phone
     const rawPhones = (campaign.audience_filter.phones as string[]).map(sanitizePhone).filter(Boolean);
     const { data: found } = await db
       .from('contacts')
@@ -463,7 +478,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
       contactQuery = contactQuery.ilike('phone', `${campaign.audience_filter.prefix}%`);
     }
 
-    // Paginate: PostgREST returns max 1000 rows by default — loop until all fetched
+    // Paginate: PostgREST returns max 1000 rows by default â€” loop until all fetched
     const CONTACT_PAGE = 1000;
     let pageOffset = 0;
     while (true) {
@@ -515,7 +530,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
     return { campaignId, total: 0, sent: 0, failed: 0, filtered: 0, skipped: 'all already sent' };
   }
 
-  // ── Pre-flight filters ────────────────────────────────────────────────────
+  // â”€â”€ Pre-flight filters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Run BEFORE setting status=running so total_recipients includes filtered contacts.
   const audienceSize = recipients.length;
   let filteredCount = 0;
@@ -538,7 +553,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
       for (const c of data ?? []) cachedInvalidPhones.add(c.phone);
     }
 
-    // Filter 2: Engagement filter — phones that have had API-rejected sends in 2+ previous campaigns
+    // Filter 2: Engagement filter â€” phones that have had API-rejected sends in 2+ previous campaigns
     const repeatFailPhones = new Set<string>();
     for (let i = 0; i < allPhones.length; i += BATCH) {
       const { data } = await db
@@ -589,7 +604,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
       console.log(`[Campaign ${campaignId}] Pre-flight: filtered ${filteredCount} (${cachedInvalidPhones.size} no-WA, ${repeatFailPhones.size} repeat-fail)`);
     }
   }
-  // ─────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   await db.from('campaigns').update({
     status: 'running', started_at: new Date().toISOString(),
@@ -604,9 +619,9 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   // - BATCH_SIZE messages fire concurrently
   // - BATCH_DELAY ms gap between batches controls throughput
   // - DB inserts are batched every DB_FLUSH_SIZE contacts
-  // Target: 15 parallel × 1 batch/200ms = ~4500 msgs/min
-  const BATCH_SIZE    = 15;
-  const BATCH_DELAY   = 200;   // ms between batches
+  // Target: 15 parallel Ã— 1 batch/200ms = ~4500 msgs/min
+  const BATCH_SIZE    = 5;    // reduced: fewer concurrent connections = fewer "fetch failed" drops
+  const BATCH_DELAY   = 300;  // ms between batches
   const DB_FLUSH_SIZE = 25;
 
   const pendingRecipients: Array<Record<string, unknown>> = [];
@@ -619,7 +634,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
     const { error: batchErr } = await db.from('campaign_recipients').insert(rows);
 
     if (batchErr) {
-      // Batch failed — fall back to one-by-one so bad rows don't block good ones
+      // Batch failed â€” fall back to one-by-one so bad rows don't block good ones
       console.error(`[Campaign] Batch insert failed (${batchErr.code}): ${batchErr.message}. Retrying row-by-row.`);
       let rowErrors = 0;
       for (const row of rows) {
@@ -630,7 +645,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
         }
       }
       if (rowErrors === rows.length) {
-        // Every single row failed — surface the original batch error so cron response shows it
+        // Every single row failed â€” surface the original batch error so cron response shows it
         throw new Error(`campaign_recipients insert failed (all ${rows.length} rows): ${batchErr.message} | code:${batchErr.code} | hint:${batchErr.hint}`);
       }
     }
@@ -717,7 +732,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
     // Collect results into pending batch for DB
     for (const settled of results) {
       if (settled.status === 'rejected') {
-        // Promise itself rejected (should not happen — inner fn catches errors)
+        // Promise itself rejected (should not happen â€” inner fn catches errors)
         // failedCount incremented but no contact info available to track
         failedCount++;
         continue;
@@ -738,7 +753,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
         });
       } else {
         failedCount++;
-        console.error(`[Campaign ${campaignId}] Failed → ${contact.phone}:`, result.error);
+        console.error(`[Campaign ${campaignId}] Failed â†’ ${contact.phone}:`, result.error);
         pendingRecipients.push({
           campaign_id:   campaignId,
           workspace_id:  campaign.workspace_id,
@@ -749,7 +764,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
           error_message: result.error ?? 'WhatsApp API error',
           sent_at:       new Date().toISOString(),
         });
-        // Cache as invalid WhatsApp number if Meta API says so — skip next campaign
+        // Cache as invalid WhatsApp number if Meta API says so â€” skip next campaign
         if (result.error && isNotWhatsAppError(result.error)) {
           void db.from('contacts')
             .update({ whatsapp_valid: false, whatsapp_checked_at: new Date().toISOString() })
@@ -773,7 +788,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   // Final flush in case anything remains
   await flushRecipients();
 
-  // ── Create conversations + save outbound campaign messages ──────────────────
+  // â”€â”€ Create conversations + save outbound campaign messages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Campaign executor never wrote to messages table, so conversations appeared
   // empty in the platform. We batch-create them here after the send loop.
   try {
@@ -810,7 +825,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
         if (!upserted?.length) continue;
 
-        // Map contact_id → { conversation_id, sent_at, whatsapp_msg_id }
+        // Map contact_id â†’ { conversation_id, sent_at, whatsapp_msg_id }
         const crMap = new Map(batch.map((r: { contact_id: string; phone: string; sent_at: string; whatsapp_msg_id: string | null }) => [r.contact_id, r]));
 
         // Insert outbound campaign messages
@@ -854,7 +869,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   } catch (e) {
     console.error(`[Campaign ${campaignId}] Failed to create conversations:`, e);
   }
-  // ────────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   await db.from('campaigns').update({
     status: 'completed', completed_at: new Date().toISOString(),
