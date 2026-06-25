@@ -372,7 +372,7 @@ async function handleIncomingMessage(
       .select('id, sent_at, whatsapp_msg_id, campaign_id, conversation_id')
       .eq('contact_id', contactId)
       .eq('workspace_id', workspaceId)
-      .not('status', 'in', '(failed,replied,filtered)')
+      .not('status', 'in', '(replied,filtered)')
       .order('sent_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -386,7 +386,7 @@ async function handleIncomingMessage(
         .select('id, sent_at, whatsapp_msg_id, campaign_id, conversation_id')
         .eq('phone', waId)
         .eq('workspace_id', workspaceId)
-        .not('status', 'in', '(failed,replied,filtered)')
+        .not('status', 'in', '(replied,filtered)')
         .order('sent_at', { ascending: false })
         .limit(1)
         .maybeSingle();
