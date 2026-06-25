@@ -821,7 +821,7 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
             return {
               conversation_id: conv.id,
               workspace_id:    campaign.workspace_id,
-              contact_id:      conv.contact_id,
+              sender_id:       null,
               direction:       'outbound',
               sender_type:     'campaign',
               type:            'text',

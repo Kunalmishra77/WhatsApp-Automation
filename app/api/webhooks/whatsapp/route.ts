@@ -412,7 +412,7 @@ async function handleIncomingMessage(
           await (supabase as any).from('messages').insert({
             conversation_id: conversation.id,
             workspace_id:    workspaceId,
-            contact_id:      contactId ?? null,
+            sender_id:       null,
             direction:       'outbound',
             sender_type:     'campaign',
             type:            'text',
