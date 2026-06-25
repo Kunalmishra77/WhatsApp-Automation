@@ -292,8 +292,10 @@ async function handleIncomingMessage(
   }
 
   const content = extractMessageContent(msg);
-  // 'button' = customer tapped a quick-reply button on a template → save as button_reply type
-  const messageType = msg.type === 'button' ? 'button_reply' : toMessageType(msg.type);
+  // 'button' = customer tapped a quick-reply button on a template.
+  // Save as 'text' because message_type enum does not include 'button_reply'.
+  // Button content is stored as "[Tapped button: "Book Demo"]" in the content field.
+  const messageType = msg.type === 'button' ? 'text' : toMessageType(msg.type);
   const createdAt = new Date(parseInt(msg.timestamp, 10) * 1000).toISOString();
 
   // For inbound media, save proxy URL so the UI can display it directly.
