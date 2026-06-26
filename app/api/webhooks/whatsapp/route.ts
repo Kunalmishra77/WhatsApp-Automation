@@ -1495,6 +1495,10 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
   const ts = new Date(parseInt(status.timestamp, 10) * 1000).toISOString();
   if (status.status === 'delivered') patch.delivered_at = ts;
   if (status.status === 'read')      patch.read_at      = ts;
+  if (status.status === 'failed' && status.errors?.length) {
+    const err = status.errors[0]!;
+    patch.error_message = `(#${err.code}) ${err.title}${err.error_data?.details ? ': ' + err.error_data.details : ''}`;
+  }
   // failed_at column not yet in DB schema — status='failed' is tracked via status field above
 
   const db = supabase as any;
@@ -1731,6 +1735,7 @@ interface WAStatus {
   status: string;
   timestamp: string;
   recipient_id: string;
+  errors?: Array<{ code: number; title: string; message?: string; error_data?: { details?: string } }>;
 }
 
 // ── Image Intent Detection ────────────────────────────────────────────────────

@@ -659,6 +659,12 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   const headerMediaId  = isMediaHeader ? (campaign.media_id as string | undefined ?? undefined) : undefined;
   const headerMediaType = headerMediaId ? (tmplHeaderType?.toLowerCase() ?? undefined) : undefined;
 
+  // Early-fail: template requires media but campaign has none → fail immediately with a clear reason
+  if (isMediaHeader && !headerMediaId) {
+    await db.from('campaigns').update({ status: 'failed', completed_at: new Date().toISOString() }).eq('id', campaignId);
+    return { campaignId, total: 0, sent: 0, failed: 0, filtered: 0, skipped: `Template "${template?.name}" requires a ${tmplHeaderType?.toLowerCase()} header but no media was provided for this campaign. Upload an image and retry.` };
+  }
+
   // LTO params
   const ltoExpiryMs   = campaign.lto_expiry_at ? new Date(campaign.lto_expiry_at).getTime() : undefined;
   const ltoCouponCode = (campaign.lto_coupon_code as string | undefined) ?? undefined;
