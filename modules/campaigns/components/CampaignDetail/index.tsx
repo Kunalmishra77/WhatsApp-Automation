@@ -775,17 +775,21 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
               totalReplied={stats.replied}
             />
 
-            {/* Reply breakdown pills — text replies only */}
+            {/* Reply breakdown pills — truncated to prevent overflow */}
             {uniqueReplyTexts.length > 0 && (
               <div className="flex flex-wrap gap-2 px-5 py-3 border-b border-border">
                 <span className="text-xs text-muted-foreground self-center mr-1">Filter:</span>
-                {uniqueReplyTexts.map(({ text, count }) => (
-                  <button key={text} onClick={() => { setReplyFilter(replyFilter === text ? '' : text); setReplyTypeFilter(''); setPage(1); }}
-                    className={cn('text-xs rounded-full px-3 py-1 border font-medium transition-all',
-                      replyFilter === text ? 'bg-emerald-500 text-white border-emerald-500' : 'border-border text-muted-foreground hover:border-emerald-400')}>
-                    {text} <span className="opacity-70">({count})</span>
-                  </button>
-                ))}
+                {uniqueReplyTexts.map(({ text, count }) => {
+                  const label = text.length > 35 ? text.slice(0, 35) + '…' : text;
+                  return (
+                    <button key={text} onClick={() => { setReplyFilter(replyFilter === text ? '' : text); setReplyTypeFilter(''); setPage(1); }}
+                      title={text}
+                      className={cn('text-xs rounded-full px-3 py-1 border font-medium transition-all max-w-[200px] truncate',
+                        replyFilter === text ? 'bg-emerald-500 text-white border-emerald-500' : 'border-border text-muted-foreground hover:border-emerald-400')}>
+                      {label} <span className="opacity-70">({count})</span>
+                    </button>
+                  );
+                })}
               </div>
             )}
 
