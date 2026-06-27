@@ -882,5 +882,93 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
     sent_count: sentCount, failed_count: failedCount, filtered_count: filteredCount,
   }).eq('id', campaignId);
 
+  // ── Post-completion reply sync ────────────────────────────────────────────────
+  // Some inbound messages (especially instant auto-replies from business numbers)
+  // arrive before the campaign_recipients row is committed to DB due to batch timing.
+  // This pass runs after completion to retroactively link any missed replies.
+  void (async () => {
+    try {
+      const campStart = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // last 24h
+      // Get all non-replied recipients for this campaign
+      const allNotReplied: Array<{ id: string; phone: string }> = [];
+      let syncOffset = 0;
+      while (true) {
+        const { data: page } = await db.from('campaign_recipients')
+          .select('id, phone')
+          .eq('campaign_id', campaignId)
+          .not('status', 'in', '(replied,filtered,failed)')
+          .range(syncOffset, syncOffset + 999);
+        if (!page?.length) break;
+        allNotReplied.push(...page);
+        if (page.length < 1000) break;
+        syncOffset += 1000;
+      }
+      if (!allNotReplied.length) return;
+
+      const ws2 = await db.from('workspaces').select('id').eq('id', campaign.workspace_id).single();
+      const wid = ws2?.data?.id ?? campaign.workspace_id;
+
+      // Check inbound messages for each phone
+      const SYNC_BATCH = 200;
+      let syncUpdated = 0;
+      for (let si = 0; si < allNotReplied.length; si += SYNC_BATCH) {
+        const batch = allNotReplied.slice(si, si + SYNC_BATCH);
+        const phones = batch.map((r) => r.phone);
+
+        const { data: ctcts } = await db.from('contacts').select('id, phone').eq('workspace_id', wid).in('phone', phones);
+        if (!ctcts?.length) continue;
+
+        const ctctIds = ctcts.map((c: { id: string }) => c.id);
+        const { data: convs2 } = await db.from('conversations').select('id, contact_id').eq('workspace_id', wid).in('contact_id', ctctIds);
+        if (!convs2?.length) continue;
+
+        const convIds2 = convs2.map((c: { id: string }) => c.id);
+        const phoneMap2 = new Map(ctcts.map((c: { id: string; phone: string }) => [c.id, c.phone]));
+
+        const { data: msgs2 } = await db.from('messages')
+          .select('conversation_id, content, type, created_at, metadata')
+          .eq('workspace_id', wid)
+          .eq('direction', 'inbound')
+          .gte('created_at', campStart)
+          .in('conversation_id', convIds2)
+          .order('created_at', { ascending: true });
+        if (!msgs2?.length) continue;
+
+        const firstMsgMap = new Map<string, typeof msgs2[0]>();
+        for (const m of msgs2) {
+          if (!firstMsgMap.has(m.conversation_id)) firstMsgMap.set(m.conversation_id, m);
+        }
+
+        for (const [convId2, m] of firstMsgMap) {
+          const conv2 = convs2.find((c: { id: string }) => c.id === convId2);
+          if (!conv2) continue;
+          const phone2 = phoneMap2.get(conv2.contact_id);
+          if (!phone2) continue;
+          const cr2 = batch.find((r) => r.phone === phone2);
+          if (!cr2) continue;
+
+          const isBtn = m.type === 'text' && m.metadata?.button_reply;
+          await db.from('campaign_recipients').update({
+            status: 'replied',
+            replied_at: m.created_at,
+            reply_type: isBtn ? 'button' : 'text',
+            reply_text: (isBtn ? m.metadata.button_reply.text : m.content)?.slice(0, 500) ?? null,
+            conversation_id: convId2,
+          }).eq('id', cr2.id);
+          syncUpdated++;
+        }
+      }
+
+      if (syncUpdated > 0) {
+        const { count: finalReplied } = await db.from('campaign_recipients')
+          .select('id', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'replied');
+        await db.from('campaigns').update({ replied_count: finalReplied ?? 0 }).eq('id', campaignId);
+        console.log(`[Campaign ${campaignId}] Post-sync: +${syncUpdated} replies linked, total=${finalReplied}`);
+      }
+    } catch (e) {
+      console.error(`[Campaign ${campaignId}] Post-completion reply sync failed:`, e);
+    }
+  })();
+
   return { campaignId, total: audienceSize, sent: sentCount, failed: failedCount, filtered: filteredCount };
 }
