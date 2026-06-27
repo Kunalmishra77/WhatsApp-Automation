@@ -220,7 +220,7 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
 
   if (loading) {
     return (
-      <div className="rounded-lg border bg-card overflow-hidden">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
@@ -252,14 +252,14 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
 
   if (workspaces.length === 0) {
     return (
-      <div className="rounded-lg border bg-card p-12 text-center text-muted-foreground text-sm">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center text-muted-foreground text-sm">
         No workspaces found.
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border bg-card overflow-hidden">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow>
