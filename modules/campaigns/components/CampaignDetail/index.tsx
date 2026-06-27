@@ -429,6 +429,37 @@ function OverviewTab({ campaign, stats, daily, loading, workspaceId }: {
   );
 }
 
+// ── Button Click Breakdown (Replied tab) ──────────────────────────────────────
+function ButtonBreakdown({ uniqueReplyTexts, buttonReplies, totalReplied }: {
+  uniqueReplyTexts: Array<{ text: string; count: number }>;
+  buttonReplies: number;
+  totalReplied: number;
+}) {
+  if (buttonReplies === 0) return null;
+  const buttonTexts = uniqueReplyTexts.filter(({ text }) =>
+    text && !text.startsWith('[') && text.length < 60
+  );
+  if (!buttonTexts.length) return null;
+  return (
+    <div className="border-b border-border px-5 py-4 space-y-2">
+      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+        Button Click Breakdown
+      </h3>
+      {buttonTexts.map(({ text, count }) => (
+        <div key={text} className="flex items-center gap-3">
+          <span className="text-sm font-medium text-foreground flex-1 min-w-0 truncate">{text}</span>
+          <div className="w-32 h-2 rounded-full bg-muted overflow-hidden shrink-0">
+            <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${pct(count, buttonReplies)}%` }} />
+          </div>
+          <span className="text-xs font-semibold text-foreground w-20 text-right shrink-0">
+            {count} <span className="text-muted-foreground font-normal">({pct(count, totalReplied)}%)</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Failed Tab extras ─────────────────────────────────────────────────────────
 function ErrorBreakdown({ recipients }: { recipients: Recipient[] }) {
   const counts: Record<string, number> = {};
@@ -737,9 +768,17 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
               })}
             </div>
 
-            {/* Reply breakdown pills */}
+            {/* Button click breakdown bars */}
+            <ButtonBreakdown
+              uniqueReplyTexts={uniqueReplyTexts}
+              buttonReplies={stats.button_replies}
+              totalReplied={stats.replied}
+            />
+
+            {/* Reply breakdown pills — text replies only */}
             {uniqueReplyTexts.length > 0 && (
               <div className="flex flex-wrap gap-2 px-5 py-3 border-b border-border">
+                <span className="text-xs text-muted-foreground self-center mr-1">Filter:</span>
                 {uniqueReplyTexts.map(({ text, count }) => (
                   <button key={text} onClick={() => { setReplyFilter(replyFilter === text ? '' : text); setReplyTypeFilter(''); setPage(1); }}
                     className={cn('text-xs rounded-full px-3 py-1 border font-medium transition-all',

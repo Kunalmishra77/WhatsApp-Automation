@@ -455,7 +455,20 @@ async function handleIncomingMessage(
         })
         .eq('id', pendingCr.id);
 
-      if (crUpdateErr) console.error('[Webhook] Campaign reply update error:', crUpdateErr.message, 'cr_id:', pendingCr.id);
+      if (crUpdateErr) {
+        console.error('[Webhook] Campaign reply update error:', crUpdateErr.message, 'cr_id:', pendingCr.id);
+      } else {
+        // Re-aggregate replied count on campaigns table so header stays in sync
+        const db2 = supabase as any;
+        const { count: repliedCount } = await db2
+          .from('campaign_recipients')
+          .select('id', { count: 'exact', head: true })
+          .eq('campaign_id', pendingCr.campaign_id)
+          .eq('status', 'replied');
+        void db2.from('campaigns')
+          .update({ replied_count: repliedCount ?? 0 })
+          .eq('id', pendingCr.campaign_id);
+      }
     }
   }
   // ─────────────────────────────────────────────────────────────────────────────
