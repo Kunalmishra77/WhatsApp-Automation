@@ -24,15 +24,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     db.from('contacts').select('id, created_at').eq('workspace_id', workspaceId),
     db.from('conversations').select('id, status, created_at, last_message_at').eq('workspace_id', workspaceId),
     db.from('campaigns').select('id, name, status, sent_count, delivered_count, read_count, replied_count, failed_count, created_at').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(10),
-    db.from('platform_usage_logs').select('month, messages_sent, messages_in').eq('workspace_id', workspaceId).gte('month', new Date(now.getFullYear(), now.getMonth() - 5, 1).toISOString().slice(0, 7)),
+    // Use messages table directly — platform_usage_logs.messages_sent is always 0
+    db.from('messages').select('direction, created_at').eq('workspace_id', workspaceId)
+      .gte('created_at', new Date(now.getFullYear(), now.getMonth(), 1).toISOString()),
     db.from('messages').select('direction, created_at').eq('workspace_id', workspaceId).gte('created_at', new Date(Date.now() - 30 * 86400000).toISOString()),
   ]);
 
-  const contacts: any[] = contactsRes.data ?? [];
-  const convs: any[]    = convsRes.data ?? [];
-  const camps: any[]    = campsRes.data ?? [];
-  const usage: any[]    = usageRes.data ?? [];
-  const msgs: any[]     = messagesRes.data ?? [];
+  const contacts: any[]    = contactsRes.data ?? [];
+  const convs: any[]       = convsRes.data ?? [];
+  const camps: any[]       = campsRes.data ?? [];
+  const msgsThisMonth: any[] = usageRes.data ?? [];   // messages this month (was usage logs)
+  const msgs: any[]          = messagesRes.data ?? []; // messages last 30 days
 
   // Monthly message volume (30 days)
   const msgByDay: Record<string, { sent: number; received: number }> = {};
@@ -53,10 +55,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const inbound  = msgs.filter((m: any) => m.direction === 'inbound').length;
   const bot_response_rate = inbound > 0 ? Math.round((outbound / inbound) * 100) : 0;
 
-  // Health score
-  const thisMonthUsage = usage.find((u: any) => u.month.startsWith(month));
-  const msgThisMonth = thisMonthUsage?.messages_sent ?? 0;
-  const health_score = Math.max(20, Math.min(100, msgThisMonth > 100 ? 85 : msgThisMonth > 10 ? 65 : 40));
+  // Health score — use actual message count this month
+  const msgThisMonth = msgsThisMonth.length;
+  const health_score = Math.max(20, Math.min(100, msgThisMonth > 500 ? 95 : msgThisMonth > 100 ? 85 : msgThisMonth > 10 ? 65 : 40));
 
   // Contact growth by month
   const contact_growth = Array.from({ length: 6 }, (_, i) => {

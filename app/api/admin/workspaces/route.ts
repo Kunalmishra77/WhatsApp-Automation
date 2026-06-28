@@ -68,18 +68,18 @@ export async function GET(request: NextRequest) {
     const workspaceIds: string[] = workspaces.map((w: any) => w.id);
     const currentMonth = new Date().toISOString().slice(0, 7); // e.g. '2026-06'
 
-    // 4. Fetch usage logs for current month
-    const { data: usageLogs } = await db
-      .from('platform_usage_logs')
-      .select('workspace_id, messages_sent')
-      .eq('month', currentMonth)
+    // 4. Count actual messages sent this month per workspace from messages table
+    // (platform_usage_logs.messages_sent is always 0 — tracking not implemented for outbound)
+    const monthStartISO = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    const { data: msgRows } = await db
+      .from('messages')
+      .select('workspace_id')
+      .gte('created_at', monthStartISO)
       .in('workspace_id', workspaceIds);
 
     const usageMap = new Map<string, number>();
-    if (usageLogs) {
-      for (const log of usageLogs) {
-        usageMap.set(log.workspace_id, log.messages_sent ?? 0);
-      }
+    for (const m of msgRows ?? []) {
+      usageMap.set(m.workspace_id, (usageMap.get(m.workspace_id) ?? 0) + 1);
     }
 
     // 5. Fetch counts via a single aggregation RPC (replaces 3 full-table scans)
