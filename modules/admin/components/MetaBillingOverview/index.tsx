@@ -38,10 +38,26 @@ export function MetaBillingOverview() {
     service_count: '0',
   });
 
-  const { data, isLoading } = useQuery<{ snapshots: Snapshot[] }>({
+  const [syncing, setSyncing] = useState(false);
+
+  const { data, isLoading, refetch } = useQuery<{ snapshots: Snapshot[] }>({
     queryKey: ['meta-billing'],
     queryFn: () => fetch('/api/admin/meta-billing').then(r => r.json()),
   });
+
+  const handleSyncAll = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/admin/meta-billing?sync=1');
+      const d = await res.json() as { snapshots: Snapshot[] };
+      await refetch();
+      toast.success(`Synced! ${d.snapshots?.length ?? 0} WABAs updated`);
+    } catch {
+      toast.error('Sync failed');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const saveMut = useMutation({
     mutationFn: (body: object) =>
@@ -78,9 +94,11 @@ export function MetaBillingOverview() {
               size="sm"
               variant="outline"
               className="gap-1.5 text-xs"
-              onClick={() => qc.invalidateQueries({ queryKey: ['meta-billing'] })}
+              disabled={syncing}
+              onClick={handleSyncAll}
             >
-              <RefreshCw className="h-3.5 w-3.5" /> Refresh
+              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing from Meta...' : 'Sync All WABAs'}
             </Button>
             <Button
               size="sm"
