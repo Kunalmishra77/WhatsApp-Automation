@@ -13,28 +13,34 @@ async function checkAdmin() {
   return profile?.is_platform_admin ? db : null;
 }
 
-// Fetch conversation analytics from Meta Graph API for a phone number
+// Fetch conversation analytics from Meta Graph API using WABA ID
 async function fetchMetaConversationAnalytics(
-  phoneNumberId: string,
+  wabaId: string,
   accessToken: string,
   startDate: Date,
   endDate: Date,
-): Promise<{ marketing: number; utility: number; auth: number; service: number } | null> {
+): Promise<{ marketing: number; utility: number; auth: number; service: number; raw_cost: number } | null> {
   try {
     const token = accessToken.replace(/﻿/g, '').trim();
     const start = Math.floor(startDate.getTime() / 1000);
     const end   = Math.floor(endDate.getTime() / 1000);
 
-    const url = `https://graph.facebook.com/v19.0/${phoneNumberId}/conversation_analytics` +
-      `?start=${start}&end=${end}&granularity=MONTHLY` +
-      `&conversation_types=["REGULAR"]` +
-      `&dimensions=["conversation_type","conversation_direction"]` +
-      `&access_token=${token}`;
+    // Use WABA ID (not phone_number_id) for conversation_analytics
+    const params = new URLSearchParams({
+      start: String(start),
+      end:   String(end),
+      granularity: 'MONTHLY',
+      conversation_types: '["REGULAR","REFERRAL","FREE_ENTRY","FREE_TIER"]',
+      dimensions: '["conversation_type"]',
+      access_token: token,
+    });
 
-    const res = await fetch(url);
+    const url = `https://graph.facebook.com/v19.0/${wabaId}/conversation_analytics?${params}`;
+    const res  = await fetch(url);
+
     if (!res.ok) {
-      const err = await res.json() as { error?: { message: string } };
-      console.warn('[MetaBilling] Analytics API error:', err?.error?.message);
+      const err = await res.json() as { error?: { message: string; code: number } };
+      console.warn(`[MetaBilling] WABA ${wabaId} analytics error: ${err?.error?.message} (code: ${err?.error?.code})`);
       return null;
     }
 
@@ -42,62 +48,57 @@ async function fetchMetaConversationAnalytics(
       data?: Array<{
         conversation_analytics?: {
           data?: Array<{
-            conversation_type?: string;
-            conversation_direction?: string;
-            conversation?: number;
-            cost?: number;
+            conversation_type: string;
+            conversation:      number;
+            cost:              number;
           }>;
         };
       }>;
     };
 
     const rows = data?.data?.[0]?.conversation_analytics?.data ?? [];
-    let marketing = 0, utility = 0, auth = 0, service = 0;
+    let marketing = 0, utility = 0, auth = 0, service = 0, raw_cost = 0;
 
     for (const row of rows) {
       const count = row.conversation ?? 0;
+      const cost  = row.cost ?? 0;
       const type  = (row.conversation_type ?? '').toUpperCase();
-      if (type === 'MARKETING') marketing += count;
-      else if (type === 'UTILITY')  utility  += count;
-      else if (type === 'AUTHENTICATION') auth += count;
-      else service += count; // SERVICE / REFERRAL / etc.
+      raw_cost += cost;
+      if (type === 'MARKETING')       marketing += count;
+      else if (type === 'UTILITY')    utility   += count;
+      else if (type === 'AUTHENTICATION') auth  += count;
+      else                            service   += count;
     }
 
-    return { marketing, utility, auth, service };
+    return { marketing, utility, auth, service, raw_cost };
   } catch (e) {
     console.warn('[MetaBilling] Fetch failed:', e);
     return null;
   }
 }
 
-// GET — list all snapshots + trigger auto-sync for all workspaces
+// GET — list all snapshots; ?sync=1 triggers auto-fetch from Meta
 export async function GET(req: NextRequest) {
   const db = await checkAdmin();
   if (!db) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const autoSync = req.nextUrl.searchParams.get('sync') === '1';
+  const autoSync    = req.nextUrl.searchParams.get('sync') === '1';
   const currentMonth = new Date().toISOString().slice(0, 7) + '-01';
 
-  // If sync=1 → fetch from Meta API for all workspaces with credentials
   if (autoSync) {
     const { data: workspaces } = await db
       .from('workspaces')
-      .select('id, name, waba_id, phone_number_id, access_token')
+      .select('id, name, waba_id, phone_number_id, access_token, owner_email, owner_phone')
       .not('waba_id', 'is', null)
-      .not('phone_number_id', 'is', null)
       .not('access_token', 'is', null)
       .eq('is_active', true);
 
-    const now     = new Date();
-    const start   = new Date(now.getFullYear(), now.getMonth(), 1); // first of this month
-    const end     = now;
-    let synced = 0;
+    const now   = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    let synced  = 0;
 
     for (const ws of workspaces ?? []) {
-      const analytics = await fetchMetaConversationAnalytics(
-        ws.phone_number_id, ws.access_token, start, end,
-      );
-
+      const analytics = await fetchMetaConversationAnalytics(ws.waba_id, ws.access_token, start, now);
       if (!analytics) continue;
 
       const total_inr = +(
@@ -108,21 +109,21 @@ export async function GET(req: NextRequest) {
       ).toFixed(2);
 
       await db.from('meta_billing_snapshots').upsert({
-        workspace_id:     ws.id,
-        waba_id:          ws.waba_id,
-        month:            currentMonth,
-        marketing_count:  analytics.marketing,
-        utility_count:    analytics.utility,
-        auth_count:       analytics.auth,
-        service_count:    analytics.service,
+        workspace_id:    ws.id,
+        waba_id:         ws.waba_id,
+        month:           currentMonth,
+        marketing_count: analytics.marketing,
+        utility_count:   analytics.utility,
+        auth_count:      analytics.auth,
+        service_count:   analytics.service,
         total_inr,
-        fetched_at:       new Date().toISOString(),
+        fetched_at:      new Date().toISOString(),
       }, { onConflict: 'workspace_id,month' });
 
       synced++;
     }
 
-    console.log(`[MetaBilling] Auto-synced ${synced} workspaces`);
+    console.log(`[MetaBilling] Auto-synced ${synced} of ${(workspaces ?? []).length} workspaces`);
   }
 
   const { data: snapshots, error } = await db
@@ -131,7 +132,7 @@ export async function GET(req: NextRequest) {
       id, workspace_id, waba_id, month,
       marketing_count, utility_count, auth_count, service_count,
       total_inr, fetched_at,
-      workspaces(name, phone_number_id, is_active, subscription_status)
+      workspaces(id, name, phone_number_id, access_token, is_active, subscription_status, owner_email, owner_phone)
     `)
     .eq('month', currentMonth)
     .order('total_inr', { ascending: false });
@@ -140,24 +141,25 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ snapshots: snapshots ?? [], synced_at: new Date().toISOString() });
 }
 
-// POST — manual upsert (for manual entry or per-workspace sync)
+// POST — upsert one workspace (auto-fetch from Meta or manual counts)
 export async function POST(req: NextRequest) {
   const db = await checkAdmin();
   if (!db) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await req.json() as {
-    workspace_id: string;
-    // If counts not provided → try to fetch from Meta API
+    workspace_id:     string;
     marketing_count?: number;
-    utility_count?: number;
-    auth_count?: number;
-    service_count?: number;
+    utility_count?:   number;
+    auth_count?:      number;
+    service_count?:   number;
+    // invoice sending
+    send_invoice?:    boolean;
   };
 
   const { workspace_id } = body;
   const { data: ws } = await db
     .from('workspaces')
-    .select('waba_id, phone_number_id, access_token')
+    .select('id, name, waba_id, phone_number_id, access_token, owner_email, owner_phone')
     .eq('id', workspace_id)
     .single();
 
@@ -169,12 +171,12 @@ export async function POST(req: NextRequest) {
   let service   = body.service_count   ?? 0;
   let fromMeta  = false;
 
-  // If no manual counts provided → fetch from Meta API
-  if (body.marketing_count === undefined && ws.phone_number_id && ws.access_token) {
+  // Auto-fetch if no manual counts
+  if (body.marketing_count === undefined && ws.waba_id && ws.access_token) {
     const now   = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    const analytics = await fetchMetaConversationAnalytics(ws.phone_number_id, ws.access_token, start, now);
-    if (analytics) {
+    const analytics = await fetchMetaConversationAnalytics(ws.waba_id, ws.access_token, start, now);
+    if (analytics && (analytics.marketing + analytics.utility + analytics.auth + analytics.service) > 0) {
       marketing = analytics.marketing;
       utility   = analytics.utility;
       auth      = analytics.auth;
@@ -194,7 +196,7 @@ export async function POST(req: NextRequest) {
 
   const { error } = await db.from('meta_billing_snapshots').upsert({
     workspace_id,
-    waba_id: ws.waba_id,
+    waba_id:         ws.waba_id,
     month,
     marketing_count: marketing,
     utility_count:   utility,
@@ -205,5 +207,45 @@ export async function POST(req: NextRequest) {
   }, { onConflict: 'workspace_id,month' });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ success: true, total_inr, from_meta_api: fromMeta });
+
+  // Send invoice via WhatsApp to owner_phone if requested
+  let invoiceSent = false;
+  if (body.send_invoice && ws.owner_phone && ws.phone_number_id && ws.access_token) {
+    const monthLabel = new Date(month).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    const invoiceText =
+      `🧾 *Meta WhatsApp Billing — ${monthLabel}*\n` +
+      `Client: ${ws.name}\n\n` +
+      `📊 *Conversation Breakdown:*\n` +
+      `• Marketing: ${marketing.toLocaleString()} × ₹${RATES.marketing} = ₹${(marketing * RATES.marketing).toFixed(2)}\n` +
+      `• Utility: ${utility.toLocaleString()} × ₹${RATES.utility} = ₹${(utility * RATES.utility).toFixed(2)}\n` +
+      `• Auth: ${auth.toLocaleString()} × ₹${RATES.auth} = ₹${(auth * RATES.auth).toFixed(2)}\n` +
+      `• Service: ${service.toLocaleString()} × ₹${RATES.service} = ₹${(service * RATES.service).toFixed(2)}\n\n` +
+      `💰 *Total: ₹${total_inr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}*\n\n` +
+      `Please transfer the amount to Agentix:\n` +
+      `UPI: aiagentix2025@gmail.com\n` +
+      `Contact: aiagentix2025@gmail.com`;
+
+    try {
+      const token = ws.access_token.replace(/﻿/g, '').trim();
+      const sendRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: ws.owner_phone.replace(/\D/g, ''),
+          type: 'text',
+          text: { body: invoiceText, preview_url: false },
+        }),
+      });
+      invoiceSent = sendRes.ok;
+      if (!sendRes.ok) {
+        const e = await sendRes.json() as { error?: { message: string } };
+        console.warn('[MetaBilling] Invoice send failed:', e?.error?.message);
+      }
+    } catch (e) {
+      console.warn('[MetaBilling] Invoice WhatsApp send error:', e);
+    }
+  }
+
+  return NextResponse.json({ success: true, total_inr, from_meta_api: fromMeta, invoice_sent: invoiceSent });
 }

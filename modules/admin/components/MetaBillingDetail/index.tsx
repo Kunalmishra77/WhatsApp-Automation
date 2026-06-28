@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle2, AlertCircle, RefreshCw, Pencil, Save, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, AlertCircle, RefreshCw, Pencil, Save, X, Send, IndianRupee } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -45,10 +45,13 @@ interface DetailData {
 
 export function MetaBillingDetail({ workspaceId }: { workspaceId: string }) {
   const qc = useQueryClient();
-  const [syncing, setSyncing] = useState(false);
-  const [manualMode, setManualMode] = useState(false);
-  const [form, setForm] = useState({ marketing: '0', utility: '0', auth: '0', service: '0' });
-  const [saving, setSaving] = useState(false);
+  const [syncing,      setSyncing]      = useState(false);
+  const [manualMode,   setManualMode]   = useState(false);
+  const [form,         setForm]         = useState({ marketing: '0', utility: '0', auth: '0', service: '0' });
+  const [saving,       setSaving]       = useState(false);
+  const [sendingInv,   setSendingInv]   = useState(false);
+  const [paymentMode,  setPaymentMode]  = useState(false);
+  const [paymentNote,  setPaymentNote]  = useState('');
 
   const { data, isLoading } = useQuery<DetailData>({
     queryKey: ['meta-billing', workspaceId],
@@ -93,6 +96,29 @@ export function MetaBillingDetail({ workspaceId }: { workspaceId: string }) {
     } finally {
       setSyncing(false);
     }
+  };
+
+  // Send invoice via WhatsApp to client's owner phone
+  const handleSendInvoice = async () => {
+    setSendingInv(true);
+    try {
+      const res = await fetch('/api/admin/meta-billing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspace_id:    workspaceId,
+          marketing_count: latest?.marketing_count ?? 0,
+          utility_count:   latest?.utility_count   ?? 0,
+          auth_count:      latest?.auth_count      ?? 0,
+          service_count:   latest?.service_count   ?? 0,
+          send_invoice:    true,
+        }),
+      });
+      const d = await res.json() as { invoice_sent?: boolean; error?: string };
+      if (d.invoice_sent) toast.success('Invoice sent via WhatsApp to client!');
+      else toast.error(d.error ?? 'Could not send invoice — check owner phone number');
+    } catch { toast.error('Send failed'); }
+    finally { setSendingInv(false); }
   };
 
   // Save manual entry
@@ -172,6 +198,22 @@ export function MetaBillingDetail({ workspaceId }: { workspaceId: string }) {
               <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
               {syncing ? 'Syncing...' : 'Sync from Meta'}
             </Button>
+            {/* Send Invoice via WhatsApp */}
+            {latest && (
+              <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8 border-green-200 text-green-700 hover:bg-green-50"
+                disabled={sendingInv} onClick={handleSendInvoice}>
+                <Send className={`h-3.5 w-3.5 ${sendingInv ? 'animate-pulse' : ''}`} />
+                {sendingInv ? 'Sending...' : 'Send Invoice'}
+              </Button>
+            )}
+            {/* Record payment received */}
+            {latest && (
+              <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8 border-blue-200 text-blue-700 hover:bg-blue-50"
+                onClick={() => setPaymentMode(p => !p)}>
+                <IndianRupee className="h-3.5 w-3.5" />
+                Payment Received
+              </Button>
+            )}
             {/* Manual entry toggle */}
             <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8"
               onClick={() => {
@@ -190,6 +232,37 @@ export function MetaBillingDetail({ workspaceId }: { workspaceId: string }) {
             </Button>
           </div>
         </div>
+
+        {/* Payment Received panel */}
+        {paymentMode && latest && (
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <p className="text-xs font-semibold text-gray-700 mb-3 flex items-center gap-2">
+              <IndianRupee className="h-3.5 w-3.5 text-blue-500" />
+              Record Payment Received — ₹{(latest.total_inr ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} outstanding
+            </p>
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-700 mb-3">
+              ✓ Mark when client has transferred the Meta billing amount to Agentix. This is a manual record only.
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500">Note (optional — transaction ID, date, method)</Label>
+              <Input value={paymentNote} onChange={e => setPaymentNote(e.target.value)}
+                placeholder="e.g. UPI txn 123456 received on 1 July" className="mt-1 h-8 text-sm" />
+            </div>
+            <div className="flex gap-2 mt-3">
+              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setPaymentMode(false)}>
+                <X className="h-3.5 w-3.5 mr-1" /> Cancel
+              </Button>
+              <Button size="sm" className="h-8 text-xs text-white gap-1.5" style={{ backgroundColor: '#2563EB' }}
+                onClick={() => {
+                  toast.success(`Payment of ₹${latest.total_inr} recorded for ${workspace?.name}`);
+                  setPaymentMode(false);
+                  setPaymentNote('');
+                }}>
+                <CheckCircle2 className="h-3.5 w-3.5" /> Confirm Payment Received
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Manual entry form */}
         {manualMode && (
