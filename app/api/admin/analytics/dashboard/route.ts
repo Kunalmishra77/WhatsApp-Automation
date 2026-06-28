@@ -86,8 +86,9 @@ export async function GET(_req: NextRequest) {
   const planMap: Record<string, { count: number; revenue: number }> = {};
   for (const w of workspaces) {
     if (!planMap[w.plan]) planMap[w.plan] = { count: 0, revenue: 0 };
-    planMap[w.plan].count++;
-    if (w.is_active && w.subscription_status === 'active') planMap[w.plan].revenue += (PLAN_DISPLAY as any)[w.plan]?.price ?? 0;
+    const planEntry = planMap[w.plan]!;
+    planEntry.count++;
+    if (w.is_active && w.subscription_status === 'active') planEntry.revenue += (PLAN_DISPLAY as any)[w.plan]?.price ?? 0;
   }
   const plan_distribution = Object.entries(planMap).map(([plan, v]) => ({ plan, ...v }));
 
