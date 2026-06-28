@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { ShieldOff, ShieldCheck, Loader2, Globe, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -85,6 +86,7 @@ interface ClientListProps {
 }
 
 export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) {
+  const router = useRouter();
   const [pendingBlock, setPendingBlock] = useState<string | null>(null);
   const [pendingPlan, setPendingPlan] = useState<string | null>(null);
   const [editingDomain, setEditingDomain] = useState<string | null>(null);
@@ -284,7 +286,7 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
                 <TableCell>
                   <div>
                     <button
-                      onClick={() => setDetailWorkspace(w)}
+                      onClick={() => router.push(`/admin/clients/${w.id}`)}
                       className="font-medium text-foreground text-sm hover:underline hover:text-brand-600 text-left"
                     >
                       {w.name}

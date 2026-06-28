@@ -2,6 +2,35 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/services/supabase/server';
 import { createAdminClient } from '@/services/supabase/admin';
 
+// GET /api/admin/workspaces/:id
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const db = createAdminClient() as any;
+    const { data: profile } = await db.from('profiles').select('is_platform_admin').eq('id', user.id).single();
+    if (!profile?.is_platform_admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+    const { id } = await params;
+    const { data: ws, error } = await db
+      .from('workspaces')
+      .select('id, name, slug, plan, is_active, subscription_status, owner_email, owner_phone, created_at, deleted_at, custom_domain, phone_number_id, access_token, waba_id, onboarding_complete, settings')
+      .eq('id', id)
+      .single();
+
+    if (error || !ws) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    return NextResponse.json({ workspace: ws });
+  } catch (err) {
+    console.error('[admin/workspaces/[id]/GET]', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
 async function hardDeleteWorkspace(db: any, workspaceId: string) {
   const { data: members } = await db
     .from('workspace_members')
