@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MessageSquare, Users, MessageCircle, Send, Activity } from 'lucide-react';
@@ -35,13 +36,16 @@ function KpiMini({ label, value, icon: Icon, color }: {
 }
 
 export function OverviewTab({ workspaceId }: Props) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'client-analytics', workspaceId],
     queryFn:  () => fetch(`/api/admin/analytics/client/${workspaceId}`).then(r => r.json()),
     refetchInterval: 60_000,
   });
 
-  if (isLoading) {
+  if (isLoading || !mounted) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-24 w-full" />

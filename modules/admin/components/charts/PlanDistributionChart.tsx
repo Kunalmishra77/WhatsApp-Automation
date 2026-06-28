@@ -1,6 +1,8 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const COLORS: Record<string, string> = {
   free: '#9CA3AF', starter: '#2563EB', pro: '#8B5CF6', enterprise: '#F97316',
@@ -11,6 +13,10 @@ interface Props {
 }
 
 export function PlanDistributionChart({ data }: Props) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return <Skeleton className="h-[180px] w-full" />;
+
   return (
     <ResponsiveContainer width="100%" height={180}>
       <PieChart>
