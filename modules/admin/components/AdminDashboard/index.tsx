@@ -85,7 +85,8 @@ export function AdminDashboard() {
   const { data, isLoading, refetch } = useQuery<DashboardAnalytics>({
     queryKey: ['admin', 'analytics', 'dashboard'],
     queryFn: () => fetch('/api/admin/analytics/dashboard').then(r => r.json()),
-    refetchInterval: 60_000,
+    refetchInterval: 5 * 60_000,  // 5 minutes — admin analytics don't need real-time
+    staleTime:       5 * 60_000,
   });
 
   const kpis = data?.kpis;

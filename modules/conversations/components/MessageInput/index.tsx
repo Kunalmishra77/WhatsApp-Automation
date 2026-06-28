@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +41,7 @@ interface MessageInputProps {
 export function MessageInput({ conversationId }: MessageInputProps) {
   const [text, setText] = useState('');
   const [isNote, setIsNote] = useState(false);
+
   const [isSending, setIsSending] = useState(false);
   const [isInteractiveOpen, setIsInteractiveOpen] = useState(false);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
@@ -68,6 +69,21 @@ export function MessageInput({ conversationId }: MessageInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   const sendMessage = useSendMessage();
+
+  // Debounced quick-reply fetch — prevents API call on every keystroke
+  const quickReplyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchQuickRepliesDebounced = useCallback((q: string, wsId: string) => {
+    if (quickReplyTimerRef.current) clearTimeout(quickReplyTimerRef.current);
+    quickReplyTimerRef.current = setTimeout(() => {
+      void fetch(`/api/quick-replies?workspaceId=${wsId}&q=${encodeURIComponent(q)}`)
+        .then((r) => r.json())
+        .then((data: { replies?: Array<{ id: string; shortcut: string; title: string; content: string }> }) => {
+          setQuickReplies(data.replies ?? []);
+          setShowQuickReplies(true);
+        })
+        .catch(() => {});
+    }, 300);
+  }, []);
   const suggestReplies = useSuggestedReplies(conversationId);
   const { broadcastTyping } = useTypingBroadcast(conversationId);
   const isTypingRef = useRef(false);
@@ -94,16 +110,10 @@ export function MessageInput({ conversationId }: MessageInputProps) {
     }
     scheduleStopTyping();
 
-    // Quick replies: show popup when text starts with "/"
+    // Quick replies: show popup when text starts with "/" — debounced to prevent API spam
     if (val.startsWith('/') && workspaceId) {
       const q = val.slice(1).toLowerCase();
-      void fetch(`/api/quick-replies?workspaceId=${workspaceId}&q=${encodeURIComponent(q)}`)
-        .then((r) => r.json())
-        .then((data: { replies?: Array<{ id: string; shortcut: string; title: string; content: string }> }) => {
-          setQuickReplies(data.replies ?? []);
-          setShowQuickReplies(true);
-        })
-        .catch(() => {});
+      fetchQuickRepliesDebounced(q, workspaceId);
     } else {
       setShowQuickReplies(false);
       setQuickReplies([]);

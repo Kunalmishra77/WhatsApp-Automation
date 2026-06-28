@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -30,16 +30,17 @@ export function ConversationList() {
 
   const { data: conversations = [], isLoading } = useConversations(status, channel);
 
-  const filtered = search.trim()
-    ? conversations.filter((c) => {
-        const contact = c.contacts;
-        const name = (contact?.name ?? '').toLowerCase();
-        const phone = (contact?.phone ?? '').toLowerCase();
-        const msg = (c.last_message ?? '').toLowerCase();
-        const q = search.toLowerCase();
-        return name.includes(q) || phone.includes(q) || msg.includes(q);
-      })
-    : conversations;
+  const filtered = useMemo(() => {
+    if (!search.trim()) return conversations;
+    const q = search.toLowerCase();
+    return conversations.filter((c) => {
+      const contact = c.contacts;
+      const name = (contact?.name ?? '').toLowerCase();
+      const phone = (contact?.phone ?? '').toLowerCase();
+      const msg = (c.last_message ?? '').toLowerCase();
+      return name.includes(q) || phone.includes(q) || msg.includes(q);
+    });
+  }, [search, conversations]);
 
   const parentRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({

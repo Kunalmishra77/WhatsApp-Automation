@@ -3,7 +3,7 @@
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { Check, CheckCheck, Clock, List, Languages, Loader2, MousePointerClick, Play, FileText, Music, X, Download, ThumbsDown } from 'lucide-react';
-import { useState } from 'react';
+import { memo, useState, useCallback } from 'react';
 import type { MessageRow } from '../../services/message.service';
 import type { Json } from '@/types/database.types';
 
@@ -61,7 +61,7 @@ function parseInteractiveMeta(meta: Json): InteractiveMetadata | null {
   return meta as unknown as InteractiveMetadata;
 }
 
-export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
+function MessageBubbleComponent({ message, conversationId }: MessageBubbleProps) {
   const isOutbound    = message.direction === 'outbound';
   const isNote        = message.type === 'internal_note';
   const isInteractive = message.type === 'interactive';
@@ -451,3 +451,12 @@ export function MessageBubble({ message, conversationId }: MessageBubbleProps) {
     </div>
   );
 }
+
+// Memoized export — only re-renders when message content or status actually changes
+export const MessageBubble = memo(MessageBubbleComponent,
+  (prev, next) =>
+    prev.message.id === next.message.id &&
+    prev.message.status === next.message.status &&
+    prev.message.content === next.message.content &&
+    prev.message.reactions === next.message.reactions
+);

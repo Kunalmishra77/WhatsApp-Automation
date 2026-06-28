@@ -15,8 +15,8 @@ export function useConversations(status = 'all', channel = 'all') {
     queryKey: ['conversations', workspaceId, status, channel],
     queryFn: () => fetchConversations(workspaceId!, status, channel),
     enabled: !!workspaceId,
-    staleTime: 0,
-    refetchInterval: 4000,        // Poll every 4s — ensures list always fresh
+    staleTime: 30_000,            // 30s — realtime subscriptions handle live updates
+    refetchInterval: 60_000,      // 60s fallback only (realtime is primary)
     refetchIntervalInBackground: false,
   });
 

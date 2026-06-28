@@ -17,8 +17,8 @@ export function useMessages(conversationId: string) {
     queryKey: ['messages', conversationId],
     queryFn: () => fetchMessages(conversationId),
     enabled: !!conversationId,
-    staleTime: 0,
-    refetchInterval: 3000,        // Poll every 3s as realtime fallback
+    staleTime: 30_000,            // 30s — realtime INSERT subscription handles new messages live
+    refetchInterval: false,       // Realtime is primary; no polling needed
     refetchIntervalInBackground: false,
   });
 

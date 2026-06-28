@@ -4,6 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNowStrict } from 'date-fns';
+import { memo, useMemo } from 'react';
 import type { ConversationWithContact } from '../../services/conversation.service';
 
 interface ConversationItemProps {
@@ -20,13 +21,17 @@ const STATUS_COLORS: Record<string, string> = {
   resolved: 'bg-gray-300',
 };
 
-export function ConversationItem({ conversation, isActive, onClick }: ConversationItemProps) {
+function ConversationItemComponent({ conversation, isActive, onClick }: ConversationItemProps) {
   const contact = conversation.contacts;
   const name = contact?.name ?? contact?.phone ?? 'Unknown';
   const initials = name.slice(0, 2).toUpperCase();
-  const timeAgo = conversation.last_message_at
-    ? formatDistanceToNowStrict(new Date(conversation.last_message_at), { addSuffix: false })
-    : '';
+  // Memoized — formatDistanceToNowStrict is expensive, only recalculate when timestamp changes
+  const timeAgo = useMemo(
+    () => conversation.last_message_at
+      ? formatDistanceToNowStrict(new Date(conversation.last_message_at), { addSuffix: false })
+      : '',
+    [conversation.last_message_at]
+  );
 
   const hasUnread = conversation.unread_count > 0;
 
@@ -109,3 +114,12 @@ export function ConversationItem({ conversation, isActive, onClick }: Conversati
     </button>
   );
 }
+
+export const ConversationItem = memo(ConversationItemComponent,
+  (prev, next) =>
+    prev.conversation.id === next.conversation.id &&
+    prev.isActive === next.isActive &&
+    prev.conversation.last_message_at === next.conversation.last_message_at &&
+    prev.conversation.unread_count === next.conversation.unread_count &&
+    prev.conversation.last_message === next.conversation.last_message
+);

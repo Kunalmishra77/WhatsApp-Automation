@@ -592,7 +592,7 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
       return res.json();
     },
     enabled: !!workspaceId,
-    refetchInterval: (q) => q.state.data?.campaign?.status === 'running' ? 5000 : false,
+    refetchInterval: (q) => q.state.data?.campaign?.status === 'running' ? 15_000 : false,
   });
 
   // Daily stats for overview chart
