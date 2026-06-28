@@ -293,9 +293,7 @@ export async function getAIReply(
       ? 'CONVERSATION STAGE: Mid. You understand their situation. Provide specific value, address their concern, and offer a clear next step (demo / pricing / trial).'
       : 'CONVERSATION STAGE: Extended. Focus on resolving any remaining objection and confirming the next step. If they seem stuck, offer to connect them with a team member.';
 
-  const kbSection = kbContext
-    ? `\n\nKNOWLEDGE BASE — answer from this accurately:\n${kbContext}\n\nIMPORTANT: When the customer asks about features, products, or "about your business", list EVERY feature mentioned in the knowledge base above — do not pick only 2-3. Only state facts that appear verbatim or as a clear paraphrase in the knowledge base above. Do not combine or blend facts from different, unrelated sections to construct an answer — if the specific question isn't directly covered, say a team member will follow up instead of guessing. Never guess or invent.`
-    : '\nIf you do not know the answer, say a team member will follow up — do NOT guess or invent information.';
+  // kbSection removed — KB is now injected at the TOP of the system prompt via kbBlock
 
   // ── Intent framing — same classifier that feeds conversations.labels on the
   // dashboard, reused here so billing/complaint/sales messages get different framing
@@ -328,7 +326,22 @@ export async function getAIReply(
     month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true,
   });
 
-  const systemPrompt = `${basePersona}
+  // KB goes FIRST so the model reads it before persona content — prevents persona from
+  // being the primary source when factual KB documents are available.
+  const kbBlock = kbContext
+    ? `KNOWLEDGE BASE — THIS IS YOUR PRIMARY SOURCE OF TRUTH:
+Read everything below before answering. Your reply MUST be grounded in this content.
+Do NOT answer from memory, training data, or persona text when KB covers the topic.
+If KB does not contain the answer, say a team member will follow up — never guess.
+
+${kbContext}
+
+---END OF KNOWLEDGE BASE---
+
+`
+    : '';
+
+  const systemPrompt = `${kbBlock}${basePersona}
 
 [SYSTEM: Current date and time (IST) = ${nowIST}]
 
@@ -343,11 +356,11 @@ RULES (follow strictly):
   • "Book Demo" / "Schedule Demo" → confirm interest, ask for preferred day/time.
   • "Contact Us" / "Talk to Agent" → say a team member will reach out soon.
   • Any other button → respond directly to what that label means.
-- Never invent product names, prices, or features not in the knowledge base.
+- KNOWLEDGE BASE PRIORITY: When the KB above contains information relevant to the customer's question, use it EXACTLY — do not rephrase or blend with persona content. KB facts always override persona text.
 ${conversationStage}
 ${intentGuidance}
 ${temperatureGuidance}
-${kbSection}
+${kbContext ? '' : '\nIf you do not know the answer, say a team member will follow up — do NOT guess or invent information.'}
 
 CRITICAL LANGUAGE RULE — HIGHEST PRIORITY, OVERRIDES EVERYTHING ABOVE:
 Identify the language of the customer's CURRENT message (the last message they sent, not previous history).
