@@ -24,9 +24,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     db.from('contacts').select('id, created_at').eq('workspace_id', workspaceId),
     db.from('conversations').select('id, status, created_at, last_message_at').eq('workspace_id', workspaceId),
     db.from('campaigns').select('id, name, status, sent_count, delivered_count, read_count, replied_count, failed_count, created_at').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(10),
-    // Use messages table directly — platform_usage_logs.messages_sent is always 0
-    db.from('messages').select('direction, created_at').eq('workspace_id', workspaceId)
-      .gte('created_at', new Date(now.getFullYear(), now.getMonth(), 1).toISOString()),
+    // All-time message count for KPI (platform just started — 'this month' = all messages)
+    db.from('messages').select('direction, created_at').eq('workspace_id', workspaceId),
     db.from('messages').select('direction, created_at').eq('workspace_id', workspaceId).gte('created_at', new Date(Date.now() - 30 * 86400000).toISOString()),
   ]);
 
@@ -55,7 +54,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const inbound  = msgs.filter((m: any) => m.direction === 'inbound').length;
   const bot_response_rate = inbound > 0 ? Math.round((outbound / inbound) * 100) : 0;
 
-  // Health score — use actual message count this month
+  // Health score — use all-time message count (platform started in June, so this = all messages)
   const msgThisMonth = msgsThisMonth.length;
   const health_score = Math.max(20, Math.min(100, msgThisMonth > 500 ? 95 : msgThisMonth > 100 ? 85 : msgThisMonth > 10 ? 65 : 40));
 

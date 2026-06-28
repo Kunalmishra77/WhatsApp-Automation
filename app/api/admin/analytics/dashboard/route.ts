@@ -18,17 +18,20 @@ export async function GET(_req: NextRequest) {
   if (!db) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const now    = new Date();
-  const month  = now.toISOString().slice(0, 7);
+  // Use local year/month to avoid UTC timezone offset shifting the month
+  const localYM = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const month   = localYM(now);
 
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1).toISOString();
+  const sixMonthsAgoDate = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+  const sixMonthsAgo = sixMonthsAgoDate.toISOString();
   const monthStart   = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
   const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
 
   // Fetch workspaces + real message counts from messages table (platform_usage_logs.messages_sent is always 0)
   const [wsRes, msgMonthRes, msgTrendRes, campMonthRes] = await Promise.all([
     db.from('workspaces').select('id, name, plan, is_active, subscription_status, created_at').is('deleted_at', null),
-    // Messages this month per workspace (outbound only = sent BY the business)
-    db.from('messages').select('workspace_id').eq('direction', 'outbound').gte('created_at', monthStart),
+    // ALL messages this month (both directions for total volume)
+    db.from('messages').select('workspace_id, direction').gte('created_at', monthStart),
     // Messages last 6 months for trend chart
     db.from('messages').select('workspace_id, direction, created_at').gte('created_at', sixMonthsAgo),
     // Campaigns this month
@@ -47,14 +50,21 @@ export async function GET(_req: NextRequest) {
     if (!w.is_active || w.subscription_status !== 'active') return acc;
     return acc + ((PLAN_DISPLAY as any)[w.plan?.toLowerCase()]?.price ?? 0);
   }, 0);
-  const msgThisMonth  = msgMonthRows.length;
+  const msgThisMonth = msgMonthRows.length;  // all messages this month
   const campThisMonth = campMonthRows.length;
   const new7d = workspaces.filter((w: any) => w.created_at > sevenDaysAgo).length;
 
-  // Message count per workspace this month (for health scores + top clients)
+  // Message count per workspace this month (for health scores + top clients — all directions)
   const msgCountByWs = new Map<string, number>();
   for (const m of msgMonthRows) {
     msgCountByWs.set(m.workspace_id, (msgCountByWs.get(m.workspace_id) ?? 0) + 1);
+  }
+
+  // Also use admin workspaces API approach: read all-time message counts for top clients
+  const { data: allTimeMsgs } = await db.from('messages').select('workspace_id');
+  const allTimeMsgCount = new Map<string, number>();
+  for (const m of allTimeMsgs ?? []) {
+    allTimeMsgCount.set(m.workspace_id, (allTimeMsgCount.get(m.workspace_id) ?? 0) + 1);
   }
 
   // Health scores based on actual message activity
@@ -71,13 +81,13 @@ export async function GET(_req: NextRequest) {
     ? Math.round(healthScores.reduce((a: number, b: number) => a + b, 0) / healthScores.length)
     : 0;
 
-  // Revenue trend — use actual workspace plan prices (no dependency on usage logs)
+  // Revenue trend — use localYM() not ISO to avoid timezone shifting month
   const revenue_trend = Array.from({ length: 6 }, (_, i) => {
     const d     = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
-    const mStr  = d.toISOString().slice(0, 7);
+    const mStr  = localYM(d);   // e.g. '2026-06' — timezone-safe
     const label = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
     const activeWs = workspaces.filter((w: any) => {
-      const created = w.created_at?.slice(0, 7) ?? '2020-01';
+      const created = w.created_at ? localYM(new Date(w.created_at)) : '2020-01';
       return created <= mStr && w.is_active && w.subscription_status === 'active';
     });
     const mrrAtTime = activeWs.reduce((acc: number, w: any) =>
@@ -98,13 +108,19 @@ export async function GET(_req: NextRequest) {
     };
   });
 
-  // Client growth
+  // Client growth — timezone-safe month comparison
   const client_growth = Array.from({ length: 6 }, (_, i) => {
     const d    = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
-    const mStr = d.toISOString().slice(0, 7);
+    const mStr = localYM(d);
     const label = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
-    const newInMonth = workspaces.filter((w: any) => (w.created_at?.slice(0, 7) ?? '') === mStr).length;
-    const totalByEnd = workspaces.filter((w: any) => (w.created_at?.slice(0, 7) ?? '2020-01') <= mStr).length;
+    const newInMonth = workspaces.filter((w: any) => {
+      const created = w.created_at ? localYM(new Date(w.created_at)) : '';
+      return created === mStr;
+    }).length;
+    const totalByEnd = workspaces.filter((w: any) => {
+      const created = w.created_at ? localYM(new Date(w.created_at)) : '2020-01';
+      return created <= mStr;
+    }).length;
     return { month: label, new: newInMonth, total: totalByEnd };
   });
 
@@ -120,13 +136,13 @@ export async function GET(_req: NextRequest) {
   }
   const plan_distribution = Object.entries(planMap).map(([plan, v]) => ({ plan, ...v }));
 
-  // Top clients by actual message count this month
+  // Top clients by ALL-TIME message count (more meaningful than just this month)
   const top_clients = workspaces
     .map((w: any, idx: number) => ({
       id:       w.id,
       name:     w.name,
       plan:     w.plan ?? 'free',
-      messages: msgCountByWs.get(w.id) ?? 0,
+      messages: allTimeMsgCount.get(w.id) ?? 0,
       health:   healthScores[idx] ?? 50,
     }))
     .sort((a, b) => b.messages - a.messages)
