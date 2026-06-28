@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   ArrowLeft, Download, MessageSquare, Send, CheckCheck, Eye,
   XCircle, Reply, Users, Clock, Timer, Search, Zap, Calendar,
-  FileText, Image, Video, Filter, StopCircle,
+  FileText, Image, Video, Filter, StopCircle, RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -547,6 +547,7 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
   const [replyTypeFilter, setReplyTypeFilter] = useState('');
   const [cancelling,      setCancelling]      = useState(false);
   const [resuming,        setResuming]        = useState(false);
+  const [syncing,         setSyncing]         = useState(false);
 
   const switchTab = useCallback((t: TabKey) => { setTab(t); setPage(1); setSearch(''); setReplyTypeFilter(''); setReplyFilter(''); setRepliedWithin(''); }, []);
 
@@ -637,6 +638,24 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
           <span className={cn('rounded-full px-2.5 py-0.5 text-[11px] font-semibold capitalize shrink-0', CAMPAIGN_STATUS_COLORS[campaign.status] ?? 'bg-gray-100 text-gray-600')}>
             {campaign.status}
           </span>
+        )}
+        {/* Sync Replies button — catches race-condition misses */}
+        {campaign && campaign.status === 'completed' && (
+          <Button size="sm" variant="outline"
+            className="h-7 gap-1.5 text-xs shrink-0 border-blue-200 text-blue-700 hover:bg-blue-50"
+            disabled={syncing}
+            onClick={async () => {
+              setSyncing(true);
+              try {
+                await fetch(`/api/cron/sync-campaign-replies?admin=1`, { headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_CRON_SECRET ?? ''}` } });
+                toast.success('Replies synced');
+                router.refresh();
+              } catch { toast.error('Sync failed'); }
+              finally { setSyncing(false); }
+            }}>
+            <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
+            {syncing ? 'Syncing…' : 'Sync Replies'}
+          </Button>
         )}
         {/* Resume / Send to Remaining button */}
         {campaign && (campaign.status === 'running' || campaign.status === 'failed' || campaign.status === 'completed') && (
