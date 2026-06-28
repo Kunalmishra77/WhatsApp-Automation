@@ -19,6 +19,10 @@ interface BillingSnapshot {
   auth_count: number;
   service_count: number;
   total_inr: number;
+  admin_paid: boolean;
+  admin_paid_at: string | null;
+  payment_method: string | null;
+  payment_note: string | null;
 }
 
 interface WorkspaceInfo {
@@ -198,20 +202,24 @@ export function MetaBillingDetail({ workspaceId }: { workspaceId: string }) {
               <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
               {syncing ? 'Syncing...' : 'Sync from Meta'}
             </Button>
-            {/* Send Invoice via WhatsApp */}
+            {/* Mark Paid to Meta */}
+            {latest && !latest.admin_paid && (
+              <Button size="sm" className="gap-1.5 text-xs h-8 text-white" style={{ backgroundColor: '#16A34A' }}
+                onClick={() => setPaymentMode(p => !p)}>
+                <CheckCircle2 className="h-3.5 w-3.5" /> Mark Paid to Meta
+              </Button>
+            )}
+            {latest?.admin_paid && (
+              <span className="flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-200">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Paid via {latest.payment_method ?? 'card'}
+              </span>
+            )}
+            {/* Send Invoice to client */}
             {latest && (
               <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8 border-green-200 text-green-700 hover:bg-green-50"
                 disabled={sendingInv} onClick={handleSendInvoice}>
                 <Send className={`h-3.5 w-3.5 ${sendingInv ? 'animate-pulse' : ''}`} />
-                {sendingInv ? 'Sending...' : 'Send Invoice'}
-              </Button>
-            )}
-            {/* Record payment received */}
-            {latest && (
-              <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8 border-blue-200 text-blue-700 hover:bg-blue-50"
-                onClick={() => setPaymentMode(p => !p)}>
-                <IndianRupee className="h-3.5 w-3.5" />
-                Payment Received
+                {sendingInv ? 'Sending...' : 'Send Invoice to Client'}
               </Button>
             )}
             {/* Manual entry toggle */}
@@ -233,32 +241,56 @@ export function MetaBillingDetail({ workspaceId }: { workspaceId: string }) {
           </div>
         </div>
 
-        {/* Payment Received panel */}
+        {/* Mark Paid to Meta panel */}
         {paymentMode && latest && (
           <div className="mt-4 pt-4 border-t border-gray-100">
             <p className="text-xs font-semibold text-gray-700 mb-3 flex items-center gap-2">
-              <IndianRupee className="h-3.5 w-3.5 text-blue-500" />
-              Record Payment Received — ₹{(latest.total_inr ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} outstanding
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+              Mark Paid to Meta — ₹{(latest.total_inr ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
             </p>
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-700 mb-3">
-              ✓ Mark when client has transferred the Meta billing amount to Agentix. This is a manual record only.
+            <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-xs text-emerald-700 mb-3">
+              Record that Agentix has paid Meta for {workspace?.name}&apos;s WhatsApp API usage this month.
             </div>
-            <div>
-              <Label className="text-xs text-gray-500">Note (optional — transaction ID, date, method)</Label>
-              <Input value={paymentNote} onChange={e => setPaymentNote(e.target.value)}
-                placeholder="e.g. UPI txn 123456 received on 1 July" className="mt-1 h-8 text-sm" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs text-gray-500">Payment Method</Label>
+                <select value={paymentNote.split('|')[0] ?? 'card'}
+                  onChange={e => setPaymentNote(e.target.value + '|' + (paymentNote.split('|')[1] ?? ''))}
+                  className="mt-1 h-8 w-full rounded-md border border-input text-sm px-2">
+                  <option value="card">Credit / Debit Card</option>
+                  <option value="upi">UPI</option>
+                  <option value="bank">Bank Transfer</option>
+                  <option value="auto">Meta Auto-Charged</option>
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs text-gray-500">Note (optional)</Label>
+                <Input value={paymentNote.split('|')[1] ?? ''}
+                  onChange={e => setPaymentNote((paymentNote.split('|')[0] ?? 'card') + '|' + e.target.value)}
+                  placeholder="Txn ID / date" className="mt-1 h-8 text-sm" />
+              </div>
             </div>
             <div className="flex gap-2 mt-3">
               <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setPaymentMode(false)}>
                 <X className="h-3.5 w-3.5 mr-1" /> Cancel
               </Button>
-              <Button size="sm" className="h-8 text-xs text-white gap-1.5" style={{ backgroundColor: '#2563EB' }}
-                onClick={() => {
-                  toast.success(`Payment of ₹${latest.total_inr} recorded for ${workspace?.name}`);
-                  setPaymentMode(false);
-                  setPaymentNote('');
+              <Button size="sm" className="h-8 text-xs text-white gap-1.5" style={{ backgroundColor: '#16A34A' }}
+                onClick={async () => {
+                  const method = paymentNote.split('|')[0] ?? 'card';
+                  const note   = paymentNote.split('|')[1] ?? '';
+                  const res = await fetch('/api/admin/meta-billing', {
+                    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ workspace_id: workspaceId, payment_method: method, payment_note: note }),
+                  });
+                  const d = await res.json() as { success?: boolean; error?: string };
+                  if (d.success) {
+                    toast.success(`Marked paid via ${method} for ${workspace?.name}`);
+                    setPaymentMode(false);
+                    setPaymentNote('');
+                    qc.invalidateQueries({ queryKey: ['meta-billing', workspaceId] });
+                  } else toast.error(d.error ?? 'Failed');
                 }}>
-                <CheckCircle2 className="h-3.5 w-3.5" /> Confirm Payment Received
+                <CheckCircle2 className="h-3.5 w-3.5" /> Confirm Paid to Meta
               </Button>
             </div>
           </div>

@@ -249,3 +249,48 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ success: true, total_inr, from_meta_api: fromMeta, invoice_sent: invoiceSent });
 }
+
+// PATCH — mark as paid / pay all
+export async function PATCH(req: NextRequest) {
+  const db = await checkAdmin();
+  if (!db) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  const body = await req.json() as {
+    pay_all?:       boolean;          // mark ALL this month's snapshots as paid
+    workspace_id?:  string;           // mark single workspace as paid
+    payment_method: string;           // 'card' | 'upi' | 'bank'
+    payment_note?:  string;
+    unpay?:         boolean;          // unmark paid
+  };
+
+  const month = new Date().toISOString().slice(0, 7) + '-01';
+  const now   = new Date().toISOString();
+
+  const patch = body.unpay
+    ? { admin_paid: false, admin_paid_at: null, payment_method: null, payment_note: null }
+    : { admin_paid: true, admin_paid_at: now, payment_method: body.payment_method ?? 'card', payment_note: body.payment_note ?? null };
+
+  if (body.pay_all) {
+    // Mark ALL snapshots for this month as paid
+    const { error, count } = await db
+      .from('meta_billing_snapshots')
+      .update(patch)
+      .eq('month', month)
+      .select('id', { count: 'exact', head: true });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true, updated: count ?? 0 });
+  }
+
+  if (body.workspace_id) {
+    // Mark single workspace as paid
+    const { error } = await db
+      .from('meta_billing_snapshots')
+      .update(patch)
+      .eq('workspace_id', body.workspace_id)
+      .eq('month', month);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true });
+  }
+
+  return NextResponse.json({ error: 'Provide pay_all or workspace_id' }, { status: 400 });
+}
