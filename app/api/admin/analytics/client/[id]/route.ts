@@ -23,7 +23,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const [contactsRes, convsRes, campsRes, msgCountRes, messagesRes] = await Promise.all([
     db.from('contacts').select('id, created_at').eq('workspace_id', workspaceId),
     db.from('conversations').select('id, status, created_at, last_message_at').eq('workspace_id', workspaceId),
-    // ALL campaigns for this workspace (not just 10) — with all count fields
+    // ALL campaigns — with all count fields
     db.from('campaigns').select('id, name, status, sent_count, delivered_count, read_count, replied_count, failed_count, created_at')
       .eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(20),
     // All-time message count using COUNT (avoids 1000-row limit)
@@ -35,9 +35,30 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
   const contacts: any[] = contactsRes.data ?? [];
   const convs: any[]    = convsRes.data ?? [];
-  const camps: any[]    = campsRes.data ?? [];
-  const totalMsgCount   = (msgCountRes as any)?.count ?? 0; // all-time total (proper COUNT query)
-  const msgs: any[]     = messagesRes.data ?? [];            // last 30 days for chart
+  const campsRaw: any[] = campsRes.data ?? [];
+  const totalMsgCount   = (msgCountRes as any)?.count ?? 0;
+  const msgs: any[]     = messagesRes.data ?? [];
+
+  // Get LIVE replied counts from campaign_recipients (more accurate than campaigns.replied_count)
+  // campaigns.replied_count can be stale for recently-completed campaigns
+  const campIds: string[] = campsRaw.map((c: any) => c.id);
+  let repliedMap = new Map<string, number>();
+  if (campIds.length > 0) {
+    const { data: repliedRows } = await db
+      .from('campaign_recipients')
+      .select('campaign_id')
+      .in('campaign_id', campIds)
+      .eq('status', 'replied');
+    for (const r of repliedRows ?? []) {
+      repliedMap.set(r.campaign_id, (repliedMap.get(r.campaign_id) ?? 0) + 1);
+    }
+  }
+
+  // Merge live replied counts into campaign data
+  const camps = campsRaw.map((c: any) => ({
+    ...c,
+    replied_count: repliedMap.get(c.id) ?? c.replied_count ?? 0,
+  }));
 
   // Monthly message volume (30 days)
   const msgByDay: Record<string, { sent: number; received: number }> = {};
