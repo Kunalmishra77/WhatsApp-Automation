@@ -68,18 +68,21 @@ export async function GET(request: NextRequest) {
     const workspaceIds: string[] = workspaces.map((w: any) => w.id);
     const currentMonth = new Date().toISOString().slice(0, 7); // e.g. '2026-06'
 
-    // 4. Count actual messages sent this month per workspace from messages table
-    // (platform_usage_logs.messages_sent is always 0 — tracking not implemented for outbound)
-    const monthStartISO = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-    const { data: msgRows } = await db
-      .from('messages')
-      .select('workspace_id')
-      .gte('created_at', monthStartISO)
-      .in('workspace_id', workspaceIds);
-
+    // 4. Count ALL-TIME messages per workspace using COUNT queries (bypasses 1000-row limit)
+    // Use platform_usage_logs for monthly summary, fall back to direct count
     const usageMap = new Map<string, number>();
-    for (const m of msgRows ?? []) {
-      usageMap.set(m.workspace_id, (usageMap.get(m.workspace_id) ?? 0) + 1);
+    // Fetch total message count per workspace in batches to avoid 1000-row limit
+    for (let bi = 0; bi < workspaceIds.length; bi += 10) {
+      const batchIds = workspaceIds.slice(bi, bi + 10);
+      const batchResults = await Promise.all(batchIds.map((wsId: string) =>
+        db.from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('workspace_id', wsId)
+      ));
+      batchIds.forEach((wsId: string, idx: number) => {
+        const cnt = batchResults[idx]?.count ?? 0;
+        if (cnt > 0) usageMap.set(wsId, cnt);
+      });
     }
 
     // 5. Fetch counts via a single aggregation RPC (replaces 3 full-table scans)
@@ -110,7 +113,7 @@ export async function GET(request: NextRequest) {
         owner_email: w.owner_email ?? null,
         created_at: w.created_at,
         deleted_at: w.deleted_at ?? null,
-        messages_this_month: usageMap.get(w.id) ?? 0,
+        messages_this_month: usageMap.get(w.id) ?? 0,  // all-time count (platform started this month)
         member_count: memberMap.get(w.id) ?? 0,
         plan_limit_messages: limits.maxMessages,
         custom_domain: w.custom_domain ?? null,

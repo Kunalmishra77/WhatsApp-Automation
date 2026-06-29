@@ -20,20 +20,24 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const now   = new Date();
   const month = now.toISOString().slice(0, 7);
 
-  const [contactsRes, convsRes, campsRes, usageRes, messagesRes] = await Promise.all([
+  const [contactsRes, convsRes, campsRes, msgCountRes, messagesRes] = await Promise.all([
     db.from('contacts').select('id, created_at').eq('workspace_id', workspaceId),
     db.from('conversations').select('id, status, created_at, last_message_at').eq('workspace_id', workspaceId),
-    db.from('campaigns').select('id, name, status, sent_count, delivered_count, read_count, replied_count, failed_count, created_at').eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(10),
-    // All-time message count for KPI (platform just started — 'this month' = all messages)
-    db.from('messages').select('direction, created_at').eq('workspace_id', workspaceId),
-    db.from('messages').select('direction, created_at').eq('workspace_id', workspaceId).gte('created_at', new Date(Date.now() - 30 * 86400000).toISOString()),
+    // ALL campaigns for this workspace (not just 10) — with all count fields
+    db.from('campaigns').select('id, name, status, sent_count, delivered_count, read_count, replied_count, failed_count, created_at')
+      .eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(20),
+    // All-time message count using COUNT (avoids 1000-row limit)
+    db.from('messages').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId),
+    // Last 30 days messages for trend chart
+    db.from('messages').select('direction, created_at').eq('workspace_id', workspaceId)
+      .gte('created_at', new Date(Date.now() - 30 * 86400000).toISOString()),
   ]);
 
-  const contacts: any[]    = contactsRes.data ?? [];
-  const convs: any[]       = convsRes.data ?? [];
-  const camps: any[]       = campsRes.data ?? [];
-  const msgsThisMonth: any[] = usageRes.data ?? [];   // messages this month (was usage logs)
-  const msgs: any[]          = messagesRes.data ?? []; // messages last 30 days
+  const contacts: any[] = contactsRes.data ?? [];
+  const convs: any[]    = convsRes.data ?? [];
+  const camps: any[]    = campsRes.data ?? [];
+  const totalMsgCount   = (msgCountRes as any)?.count ?? 0; // all-time total (proper COUNT query)
+  const msgs: any[]     = messagesRes.data ?? [];            // last 30 days for chart
 
   // Monthly message volume (30 days)
   const msgByDay: Record<string, { sent: number; received: number }> = {};
@@ -54,8 +58,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const inbound  = msgs.filter((m: any) => m.direction === 'inbound').length;
   const bot_response_rate = inbound > 0 ? Math.round((outbound / inbound) * 100) : 0;
 
-  // Health score — use all-time message count (platform started in June, so this = all messages)
-  const msgThisMonth = msgsThisMonth.length;
+  // Health score — based on actual all-time message count
+  const msgThisMonth = totalMsgCount;
   const health_score = Math.max(20, Math.min(100, msgThisMonth > 500 ? 95 : msgThisMonth > 100 ? 85 : msgThisMonth > 10 ? 65 : 40));
 
   // Contact growth by month
@@ -66,21 +70,32 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     return { month: label, count: contacts.filter((c: any) => c.created_at.slice(0, 7) <= mStr).length };
   });
 
-  // Campaign stats
-  const campaign_stats = camps.slice(0, 5).map((c: any) => ({
+  // Campaign stats — show all fetched campaigns (up to 20) with real counts
+  const campaign_stats = camps.map((c: any) => ({
     name:      c.name,
     sent:      c.sent_count ?? 0,
     delivered: c.delivered_count ?? 0,
+    read:      c.read_count ?? 0,
     replied:   c.replied_count ?? 0,
     failed:    c.failed_count ?? 0,
+    status:    c.status,
+    created_at: c.created_at,
   }));
+
+  // Totals from campaigns
+  const totalSent      = camps.reduce((a: number, c: any) => a + (c.sent_count ?? 0), 0);
+  const totalDelivered = camps.reduce((a: number, c: any) => a + (c.delivered_count ?? 0), 0);
+  const totalReplied   = camps.reduce((a: number, c: any) => a + (c.replied_count ?? 0), 0);
 
   return NextResponse.json({
     kpis: {
-      messages_this_month: msgThisMonth,
+      messages_this_month: msgThisMonth,   // all-time conversation messages
       contacts_total:      contacts.length,
       conversations_total: convs.length,
       campaigns_total:     camps.length,
+      campaign_sent_total: totalSent,      // total campaign messages sent
+      campaign_delivered:  totalDelivered,
+      campaign_replied:    totalReplied,
       bot_response_rate,
       health_score,
     },

@@ -98,8 +98,24 @@ export async function GET(req: NextRequest) {
     let synced  = 0;
 
     for (const ws of workspaces ?? []) {
-      const analytics = await fetchMetaConversationAnalytics(ws.waba_id, ws.access_token, start, now);
-      if (!analytics) continue;
+      // Try Meta API first
+      let analytics = await fetchMetaConversationAnalytics(ws.waba_id, ws.access_token, start, now);
+
+      // Fallback: derive marketing count from actual campaign sends this month
+      if (!analytics || (analytics.marketing + analytics.utility + analytics.auth + analytics.service) === 0) {
+        const { data: campData } = await db
+          .from('campaigns')
+          .select('sent_count')
+          .eq('workspace_id', ws.id)
+          .eq('status', 'completed')
+          .gte('created_at', start.toISOString());
+        const campaignSent = (campData ?? []).reduce((a: number, c: any) => a + (c.sent_count ?? 0), 0);
+        if (campaignSent > 0) {
+          analytics = { marketing: campaignSent, utility: 0, auth: 0, service: 0, raw_cost: 0 };
+        }
+      }
+
+      if (!analytics || (analytics.marketing + analytics.utility + analytics.auth + analytics.service) === 0) continue;
 
       const total_inr = +(
         analytics.marketing * RATES.marketing +
@@ -123,7 +139,7 @@ export async function GET(req: NextRequest) {
       synced++;
     }
 
-    console.log(`[MetaBilling] Auto-synced ${synced} of ${(workspaces ?? []).length} workspaces`);
+    console.log(`[MetaBilling] Synced ${synced} of ${(workspaces ?? []).length} workspaces`);
   }
 
   const { data: snapshots, error } = await db

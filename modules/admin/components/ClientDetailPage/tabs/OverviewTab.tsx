@@ -86,12 +86,13 @@ export function OverviewTab({ workspaceId }: Props) {
       </div>
 
       {/* KPI Mini Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        <KpiMini label="Messages (Month)" value={kpis?.messages_this_month ?? 0} icon={MessageSquare} color="bg-[#F97316]" />
-        <KpiMini label="Total Contacts"   value={kpis?.contacts_total ?? 0}      icon={Users}         color="bg-emerald-500" />
-        <KpiMini label="Conversations"    value={kpis?.conversations_total ?? 0}  icon={MessageCircle} color="bg-blue-500" />
-        <KpiMini label="Campaigns"        value={kpis?.campaigns_total ?? 0}      icon={Send}          color="bg-violet-500" />
-        <KpiMini label="Bot Response Rate" value={`${kpis?.bot_response_rate ?? 0}%`} icon={Activity} color="bg-amber-500" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <KpiMini label="Total Messages"     value={(kpis?.messages_this_month ?? 0).toLocaleString()} icon={MessageSquare} color="bg-[#F97316]" />
+        <KpiMini label="Campaign Sends"     value={(kpis?.campaign_sent_total ?? 0).toLocaleString()} icon={Send}          color="bg-violet-500" />
+        <KpiMini label="Total Contacts"     value={(kpis?.contacts_total ?? 0).toLocaleString()}      icon={Users}         color="bg-emerald-500" />
+        <KpiMini label="Conversations"      value={(kpis?.conversations_total ?? 0).toLocaleString()}  icon={MessageCircle} color="bg-blue-500" />
+        <KpiMini label="Campaign Replies"   value={(kpis?.campaign_replied ?? 0).toLocaleString()}    icon={Activity}      color="bg-emerald-600" />
+        <KpiMini label="Bot Response Rate"  value={`${kpis?.bot_response_rate ?? 0}%`}                icon={Activity}      color="bg-amber-500" />
       </div>
 
       {/* Charts */}
