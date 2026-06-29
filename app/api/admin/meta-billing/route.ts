@@ -187,17 +187,54 @@ export async function POST(req: NextRequest) {
   let service   = body.service_count   ?? 0;
   let fromMeta  = false;
 
-  // Auto-fetch if no manual counts
-  if (body.marketing_count === undefined && ws.waba_id && ws.access_token) {
+  // Auto-fetch if no manual counts provided
+  if (body.marketing_count === undefined) {
     const now   = new Date();
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    const analytics = await fetchMetaConversationAnalytics(ws.waba_id, ws.access_token, start, now);
-    if (analytics && (analytics.marketing + analytics.utility + analytics.auth + analytics.service) > 0) {
-      marketing = analytics.marketing;
-      utility   = analytics.utility;
-      auth      = analytics.auth;
-      service   = analytics.service;
-      fromMeta  = true;
+
+    // 1. Try Meta Graph API
+    if (ws.waba_id && ws.access_token) {
+      const analytics = await fetchMetaConversationAnalytics(ws.waba_id, ws.access_token, start, now);
+      if (analytics && (analytics.marketing + analytics.utility + analytics.auth + analytics.service) > 0) {
+        marketing = analytics.marketing;
+        utility   = analytics.utility;
+        auth      = analytics.auth;
+        service   = analytics.service;
+        fromMeta  = true;
+      }
+    }
+
+    // 2. Fallback: derive from actual campaign sends this month
+    if (!fromMeta) {
+      const { data: campData } = await db
+        .from('campaigns')
+        .select('sent_count')
+        .eq('workspace_id', workspace_id)
+        .eq('status', 'completed')
+        .gte('created_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString());
+      const campaignSent = (campData ?? []).reduce((a: number, c: any) => a + (c.sent_count ?? 0), 0);
+      if (campaignSent > 0) {
+        marketing = campaignSent;
+      }
+    }
+
+    // 3. If still 0 (no Meta data AND no campaigns), keep existing data — don't overwrite with zeros
+    if (marketing + utility + auth + service === 0) {
+      const { data: existing } = await db
+        .from('meta_billing_snapshots')
+        .select('marketing_count, utility_count, auth_count, service_count')
+        .eq('workspace_id', workspace_id)
+        .eq('month', new Date().toISOString().slice(0, 7) + '-01')
+        .maybeSingle();
+      if (existing) {
+        return NextResponse.json({
+          success: true,
+          total_inr: +((existing.marketing_count * RATES.marketing) + (existing.utility_count * RATES.utility) + (existing.auth_count * RATES.auth) + (existing.service_count * RATES.service)).toFixed(2),
+          from_meta_api: false,
+          invoice_sent: false,
+          note: 'No new data from Meta API — existing data preserved',
+        });
+      }
     }
   }
 
