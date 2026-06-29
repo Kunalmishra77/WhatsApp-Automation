@@ -123,9 +123,11 @@ export function MetaBillingDetail({ workspaceId }: { workspaceId: string }) {
           send_invoice: true,
         }),
       });
-      const d = await res.json() as { invoice_sent?: boolean; error?: string };
-      if (d.invoice_sent) toast.success('Bill sent to client via WhatsApp!');
-      else toast.error(d.error ?? 'Could not send — check owner phone number in client settings');
+      const d = await res.json() as { invoice_sent?: boolean; invoice_method?: string; error?: string };
+      if (d.invoice_sent) {
+        const via = d.invoice_method === 'email+whatsapp' ? 'Email + WhatsApp' : d.invoice_method === 'email' ? 'Email' : 'WhatsApp';
+        toast.success(`Bill sent to client via ${via}!`);
+      } else toast.error(d.error ?? 'Could not send — check owner email/phone in client settings');
     } catch { toast.error('Send failed'); }
     finally { setSendingInv(false); }
   };
@@ -183,11 +185,11 @@ export function MetaBillingDetail({ workspaceId }: { workspaceId: string }) {
       <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
         <div className="flex items-start gap-3">
           <Info className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />
-          <div className="text-xs text-blue-700 space-y-1">
-            <p className="font-semibold text-blue-800">How Meta Billing Works</p>
-            <p>1. <strong>Agentix's card</strong> is added to each client's WABA in Meta Business Manager — Meta auto-charges it monthly.</p>
-            <p>2. Below shows the <strong>estimated charge</strong> (derived from campaigns sent). For exact amount, check Meta BM directly.</p>
-            <p>3. After Meta charges Agentix → <strong>Record it here</strong> → <strong>Send bill to client</strong> so they reimburse Agentix.</p>
+          <div className="text-xs text-blue-700 space-y-1.5">
+            <p className="font-semibold text-blue-800 text-sm">How Meta Billing Works (No Manual Payment Needed)</p>
+            <p>✅ <strong>Agentix's ONE card</strong> is already added to each client's WABA in Meta BM — Meta automatically charges it every month. No going to each developer page.</p>
+            <p>📊 Below shows an <strong>estimate from campaign data</strong>. Click "Exact Bill on Meta" to see the real charge on Meta.</p>
+            <p>📧 After Meta charges Agentix → Click <strong>"Send Bill to Client"</strong> → Client gets invoice on Email + WhatsApp → They transfer money to Agentix.</p>
           </div>
         </div>
       </div>

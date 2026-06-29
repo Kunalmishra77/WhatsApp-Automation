@@ -224,46 +224,118 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Send invoice via WhatsApp to owner_phone if requested
+  // Send invoice via Email (primary) + WhatsApp (secondary) if requested
   let invoiceSent = false;
-  if (body.send_invoice && ws.owner_phone && ws.phone_number_id && ws.access_token) {
-    const monthLabel = new Date(month).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
-    const invoiceText =
-      `🧾 *Meta WhatsApp Billing — ${monthLabel}*\n` +
-      `Client: ${ws.name}\n\n` +
-      `📊 *Conversation Breakdown:*\n` +
-      `• Marketing: ${marketing.toLocaleString()} × ₹${RATES.marketing} = ₹${(marketing * RATES.marketing).toFixed(2)}\n` +
-      `• Utility: ${utility.toLocaleString()} × ₹${RATES.utility} = ₹${(utility * RATES.utility).toFixed(2)}\n` +
-      `• Auth: ${auth.toLocaleString()} × ₹${RATES.auth} = ₹${(auth * RATES.auth).toFixed(2)}\n` +
-      `• Service: ${service.toLocaleString()} × ₹${RATES.service} = ₹${(service * RATES.service).toFixed(2)}\n\n` +
-      `💰 *Total: ₹${total_inr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}*\n\n` +
-      `Please transfer the amount to Agentix:\n` +
-      `UPI: aiagentix2025@gmail.com\n` +
-      `Contact: aiagentix2025@gmail.com`;
+  let invoiceMethod = '';
 
-    try {
-      const token = ws.access_token.replace(/﻿/g, '').trim();
-      const sendRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to: ws.owner_phone.replace(/\D/g, ''),
-          type: 'text',
-          text: { body: invoiceText, preview_url: false },
-        }),
-      });
-      invoiceSent = sendRes.ok;
-      if (!sendRes.ok) {
-        const e = await sendRes.json() as { error?: { message: string } };
-        console.warn('[MetaBilling] Invoice send failed:', e?.error?.message);
+  if (body.send_invoice) {
+    const monthLabel = new Date(month).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    const subject    = `Meta WhatsApp API Bill — ${monthLabel} — ${ws.name}`;
+    const breakdown  =
+      `Marketing: ${marketing.toLocaleString()} convos × ₹${RATES.marketing} = ₹${(marketing * RATES.marketing).toFixed(2)}\n` +
+      `Utility:   ${utility.toLocaleString()} convos × ₹${RATES.utility}   = ₹${(utility * RATES.utility).toFixed(2)}\n` +
+      `Auth:      ${auth.toLocaleString()} convos × ₹${RATES.auth}        = ₹${(auth * RATES.auth).toFixed(2)}\n` +
+      `Service:   ${service.toLocaleString()} convos × ₹${RATES.service}  = ₹${(service * RATES.service).toFixed(2)}\n`;
+
+    // PRIMARY: Email via SMTP/Resend
+    if (ws.owner_email) {
+      try {
+        const { createTransport } = await import('nodemailer');
+        const transport = createTransport({
+          host:   'smtp.gmail.com',
+          port:   587,
+          secure: false,
+          auth:   { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+        });
+        await transport.sendMail({
+          from:    `Agentix Billing <${process.env.SMTP_USER}>`,
+          to:      ws.owner_email,
+          subject,
+          text:
+            `Dear ${ws.name} Team,\n\n` +
+            `Here is your Meta WhatsApp API usage bill for ${monthLabel}:\n\n` +
+            breakdown +
+            `\nTOTAL: ₹${total_inr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n\n` +
+            `Please transfer the amount to Agentix:\n` +
+            `UPI: aiagentix2025@gmail.com\n` +
+            `Email: aiagentix2025@gmail.com\n\n` +
+            `Note: This is an estimated bill based on campaign conversations.\n` +
+            `For exact Meta charges, check: https://business.facebook.com/latest/whatsapp_manager/billing/\n\n` +
+            `Thank you,\nAgentix Team`,
+          html:
+            `<div style="font-family:sans-serif;max-width:600px;margin:0 auto">` +
+            `<h2 style="color:#F97316">🧾 Meta WhatsApp API Bill — ${monthLabel}</h2>` +
+            `<p>Dear <strong>${ws.name}</strong> Team,</p>` +
+            `<table style="width:100%;border-collapse:collapse;margin:16px 0">` +
+            `<tr style="background:#f9fafb"><th style="text-align:left;padding:8px;border-bottom:1px solid #e5e7eb">Type</th><th style="padding:8px;border-bottom:1px solid #e5e7eb">Conversations</th><th style="text-align:right;padding:8px;border-bottom:1px solid #e5e7eb">Amount</th></tr>` +
+            `<tr><td style="padding:8px;border-bottom:1px solid #f3f4f6">Marketing</td><td style="text-align:center;padding:8px;border-bottom:1px solid #f3f4f6">${marketing.toLocaleString()}</td><td style="text-align:right;padding:8px;border-bottom:1px solid #f3f4f6">₹${(marketing * RATES.marketing).toFixed(2)}</td></tr>` +
+            `<tr><td style="padding:8px;border-bottom:1px solid #f3f4f6">Utility</td><td style="text-align:center;padding:8px;border-bottom:1px solid #f3f4f6">${utility.toLocaleString()}</td><td style="text-align:right;padding:8px;border-bottom:1px solid #f3f4f6">₹${(utility * RATES.utility).toFixed(2)}</td></tr>` +
+            `<tr><td style="padding:8px;border-bottom:1px solid #f3f4f6">Auth</td><td style="text-align:center;padding:8px;border-bottom:1px solid #f3f4f6">${auth.toLocaleString()}</td><td style="text-align:right;padding:8px;border-bottom:1px solid #f3f4f6">₹${(auth * RATES.auth).toFixed(2)}</td></tr>` +
+            `<tr><td style="padding:8px">Service</td><td style="text-align:center;padding:8px">${service.toLocaleString()}</td><td style="text-align:right;padding:8px">₹${(service * RATES.service).toFixed(2)}</td></tr>` +
+            `<tr style="background:#fff7ed"><td colspan="2" style="padding:10px;font-weight:bold">TOTAL</td><td style="text-align:right;padding:10px;font-size:18px;font-weight:bold;color:#F97316">₹${total_inr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>` +
+            `</table>` +
+            `<div style="background:#f9fafb;border-radius:8px;padding:16px;margin-top:16px">` +
+            `<p style="margin:0 0 8px;font-weight:bold">Payment Details:</p>` +
+            `<p style="margin:4px 0">UPI: <strong>aiagentix2025@gmail.com</strong></p>` +
+            `<p style="margin:4px 0">Email: aiagentix2025@gmail.com</p>` +
+            `</div>` +
+            `<p style="color:#9ca3af;font-size:12px;margin-top:16px">This is an estimate from campaign data. Verify exact charges at Meta Business Manager.</p>` +
+            `</div>`,
+        });
+        invoiceSent  = true;
+        invoiceMethod = 'email';
+      } catch (e) {
+        console.warn('[MetaBilling] Email send failed:', e);
       }
-    } catch (e) {
-      console.warn('[MetaBilling] Invoice WhatsApp send error:', e);
+    }
+
+    // SECONDARY: WhatsApp (try even if email worked)
+    if (ws.owner_phone && ws.phone_number_id && ws.access_token) {
+      try {
+        const token = ws.access_token.replace(/﻿/g, '').trim();
+        const waText =
+          `🧾 *Meta WhatsApp Bill — ${monthLabel}*\n` +
+          `Hi ${ws.name},\n\n` +
+          `Your Meta API usage charges:\n\n` +
+          `📊 *Breakdown:*\n` +
+          `• Marketing: ${marketing.toLocaleString()} × ₹${RATES.marketing} = ₹${(marketing * RATES.marketing).toFixed(2)}\n` +
+          `• Utility: ${utility.toLocaleString()} × ₹${RATES.utility} = ₹${(utility * RATES.utility).toFixed(2)}\n` +
+          `• Service: ${service.toLocaleString()} × ₹${RATES.service} = ₹${(service * RATES.service).toFixed(2)}\n\n` +
+          `💰 *Total: ₹${total_inr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}*\n\n` +
+          `Pay to Agentix:\nUPI: aiagentix2025@gmail.com\n\n` +
+          `— Agentix Team`;
+
+        const waRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            to:   ws.owner_phone.replace(/\D/g, ''),
+            type: 'text',
+            text: { body: waText, preview_url: false },
+          }),
+        });
+        if (waRes.ok) {
+          invoiceSent   = true;
+          invoiceMethod = invoiceMethod ? `${invoiceMethod}+whatsapp` : 'whatsapp';
+        } else {
+          const e = await waRes.json() as { error?: { message: string } };
+          console.warn('[MetaBilling] WhatsApp invoice failed:', e?.error?.message);
+        }
+      } catch (e) {
+        console.warn('[MetaBilling] WhatsApp invoice error:', e);
+      }
+    }
+
+    if (!invoiceSent) {
+      return NextResponse.json({
+        success: true, total_inr, from_meta_api: fromMeta, invoice_sent: false,
+        error: 'No owner email or phone configured for this workspace. Add them in Client Settings.',
+      });
     }
   }
 
-  return NextResponse.json({ success: true, total_inr, from_meta_api: fromMeta, invoice_sent: invoiceSent });
+  return NextResponse.json({ success: true, total_inr, from_meta_api: fromMeta, invoice_sent: invoiceSent, invoice_method: invoiceMethod });
 }
 
 // PATCH — mark as paid / pay all
