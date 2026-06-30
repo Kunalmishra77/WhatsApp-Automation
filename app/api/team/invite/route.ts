@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
       emailSent: !!resendKey,
       message: resendKey
         ? `Invitation sent to ${email}`
-        : `Invite recorded. Set RESEND_API_KEY in Vercel to send emails automatically.`,
+        : `Invite recorded. Set RESEND_API_KEY in environment variables to send emails automatically.`,
     });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);

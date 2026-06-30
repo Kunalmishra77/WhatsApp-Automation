@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     const confirmationCode = `del_${userId}_${Date.now()}`;
 
     return NextResponse.json({
-      url: `https://whatsapp-automation-kohl-six.vercel.app/data-deletion?code=${confirmationCode}`,
+      url: `https://app.aiagentixdev.com/data-deletion?code=${confirmationCode}`,
       confirmation_code: confirmationCode,
     });
   } catch {

@@ -72,7 +72,7 @@ export default function PrivacyPolicyPage() {
             <ul className="list-none pl-0 space-y-1 mt-2">
               <li>📧 Email: <a href="mailto:kunal.mishra.50999@gmail.com" className="text-blue-600">kunal.mishra.50999@gmail.com</a></li>
               <li>💬 WhatsApp: +91 80764 80965</li>
-              <li>🌐 Website: <a href="https://whatsapp-automation-kohl-six.vercel.app" className="text-blue-600">V4TOU Tech Platform</a></li>
+              <li>🌐 Website: <a href="https://app.aiagentixdev.com" className="text-blue-600">Agentix Platform</a></li>
             </ul>
           </section>
 

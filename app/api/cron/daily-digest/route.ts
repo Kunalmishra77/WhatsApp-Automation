@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
         </div>
 
         <p style="font-size:12px;color:#aaa;border-top:1px solid #f0f0f0;padding-top:12px;">
-          Agentix WhatsApp CRM · <a href="https://whatsapp-automation-kohl-six.vercel.app" style="color:#6366f1;">Open Dashboard</a>
+          Agentix WhatsApp CRM · <a href="https://app.aiagentixdev.com" style="color:#6366f1;">Open Dashboard</a>
         </p>
       </div>
     `;

@@ -85,7 +85,7 @@ export function SettingsTab({ workspaceId, workspace }: Props) {
           />
           {domain && (
             <p className="text-xs text-gray-400 mt-1">
-              Point a CNAME record to <code className="bg-gray-100 px-1 rounded">agentix-cname.vercel.app</code>
+              Point a CNAME record to <code className="bg-gray-100 px-1 rounded">app.aiagentixdev.com</code>
             </p>
           )}
         </div>

@@ -37,7 +37,7 @@ Annual billing gets 20% discount.`,
 
 During the trial you get full access to all Professional plan features. After 14 days, choose a plan to continue. Your data is saved.
 
-To start your free trial, sign up at https://whatsapp-automation-kohl-six.vercel.app and connect your WhatsApp Business API account.`,
+To start your free trial, sign up at https://app.aiagentixdev.com and connect your WhatsApp Business API account.`,
   },
   {
     title: 'How to Get Started',

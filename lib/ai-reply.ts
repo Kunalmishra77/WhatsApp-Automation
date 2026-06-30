@@ -383,7 +383,7 @@ Identify the language of the customer's CURRENT message (the last message they s
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://whatsapp-automation-kohl-six.vercel.app',
+          'HTTP-Referer': 'https://app.aiagentixdev.com',
           'X-Title': 'Agentix',
         },
         body: JSON.stringify({

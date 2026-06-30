@@ -23,7 +23,7 @@ interface ApiKey {
   created_at: string;
 }
 
-const BASE = 'https://whatsapp-automation-kohl-six.vercel.app';
+const BASE = 'https://app.aiagentixdev.com';
 
 const ENDPOINTS = [
   { method: 'GET',  path: '/api/v1/contacts',       desc: 'List contacts (page, limit, search, tag)' },

@@ -137,7 +137,7 @@ export function BrandingSettings() {
             Point your own domain to Agentix. First add a DNS CNAME record:
           </p>
           <code className="block rounded bg-muted px-3 py-2 text-xs font-mono break-all">
-            crm.yourbusiness.com → agentix-cname.vercel.app
+            crm.yourbusiness.com → app.aiagentixdev.com
           </code>
           <div className="flex gap-2">
             <Input

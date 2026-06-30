@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      return NextResponse.json({ error: 'File too large. Max 5MB per file (Vercel limit). Split large documents or upgrade your plan.' }, { status: 413 });
+      return NextResponse.json({ error: 'File too large. Max 5MB per file. Split large documents or upgrade your plan.' }, { status: 413 });
     }
 
     let text = '';

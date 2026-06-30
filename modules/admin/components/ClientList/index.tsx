@@ -342,7 +342,7 @@ export function ClientList({ workspaces, loading, onRefetch }: ClientListProps) 
                         </Button>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        CNAME: <code className="bg-muted px-1 rounded">agentix-cname.vercel.app</code>
+                        CNAME: <code className="bg-muted px-1 rounded">app.aiagentixdev.com</code>
                       </p>
                     </div>
                   ) : w.custom_domain ? (
