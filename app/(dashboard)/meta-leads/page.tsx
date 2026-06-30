@@ -48,6 +48,8 @@ export default function MetaLeadsPage() {
   const leads: Lead[]  = data?.leads ?? [];
   const kpis           = data?.kpis  ?? {};
   const totalPages: number = data?.totalPages ?? 1;
+  const filteredTotal: number = data?.total ?? 0;
+  const hasFilters = platform !== 'all' || status !== 'all' || !!from || !!to;
 
   function handleExport() {
     const exp = new URLSearchParams();
@@ -102,6 +104,22 @@ export default function MetaLeadsPage() {
           </div>
         ))}
       </div>
+
+      {/* Filtered result count — only shown when any filter is active */}
+      {hasFilters && (
+        <div className="flex items-center gap-2 px-1">
+          <div className="h-1.5 w-1.5 rounded-full bg-orange-500" />
+          {isLoading
+            ? <Skeleton className="h-4 w-40" />
+            : <p className="text-sm text-gray-600">
+                <span className="font-semibold text-gray-900">{filteredTotal}</span> lead{filteredTotal !== 1 ? 's' : ''} match your filters
+                {from && to && from === to && <> on <span className="font-medium">{new Date(from).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span></>}
+                {from && to && from !== to && <> from <span className="font-medium">{new Date(from).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span> to <span className="font-medium">{new Date(to).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span></>}
+                {from && !to && <> from <span className="font-medium">{new Date(from).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span></>}
+                {!from && to && <> up to <span className="font-medium">{new Date(to).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span></>}
+              </p>}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
