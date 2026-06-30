@@ -305,7 +305,7 @@ async function handleIncomingMessage(
     ? `/api/media/proxy?mediaId=${encodeURIComponent(inboundMediaId)}&workspaceId=${encodeURIComponent(workspaceId)}`
     : null;
 
-  const { error: messageError } = await (supabase as any).from('messages').insert({
+  const { data: insertedMessage, error: messageError } = await (supabase as any).from('messages').insert({
     conversation_id: conversation.id,
     workspace_id: workspaceId,
     whatsapp_msg_id: msg.id,
@@ -339,7 +339,7 @@ async function handleIncomingMessage(
       }),
     } as Record<string, unknown>,
     created_at: createdAt,
-  });
+  }).select('id').single();
 
   if (messageError?.code === '23505') {
     console.log(`[Webhook] Duplicate message ignored: ${msg.id}`);
@@ -348,6 +348,14 @@ async function handleIncomingMessage(
 
   if (messageError) {
     throw new Error(messageError.message);
+  }
+
+  // Persist inbound media to permanent Supabase Storage in the background — the proxy
+  // URL works immediately for display, but WhatsApp media IDs expire after ~30 days.
+  // Swaps media_url to the permanent Storage URL once the upload finishes (non-blocking).
+  const inboundAccessToken = (workspace as { id: string; access_token?: string }).access_token;
+  if (inboundMediaId && insertedMessage?.id && inboundAccessToken) {
+    void persistInboundMediaToStorage(supabase, inboundAccessToken, inboundMediaId, workspaceId, insertedMessage.id);
   }
 
   // Mark incoming message as read — shows blue ticks on customer's WhatsApp (non-blocking)
@@ -908,6 +916,57 @@ async function getWhatsAppMediaUrl(mediaId: string, accessToken: string): Promis
     return data.url ?? null;
   } catch {
     return null;
+  }
+}
+
+// Downloads an inbound WhatsApp media file and re-uploads it to Supabase Storage
+// (same 'media-uploads' bucket used for outgoing catalog images) so it survives
+// past WhatsApp's ~30-day media expiry window. Runs fire-and-forget after the
+// message row is inserted \u2014 swaps media_url from the live proxy to the permanent
+// Storage URL once the upload finishes. Failures are silent: the proxy URL still
+// works for display in the meantime, so this is a best-effort durability upgrade.
+async function persistInboundMediaToStorage(
+  supabase: AdminClient,
+  accessToken: string,
+  mediaId: string,
+  workspaceId: string,
+  messageId: string,
+): Promise<void> {
+  try {
+    const token = accessToken.replace(/\uFEFF/g, '').trim();
+
+    const metaRes = await fetch(`https://graph.facebook.com/v19.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!metaRes.ok) return;
+    const metaData = await metaRes.json() as { url?: string; mime_type?: string };
+    if (!metaData.url) return;
+
+    const mediaRes = await fetch(metaData.url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!mediaRes.ok) return;
+
+    const buffer   = Buffer.from(await mediaRes.arrayBuffer());
+    const mimeType = metaData.mime_type ?? mediaRes.headers.get('content-type') ?? 'application/octet-stream';
+    const ext      = mimeType.split('/')[1]?.split(';')[0] ?? 'bin';
+    const path     = `inbound/${workspaceId}/${mediaId}.${ext}`;
+
+    const { error: uploadError } = await (supabase as any).storage
+      .from('media-uploads')
+      .upload(path, buffer, { contentType: mimeType, cacheControl: '31536000', upsert: true });
+
+    if (uploadError) {
+      console.error('[InboundMediaPersist] upload failed:', uploadError.message);
+      return;
+    }
+
+    const { data: { publicUrl } } = (supabase as any).storage.from('media-uploads').getPublicUrl(path);
+
+    await (supabase as any)
+      .from('messages')
+      .update({ media_url: publicUrl })
+      .eq('id', messageId);
+  } catch (e) {
+    console.error('[InboundMediaPersist] exception:', e);
   }
 }
 
