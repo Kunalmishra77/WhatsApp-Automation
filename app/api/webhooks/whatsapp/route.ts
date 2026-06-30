@@ -1844,12 +1844,30 @@ async function saveOutboundMessage(
 
 // ── Payment Intent Detection ──────────────────────────────────────────────────
 const PAYMENT_KEYWORDS = [
-  'payment karna', 'payment kar', 'pay kar', 'bhugtan', 'paisa bhej',
-  'payment bhej', 'upi', 'scanner', 'qr code', 'qr bhejo', 'scanner bhejo',
-  'payment kaise', 'kaise pay', 'order karna hai', 'order confirm',
+  // Prepaid / online choice (most common replies to payment menu)
+  'prepaid', 'pre paid', 'pre-paid',
+  'online payment', 'online pay', 'pay online', 'online se pay',
+  'online karna', 'online karunga', 'online karni', 'online krta', 'online krdu', 'online kru',
+  'prepaid karna', 'prepaid karunga', 'prepaid krta', 'prepaid chahiye',
+  'online chahiye', 'online wala', 'online option',
+  // English short forms customers use
+  'i want to pay online', 'want prepaid', 'prepaid option', 'online option',
+  'pay digitally', 'digital payment', 'net banking', 'neft', 'imps',
+  // UPI apps
+  'gpay', 'google pay', 'phonepe', 'phone pe', 'paytm', 'bhim', 'upi',
+  // QR / scanner keywords
+  'scanner', 'qr code', 'qr bhejo', 'qr bhejo', 'scanner bhejo', 'qr scan',
+  'scan karna', 'scan kr', 'scan kru', 'qr chahiye', 'scanner chahiye',
+  // General payment Hindi
+  'payment karna', 'payment kar', 'payment kru', 'payment krta', 'payment krdu',
+  'pay kar', 'pay kru', 'pay krta', 'pay krdu',
+  'bhugtan', 'paisa bhej', 'paisa transfer', 'paise bhej', 'paise dena',
+  'payment bhej', 'payment details', 'payment kaise', 'kaise pay',
+  'abhi pay', 'abhi payment', 'payment abhi',
+  // Order confirm triggers
+  'order confirm', 'order karna hai', 'order kr', 'order kru',
   'buy karna', 'purchase karna', 'khareedna', 'le lena', 'book karna',
-  'payment details', 'account number', 'gpay', 'phonepe', 'paytm',
-  'payment kru', 'payment krta', 'payment krdu', 'abhi pay',
+  'account number',
 ];
 
 function detectPaymentIntent(message: string): boolean {
