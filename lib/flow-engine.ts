@@ -173,6 +173,7 @@ async function executeNode(
   phoneNumberId: string,
   accessToken: string,
   contactPhone: string,
+  context: Record<string, number>,
 ): Promise<boolean> {
   // Returns true = flow is still active (session should remain)
 
@@ -188,7 +189,7 @@ async function executeNode(
       await updateSession(supabase, sessionId, next.id);
       return executeNode(
         supabase, next, nodes, edges, workspaceId, conversationId,
-        sessionId, incomingMessage, phoneNumberId, accessToken, contactPhone,
+        sessionId, incomingMessage, phoneNumberId, accessToken, contactPhone, context,
       );
     }
 
@@ -206,7 +207,7 @@ async function executeNode(
       await updateSession(supabase, sessionId, next.id);
       return executeNode(
         supabase, next, nodes, edges, workspaceId, conversationId,
-        sessionId, incomingMessage, phoneNumberId, accessToken, contactPhone,
+        sessionId, incomingMessage, phoneNumberId, accessToken, contactPhone, context,
       );
     }
 
@@ -229,9 +230,8 @@ async function executeNode(
     }
 
     case 'condition': {
-      const d = node.data as { keyword: string; matchType: 'contains' | 'equals' | 'starts_with' };
-      const matched = matchesCondition(incomingMessage, d.keyword, d.matchType);
-      const handleId = matched ? 'yes' : 'no';
+      const d = node.data as ConditionNodeData;
+      const handleId = evaluateCondition(d, incomingMessage, context) ? 'yes' : 'no';
       const next = findNextNode(nodes, edges, node.id, handleId);
       if (!next) {
         await endSession(supabase, sessionId);
@@ -240,7 +240,7 @@ async function executeNode(
       await updateSession(supabase, sessionId, next.id);
       return executeNode(
         supabase, next, nodes, edges, workspaceId, conversationId,
-        sessionId, incomingMessage, phoneNumberId, accessToken, contactPhone,
+        sessionId, incomingMessage, phoneNumberId, accessToken, contactPhone, context,
       );
     }
 
@@ -321,6 +321,12 @@ export async function processFlowForMessage(
 
       // For question/condition nodes waiting for reply: advance
       if (currentNode.type === 'question') {
+        const qData = currentNode.data as QuestionNodeData;
+        let context = (session.context as Record<string, number>) ?? {};
+        if (qData.saveAsVariable) {
+          context = { ...context, [qData.saveAsVariable]: parseNumberFromReply(messageContent) };
+          await (supabase as any).from('flow_sessions').update({ context }).eq('id', session.id);
+        }
         const next = findNextNode(nodes, edges, currentNodeId);
         if (!next) {
           await endSession(supabase, session.id as string);
@@ -329,21 +335,23 @@ export async function processFlowForMessage(
         await updateSession(supabase, session.id as string, next.id);
         await executeNode(
           supabase, next, nodes, edges, workspaceId, conversationId,
-          session.id as string, messageContent, phoneNumberId, accessToken, contactPhone,
+          session.id as string, messageContent, phoneNumberId, accessToken, contactPhone, context,
         );
       } else if (currentNode.type === 'condition') {
+        const context = (session.context as Record<string, number>) ?? {};
         await executeNode(
           supabase, currentNode, nodes, edges, workspaceId, conversationId,
-          session.id as string, messageContent, phoneNumberId, accessToken, contactPhone,
+          session.id as string, messageContent, phoneNumberId, accessToken, contactPhone, context,
         );
       } else {
         // Shouldn't be waiting on other node types, just advance
+        const context = (session.context as Record<string, number>) ?? {};
         const next = findNextNode(nodes, edges, currentNodeId);
         if (next) {
           await updateSession(supabase, session.id as string, next.id);
           await executeNode(
             supabase, next, nodes, edges, workspaceId, conversationId,
-            session.id as string, messageContent, phoneNumberId, accessToken, contactPhone,
+            session.id as string, messageContent, phoneNumberId, accessToken, contactPhone, context,
           );
         } else {
           await endSession(supabase, session.id as string);
@@ -415,7 +423,7 @@ export async function processFlowForMessage(
 
     await executeNode(
       supabase, startNode, nodes, edges, workspaceId, conversationId,
-      newSession.id as string, messageContent, phoneNumberId, accessToken, contactPhone,
+      newSession.id as string, messageContent, phoneNumberId, accessToken, contactPhone, {},
     );
 
     return true;
