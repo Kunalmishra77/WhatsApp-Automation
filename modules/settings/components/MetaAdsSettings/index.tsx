@@ -2,42 +2,38 @@
 
 import { useEffect, useState } from 'react';
 import {
-  CheckCircle2, AlertCircle, ExternalLink, Megaphone, Plus, Trash2,
-  RefreshCw, Loader2, Info,
+  CheckCircle2, Plus, Trash2, RefreshCw, Loader2, Info, Megaphone,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
+import { useWorkspaceStore } from '@/store/workspace.store';
 
-interface InstagramAccount { id: string; ig_username?: string; page_name?: string }
 interface Prefill { id: string; text: string; template_name: string | null; created_at: string }
 
 export function MetaAdsSettings() {
-  const [igAccounts,    setIgAccounts]    = useState<InstagramAccount[]>([]);
-  const [prefills,      setPrefills]      = useState<Prefill[]>([]);
-  const [loading,       setLoading]       = useState(true);
-  const [newText,       setNewText]       = useState('');
-  const [newName,       setNewName]       = useState('');
-  const [adding,        setAdding]        = useState(false);
-  const [deletingId,    setDeletingId]    = useState<string | null>(null);
-  const [backfilling,   setBackfilling]   = useState(false);
+  const [prefills,       setPrefills]       = useState<Prefill[]>([]);
+  const [loading,        setLoading]        = useState(true);
+  const [newText,        setNewText]        = useState('');
+  const [newName,        setNewName]        = useState('');
+  const [adding,         setAdding]         = useState(false);
+  const [deletingId,     setDeletingId]     = useState<string | null>(null);
+  const [backfilling,    setBackfilling]    = useState(false);
   const [backfillResult, setBackfillResult] = useState<{ tagged: number; total: number } | null>(null);
 
-  const loadData = () => {
+  const workspace = useWorkspaceStore((s) => s.activeWorkspace);
+  const waConnected = !!(workspace?.phone_number_id || workspace?.waba_id);
+
+  const loadPrefills = () => {
     setLoading(true);
-    Promise.all([
-      fetch('/api/settings/instagram').then((r) => r.json()).catch(() => ({ accounts: [] })),
-      fetch('/api/meta-prefill').then((r) => r.json()).catch(() => ({ prefills: [] })),
-    ]).then(([igData, pfData]) => {
-      setIgAccounts(igData.accounts ?? []);
-      setPrefills(pfData.prefills ?? []);
-    }).finally(() => setLoading(false));
+    fetch('/api/meta-prefill')
+      .then((r) => r.json())
+      .then((d) => setPrefills(d.prefills ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   };
 
-  useEffect(() => { loadData(); }, []);
-
-  const connected = igAccounts.length > 0;
+  useEffect(() => { loadPrefills(); }, []);
 
   const handleAdd = async () => {
     if (!newText.trim()) return;
@@ -52,7 +48,7 @@ export function MetaAdsSettings() {
       if (!res.ok) { toast.error(d.error ?? 'Failed to add'); return; }
       toast.success('Pre-fill text registered');
       setNewText(''); setNewName('');
-      loadData();
+      loadPrefills();
     } finally { setAdding(false); }
   };
 
@@ -66,15 +62,12 @@ export function MetaAdsSettings() {
   };
 
   const handleBackfill = async () => {
-    if (prefills.length === 0) {
-      toast.error('Add at least one pre-fill text first');
-      return;
-    }
+    if (prefills.length === 0) { toast.error('Add at least one pre-fill text first'); return; }
     setBackfilling(true);
     setBackfillResult(null);
     try {
       const res = await fetch('/api/meta-prefill/backfill', { method: 'POST' });
-      const d = await res.json() as { tagged?: number; total?: number; message?: string };
+      const d = await res.json() as { tagged?: number; total?: number };
       if (!res.ok) { toast.error('Backfill failed'); return; }
       setBackfillResult({ tagged: d.tagged ?? 0, total: d.total ?? 0 });
       toast.success(`Backfill complete — ${d.tagged} conversations tagged`);
@@ -89,67 +82,68 @@ export function MetaAdsSettings() {
           Meta Ads Integration
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Automatically detect conversations from Click-to-WhatsApp ads and track leads.
+          Automatically detect and track conversations coming from your Facebook &amp; Instagram advertisements.
         </p>
       </div>
 
-      {/* Connection status */}
+      {/* WhatsApp connection status — checks the actual WA Business API config */}
       <div className="rounded-xl border border-border p-4 space-y-2">
-        <p className="text-sm font-medium">WhatsApp × Meta Connection</p>
+        <p className="text-sm font-medium">WhatsApp Business API Status</p>
         <div className="flex items-start gap-3">
-          {connected
-            ? <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0 mt-0.5" />
-            : <AlertCircle  className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />}
+          <CheckCircle2 className={`h-5 w-5 shrink-0 mt-0.5 ${waConnected ? 'text-green-500' : 'text-amber-400'}`} />
           <div>
-            <p className="text-sm font-medium">
-              {connected ? 'Connected via Meta Business' : 'Not connected'}
+            <p className={`text-sm font-medium ${waConnected ? 'text-green-700' : 'text-amber-700'}`}>
+              {waConnected ? 'Connected & Active' : 'WhatsApp not yet configured'}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {connected
-                ? 'Ad referral data will be captured automatically when users click CTWA ads.'
-                : 'Connect via Settings → Instagram DM to enable automatic referral capture.'}
+              {waConnected
+                ? 'Your WhatsApp Business number is live on the Meta platform. Click-to-WhatsApp ad conversations are automatically captured — no extra setup needed.'
+                : 'Configure your WhatsApp Business API in Settings → Configuration to enable ad lead detection.'}
             </p>
-            {!connected && (
-              <a href="/settings?tab=instagram" className="inline-flex items-center gap-1 text-xs text-orange-600 underline mt-1">
-                Go to Instagram Settings <ExternalLink className="h-3 w-3" />
-              </a>
-            )}
           </div>
         </div>
-        {connected && igAccounts.map((acc) => (
-          <div key={acc.id} className="ml-8">
-            <Badge variant="outline" className="text-xs">
-              {acc.ig_username ? `@${acc.ig_username}` : acc.page_name ?? 'Facebook Page'}
-            </Badge>
-          </div>
-        ))}
+        <div className="ml-8 text-xs text-muted-foreground space-y-0.5">
+          <p>Phone Number ID: <span className="font-mono text-foreground">{workspace?.phone_number_id ?? '—'}</span></p>
+          <p>WABA ID: <span className="font-mono text-foreground">{workspace?.waba_id ?? '—'}</span></p>
+        </div>
       </div>
 
-      {/* Pre-fill message registry */}
+      {/* How it works — simple, clear */}
+      <div className="rounded-xl border border-border p-4 space-y-3">
+        <p className="text-sm font-medium">How Ad Lead Detection Works</p>
+        <div className="space-y-2.5 text-sm text-muted-foreground">
+          <div className="flex gap-2">
+            <span className="shrink-0 text-xs font-semibold text-orange-600 bg-orange-50 border border-orange-200 rounded px-1.5 py-0.5">Path 1</span>
+            <span><strong className="text-foreground">Meta Referral Object</strong> — when a user clicks a Click-to-WhatsApp ad, Meta automatically includes campaign metadata in the webhook. Zero configuration.</span>
+          </div>
+          <div className="flex gap-2">
+            <span className="shrink-0 text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">Path 2</span>
+            <span><strong className="text-foreground">Pre-fill Text Matching</strong> — register the exact pre-filled messages from your ad templates below. Any conversation starting with that text is auto-tagged as a Meta Ad Lead.</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Pre-fill registry */}
       <div className="rounded-xl border border-border p-4 space-y-4">
         <div>
           <p className="text-sm font-medium">Ad Pre-fill Message Registry</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Register the exact pre-filled message texts from your Meta ad templates. When a user
-            sends one of these as their first message, the conversation is automatically tagged as
-            a Meta Ad Lead — even without the <code className="text-[11px] bg-muted px-1 rounded">referral</code> webhook field.
+            Copy the exact pre-filled message text from your Meta ad template and paste it here.
+            Must match character-for-character (case-insensitive).
           </p>
         </div>
 
-        {/* Add new */}
         <div className="space-y-2">
+          <Input
+            placeholder='Pre-filled message text (e.g. "Hello! Can I get more info on this?")'
+            value={newText}
+            onChange={(e) => setNewText(e.target.value)}
+            className="text-sm"
+            onKeyDown={(e) => { if (e.key === 'Enter') void handleAdd(); }}
+          />
           <div className="flex gap-2">
             <Input
-              placeholder='Pre-filled message text (e.g. "Hi, I need cashless treatment details…")'
-              value={newText}
-              onChange={(e) => setNewText(e.target.value)}
-              className="text-sm flex-1"
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) void handleAdd(); }}
-            />
-          </div>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Template name (optional, e.g. ECHS Campaign)"
+              placeholder="Template name — optional label (e.g. ECHS Campaign)"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               className="text-sm flex-1"
@@ -161,9 +155,8 @@ export function MetaAdsSettings() {
           </div>
         </div>
 
-        {/* List */}
         {loading ? (
-          <div className="text-xs text-muted-foreground">Loading…</div>
+          <p className="text-xs text-muted-foreground">Loading…</p>
         ) : prefills.length === 0 ? (
           <div className="rounded-lg bg-muted/50 px-3 py-3 text-xs text-muted-foreground flex items-center gap-2">
             <Info className="h-3.5 w-3.5 shrink-0" />
@@ -180,15 +173,14 @@ export function MetaAdsSettings() {
                   )}
                 </div>
                 <Button
-                  variant="ghost"
-                  size="icon"
+                  variant="ghost" size="icon"
                   className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
                   disabled={deletingId === p.id}
                   onClick={() => void handleDelete(p.id)}
                 >
                   {deletingId === p.id
                     ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    : <Trash2 className="h-3.5 w-3.5" />}
+                    : <Trash2  className="h-3.5 w-3.5" />}
                 </Button>
               </div>
             ))}
@@ -196,7 +188,7 @@ export function MetaAdsSettings() {
         )}
       </div>
 
-      {/* Backfill section */}
+      {/* Backfill */}
       <div className="rounded-xl border border-border p-4 space-y-3">
         <div>
           <p className="text-sm font-medium flex items-center gap-1.5">
@@ -204,25 +196,24 @@ export function MetaAdsSettings() {
             Backfill Existing Conversations
           </p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Scan all past conversations and tag any whose first message matches a registered pre-fill
-            text. This is safe to run multiple times — already-tagged conversations are skipped.
+            Scans all past conversations and tags those whose first message matches a registered
+            pre-fill text. Safe to run multiple times — already-tagged conversations are skipped.
           </p>
         </div>
 
         {backfillResult && (
           <div className="rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800">
-            ✅ Backfill complete — <strong>{backfillResult.tagged}</strong> conversations tagged out of {backfillResult.total} scanned.
+            ✅ Done — <strong>{backfillResult.tagged}</strong> conversations tagged out of {backfillResult.total} scanned.
           </div>
         )}
 
         <Button
-          variant="outline"
-          size="sm"
+          variant="outline" size="sm"
           onClick={() => void handleBackfill()}
           disabled={backfilling || prefills.length === 0}
         >
           {backfilling
-            ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />Running Backfill…</>
+            ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-2" />Running…</>
             : <><RefreshCw className="h-3.5 w-3.5 mr-2" />Run Backfill Now</>}
         </Button>
         {prefills.length === 0 && (
@@ -230,24 +221,9 @@ export function MetaAdsSettings() {
         )}
       </div>
 
-      {/* How detection works */}
-      <div className="rounded-xl border border-border p-4 space-y-2">
-        <p className="text-sm font-medium">How Detection Works (2 Paths)</p>
-        <div className="space-y-2 text-sm text-muted-foreground">
-          <div className="flex gap-2">
-            <span className="shrink-0 text-xs font-semibold text-orange-600 bg-orange-50 border border-orange-200 rounded px-1.5 py-0.5">Path 1</span>
-            <span><strong className="text-foreground">Meta Referral Object</strong> — when a user clicks a CTWA ad, Meta automatically includes campaign metadata in the webhook. Zero configuration needed.</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="shrink-0 text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">Path 2</span>
-            <span><strong className="text-foreground">Pre-fill Text Matching</strong> — the first inbound message is compared against your registered texts. Useful for existing conversations and cases where Meta doesn't send the referral field.</span>
-          </div>
-        </div>
-      </div>
-
       <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
         <p className="text-xs text-blue-700">
-          <strong>No Meta App Review required.</strong> Both detection paths work with your existing WhatsApp Business API setup — no additional permissions or OAuth flow needed.
+          <strong>No Meta App Review required.</strong> Ad referral detection works with your existing WhatsApp Business API webhook — no additional permissions or OAuth needed.
         </p>
       </div>
     </div>
