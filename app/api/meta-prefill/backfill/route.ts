@@ -3,7 +3,7 @@ import { createClient } from '@/services/supabase/server';
 import { createAdminClient } from '@/services/supabase/admin';
 
 async function getWorkspaceId(supabase: any, userId: string): Promise<string | null> {
-  const { data } = await supabase.from('profiles').select('workspace_id').eq('id', userId).single();
+  const { data } = await supabase.from('workspace_members').select('workspace_id').eq('user_id', userId).single();
   return data?.workspace_id ?? null;
 }
 

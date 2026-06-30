@@ -6,14 +6,14 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: profile } = await (supabase as any)
-    .from('profiles')
+  const { data: member } = await (supabase as any)
+    .from('workspace_members')
     .select('workspace_id')
-    .eq('id', user.id)
+    .eq('user_id', user.id)
     .single();
-  if (!profile?.workspace_id) return NextResponse.json({ error: 'No workspace' }, { status: 403 });
+  if (!member?.workspace_id) return NextResponse.json({ error: 'No workspace' }, { status: 403 });
 
-  const workspaceId: string = profile.workspace_id;
+  const workspaceId: string = member.workspace_id;
   const { searchParams } = new URL(req.url);
   const page     = parseInt(searchParams.get('page') ?? '1', 10);
   const limit    = 25;

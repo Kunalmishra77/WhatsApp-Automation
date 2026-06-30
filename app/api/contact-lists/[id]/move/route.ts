@@ -9,8 +9,8 @@ export async function POST(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: profile } = await (supabase as any).from('profiles').select('workspace_id').eq('id', user.id).single();
-  const workspaceId: string | undefined = profile?.workspace_id;
+  const { data: member } = await (supabase as any).from('workspace_members').select('workspace_id').eq('user_id', user.id).single();
+  const workspaceId: string | undefined = member?.workspace_id;
   if (!workspaceId) return NextResponse.json({ error: 'No workspace' }, { status: 403 });
 
   const { id: sourceListId } = await params;
