@@ -12,7 +12,14 @@ export function QuestionNode({ data, selected }: NodeProps<QuestionNodeData>) {
       </div>
       <div className="px-3 py-2 text-xs text-gray-600">
         <p className="line-clamp-2">{data.message || 'No question set'}</p>
-        <span className="mt-1 inline-block bg-purple-100 text-purple-700 rounded px-1.5 py-0.5 text-[10px]">Waits for reply</span>
+        <div className="mt-1 flex flex-wrap gap-1">
+          <span className="inline-block bg-purple-100 text-purple-700 rounded px-1.5 py-0.5 text-[10px]">Waits for reply</span>
+          {data.saveAsVariable && (
+            <span className="inline-block bg-blue-100 text-blue-700 rounded px-1.5 py-0.5 text-[10px]">
+              → {data.saveAsVariable}
+            </span>
+          )}
+        </div>
       </div>
       <Handle type="target" position={Position.Top} className="!bg-purple-500" />
       <Handle type="source" position={Position.Bottom} className="!bg-purple-500" />
