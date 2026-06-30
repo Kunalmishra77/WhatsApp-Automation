@@ -44,10 +44,12 @@ export async function POST() {
   let offset = 0;
 
   while (true) {
+    // Skip already-tagged conversations using label filter (reliable TEXT[] support)
     const { data: conversations } = await db
       .from('conversations')
       .select('id, meta, labels')
       .eq('workspace_id', workspaceId)
+      .not('labels', 'cs', '{"Meta Ad Lead"}')
       .range(offset, offset + CHUNK - 1)
       .order('created_at', { ascending: false });
 

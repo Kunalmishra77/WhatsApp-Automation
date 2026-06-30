@@ -18,12 +18,13 @@ export async function GET(req: NextRequest) {
   const page     = parseInt(searchParams.get('page') ?? '1', 10);
   const limit    = 25;
   const offset   = (page - 1) * limit;
-  const platform = searchParams.get('platform');  // 'facebook' | 'instagram' | null
-  const status   = searchParams.get('status');    // 'open' | 'resolved' | null
+  const platform = searchParams.get('platform');
+  const status   = searchParams.get('status');
   const from     = searchParams.get('from');
   const to       = searchParams.get('to');
 
-  // ── Build base query — conversations with ad_source in meta ──────────────
+  // Filter by "Meta Ad Lead" label — reliable TEXT[] filter that Supabase JS handles natively
+  // (JSONB path filter `.not('meta->ad_source','is',null)` is not supported by PostgREST)
   let q = (supabase as any)
     .from('conversations')
     .select(`
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
       messages!inner(content, direction, created_at)
     `, { count: 'exact' })
     .eq('workspace_id', workspaceId)
-    .not('meta->ad_source', 'is', null)
+    .contains('labels', ['Meta Ad Lead'])
     .eq('messages.direction', 'inbound')
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
@@ -44,33 +45,31 @@ export async function GET(req: NextRequest) {
   const { data: rows, count, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // ── Filter by platform (ad_source.platform stored in meta JSONB) ──────────
   let leads = (rows ?? []).map((row: any) => {
     const adSource = row.meta?.ad_source ?? {};
-    // First inbound message = first customer message
     const firstMsg = (row.messages ?? [])
       .filter((m: any) => m.direction === 'inbound')
       .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
 
     return {
-      id:           row.id,
-      status:       row.status,
-      created_at:   row.created_at,
-      contact:      row.contact,
-      platform:     adSource.platform ?? 'facebook',
-      ad_headline:  adSource.headline ?? null,
-      ad_body:      adSource.body ?? null,
-      ad_id:        adSource.ad_id ?? null,
-      ctwa_clid:    adSource.ctwa_clid ?? null,
-      first_message: firstMsg?.content ?? null,
+      id:               row.id,
+      status:           row.status,
+      created_at:       row.created_at,
+      contact:          row.contact,
+      platform:         adSource.platform ?? 'facebook',
+      ad_headline:      adSource.headline ?? null,
+      ad_body:          adSource.body ?? null,
+      ad_id:            adSource.ad_id ?? null,
+      ctwa_clid:        adSource.ctwa_clid ?? null,
+      first_message:    firstMsg?.content ?? null,
       first_message_at: firstMsg?.created_at ?? row.created_at,
     };
   });
 
   if (platform) leads = leads.filter((l: any) => l.platform === platform);
 
-  // ── KPI summary ────────────────────────────────────────────────────────────
-  const now     = new Date();
+  // KPI queries — same fix: use label contains filter
+  const now      = new Date();
   const todayStr = now.toISOString().slice(0, 10);
   const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
@@ -78,27 +77,27 @@ export async function GET(req: NextRequest) {
     .from('conversations')
     .select('id', { count: 'exact', head: true })
     .eq('workspace_id', workspaceId)
-    .not('meta->ad_source', 'is', null);
+    .contains('labels', ['Meta Ad Lead']);
 
   const { count: todayCount } = await (supabase as any)
     .from('conversations')
     .select('id', { count: 'exact', head: true })
     .eq('workspace_id', workspaceId)
-    .not('meta->ad_source', 'is', null)
+    .contains('labels', ['Meta Ad Lead'])
     .gte('created_at', todayStr);
 
   const { count: monthCount } = await (supabase as any)
     .from('conversations')
     .select('id', { count: 'exact', head: true })
     .eq('workspace_id', workspaceId)
-    .not('meta->ad_source', 'is', null)
+    .contains('labels', ['Meta Ad Lead'])
     .gte('created_at', `${monthStr}-01`);
 
   return NextResponse.json({
     leads,
-    total:       count ?? 0,
+    total:      count ?? 0,
     page,
-    totalPages:  Math.ceil((count ?? 0) / limit),
+    totalPages: Math.ceil((count ?? 0) / limit),
     kpis: {
       total:      totalCount ?? 0,
       today:      todayCount ?? 0,

@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
       messages(content, direction, created_at)
     `)
     .eq('workspace_id', workspaceId)
-    .not('meta->ad_source', 'is', null)
+    .contains('labels', ['Meta Ad Lead'])
     .order('created_at', { ascending: false })
     .limit(5000);
 
