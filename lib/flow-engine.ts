@@ -131,6 +131,9 @@ function matchesCondition(
   }
 }
 
+// Intentionally integer-only, first-match: decimals/negatives/grouping aren't
+// parsed specially (e.g. "3.5" -> 3, "-5" -> 5), and no digits found -> 0,
+// which routes a condition check toward the below-threshold branch by design.
 export function parseNumberFromReply(reply: string): number {
   const match = reply.match(/\d+/);
   return match ? parseInt(match[0], 10) : 0;
