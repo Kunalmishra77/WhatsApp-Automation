@@ -120,11 +120,20 @@ export function NodeConfigPanel({ node, onSave, onDelete, onClose }: NodeConfigP
                 onChange={(e) => set('timeoutHours', Number(e.target.value))}
               />
             </div>
+            <div className="space-y-1.5">
+              <Label>Save reply as variable (optional)</Label>
+              <Input
+                value={d.saveAsVariable ?? ''}
+                onChange={(e) => set('saveAsVariable', e.target.value)}
+                placeholder="e.g. employee_count"
+              />
+            </div>
           </>
         );
       }
       case 'condition': {
         const d = formData as Partial<ConditionNodeData>;
+        const conditionType = d.conditionType ?? 'keyword';
         return (
           <>
             <div className="space-y-1.5">
@@ -132,24 +141,71 @@ export function NodeConfigPanel({ node, onSave, onDelete, onClose }: NodeConfigP
               <Input value={d.label ?? ''} onChange={(e) => set('label', e.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label>Match Type</Label>
-              <Select value={d.matchType ?? 'contains'} onValueChange={(v) => set('matchType', v)}>
+              <Label>Condition Type</Label>
+              <Select value={conditionType} onValueChange={(v) => set('conditionType', v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="contains">Contains</SelectItem>
-                  <SelectItem value="equals">Equals</SelectItem>
-                  <SelectItem value="starts_with">Starts with</SelectItem>
+                  <SelectItem value="keyword">Match keyword in reply</SelectItem>
+                  <SelectItem value="variable_compare">Compare a saved number</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Keyword</Label>
-              <Input
-                value={d.keyword ?? ''}
-                onChange={(e) => set('keyword', e.target.value)}
-                placeholder="e.g. yes, no, 1"
-              />
-            </div>
+            {conditionType === 'keyword' ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Match Type</Label>
+                  <Select value={d.matchType ?? 'contains'} onValueChange={(v) => set('matchType', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="contains">Contains</SelectItem>
+                      <SelectItem value="equals">Equals</SelectItem>
+                      <SelectItem value="starts_with">Starts with</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Keyword</Label>
+                  <Input
+                    value={d.keyword ?? ''}
+                    onChange={(e) => set('keyword', e.target.value)}
+                    placeholder="e.g. yes, no, 1"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Variable Name</Label>
+                  <Input
+                    value={d.variable ?? ''}
+                    onChange={(e) => set('variable', e.target.value)}
+                    placeholder="e.g. employee_count"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Operator</Label>
+                  <Select value={d.operator ?? '>='} onValueChange={(v) => set('operator', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value=">=">&gt;= (greater or equal)</SelectItem>
+                      <SelectItem value=">">&gt; (greater than)</SelectItem>
+                      <SelectItem value="<">&lt; (less than)</SelectItem>
+                      <SelectItem value="<=">&lt;= (less or equal)</SelectItem>
+                      <SelectItem value="==">== (equal)</SelectItem>
+                      <SelectItem value="!=">!= (not equal)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Value</Label>
+                  <Input
+                    type="number"
+                    value={d.value ?? 0}
+                    onChange={(e) => set('value', Number(e.target.value))}
+                  />
+                </div>
+              </>
+            )}
           </>
         );
       }
