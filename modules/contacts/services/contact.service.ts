@@ -11,6 +11,7 @@ export interface ContactFilters {
   search?: string;
   tags?: string[];
   is_blocked?: boolean;
+  listId?: string;
 }
 
 export async function fetchContacts(
@@ -23,13 +24,20 @@ export async function fetchContacts(
   const from = page * pageSize;
   const to = from + pageSize - 1;
 
+  const selectExpr = filters.listId
+    ? '*, contact_list_members!inner(list_id)'
+    : '*';
+
   let query = supabase
     .from('contacts')
-    .select('*', { count: 'exact' })
+    .select(selectExpr, { count: 'exact' })
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: false })
     .range(from, to);
 
+  if (filters.listId) {
+    query = query.eq('contact_list_members.list_id', filters.listId);
+  }
   if (filters.search?.trim()) {
     query = query.or(
       `name.ilike.%${filters.search}%,phone.ilike.%${filters.search}%,email.ilike.%${filters.search}%`,

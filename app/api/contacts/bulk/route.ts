@@ -21,26 +21,42 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
-// GET /api/contacts/bulk?workspaceId=&search=  — returns all contacts for CSV export
+// GET /api/contacts/bulk?workspaceId=&search=&listId=  — returns contacts for CSV export
 export async function GET(request: NextRequest) {
   try {
     const sp          = request.nextUrl.searchParams;
     const workspaceId = sp.get('workspaceId');
+    const listId      = sp.get('listId') ?? '';
     const search      = sp.get('search') ?? '';
-    if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
-    await requireWorkspacePermission(workspaceId, 'manage_contacts');
+    if (!workspaceId && !listId) return NextResponse.json({ error: 'workspaceId or listId required' }, { status: 400 });
 
     const db = createAdminClient() as any;
+
+    // When only listId is provided, derive workspaceId from the list record
+    let effectiveWorkspaceId = workspaceId;
+    if (!effectiveWorkspaceId && listId) {
+      const { data: list } = await db.from('contact_lists').select('workspace_id').eq('id', listId).single();
+      effectiveWorkspaceId = list?.workspace_id;
+    }
+    if (!effectiveWorkspaceId) return NextResponse.json({ error: 'workspace not found' }, { status: 404 });
+
+    await requireWorkspacePermission(effectiveWorkspaceId, 'manage_contacts');
+
+    const selectExpr = listId
+      ? 'id, name, phone, email, company, tags, created_at, contact_list_members!inner(list_id)'
+      : 'id, name, phone, email, company, tags, created_at';
+
     let allRows: Array<Record<string, unknown>> = [];
     let offset = 0;
     const CHUNK = 1000;
     while (true) {
       let q = db
         .from('contacts')
-        .select('id, name, phone, email, company, tags, created_at')
-        .eq('workspace_id', workspaceId)
+        .select(selectExpr)
+        .eq('workspace_id', effectiveWorkspaceId)
         .order('created_at', { ascending: false })
         .range(offset, offset + CHUNK - 1);
+      if (listId) q = q.eq('contact_list_members.list_id', listId);
       if (search.trim()) q = q.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
       const { data: chunk } = await q;
       if (!chunk || chunk.length === 0) break;

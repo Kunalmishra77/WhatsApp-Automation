@@ -619,6 +619,61 @@ async function handleIncomingMessage(
   // On every inbound message, create/update a lead with AI-determined temperature
   autoCreateOrUpdateLead(supabase as any, workspaceId, contact.id, conversation.id, content).catch(() => {});
 
+  // ── Click-to-WhatsApp Ad Referral Detection — non-blocking ──────────────────
+  // When a customer clicks a Meta ad and opens WhatsApp, the webhook includes a
+  // `referral` object with campaign/ad metadata. Capture it once per conversation.
+  if (msg.referral?.source_type === 'ad') {
+    void (async () => {
+      try {
+        const adSource = {
+          headline:    msg.referral!.headline    ?? null,
+          body:        msg.referral!.body        ?? null,
+          ad_id:       msg.referral!.ads_fbid    ?? null,
+          ctwa_clid:   msg.referral!.ctwa_clid   ?? null,
+          source_url:  msg.referral!.source_url  ?? null,
+          platform:    'facebook',
+          detected_at: new Date().toISOString(),
+        };
+
+        // Store in conversations.meta (only if not already set — first message wins)
+        const { data: conv } = await (supabase as any)
+          .from('conversations')
+          .select('meta')
+          .eq('id', conversation.id)
+          .single();
+        if (!conv?.meta?.ad_source) {
+          await (supabase as any)
+            .from('conversations')
+            .update({ meta: { ...((conv?.meta as object) ?? {}), ad_source: adSource } })
+            .eq('id', conversation.id);
+        }
+
+        // Ensure "Meta Ad Lead" label exists in this workspace
+        await (supabase as any).from('workspace_labels').upsert(
+          { workspace_id: workspaceId, name: 'Meta Ad Lead', color: 'blue' },
+          { onConflict: 'workspace_id,name', ignoreDuplicates: true },
+        );
+
+        // Append label to conversation without overwriting other labels
+        await (supabase as any).rpc('append_conversation_label', {
+          p_conversation_id: conversation.id,
+          p_label: 'Meta Ad Lead',
+        });
+
+        // Update lead source if a lead was just created
+        await (supabase as any)
+          .from('leads')
+          .update({ source: 'meta_ad', tags: ['meta', 'facebook_ad'] })
+          .eq('contact_id', contact.id)
+          .eq('workspace_id', workspaceId);
+
+        console.log(`[AdLead] Captured Meta ad referral for conversation ${conversation.id} — ad_id: ${adSource.ad_id}`);
+      } catch (e) {
+        console.error('[AdLead] Failed to capture ad referral:', e);
+      }
+    })();
+  }
+
   // ── VIP contact — skip bot, route straight to human agent ──────────────────
   if (contact.is_vip) {
     await (supabase as any)
@@ -1741,6 +1796,16 @@ interface WAMessage {
   interactive?: WAInteractiveReply;
   // Template quick-reply button tap (type = "button")
   button?: { text: string; payload?: string };
+  // Click-to-WhatsApp ad referral — present when message originates from a Meta ad
+  referral?: {
+    headline?:    string;
+    body?:        string;
+    source_type?: string;   // 'ad' | 'post' | 'unknown'
+    source_id?:   string;   // ad set ID
+    source_url?:  string;
+    ctwa_clid?:   string;   // click tracking ID
+    ads_fbid?:    string;   // Facebook Ad ID
+  };
 }
 
 interface WAStatus {

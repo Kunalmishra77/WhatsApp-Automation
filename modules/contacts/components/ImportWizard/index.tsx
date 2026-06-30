@@ -1,22 +1,28 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { Input } from '@/components/ui/input';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { Upload, CheckCircle2, AlertCircle, Sparkles, FileText, Loader2 } from 'lucide-react';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { Upload, CheckCircle2, AlertCircle, Sparkles, FileText, Loader2, FolderOpen } from 'lucide-react';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-type ImportStep = 'upload' | 'parsing' | 'preview' | 'importing' | 'done';
+type ImportStep = 'upload' | 'parsing' | 'preview' | 'folder' | 'importing' | 'done';
+type FolderMode  = 'none' | 'new' | 'existing';
 interface ParsedRow { name?: string; phone: string; email?: string; company?: string; tags?: string[] }
 
 interface ImportWizardProps {
   open: boolean;
   onClose: () => void;
+  preselectedListId?: string;
 }
 
 const ACCEPTED = '.csv,.xlsx,.xls,.txt,.pdf,.vcf,.json';
@@ -29,17 +35,34 @@ function fileTypeLabel(name: string): string {
   return map[ext] ?? ext.toUpperCase();
 }
 
-export function ImportWizard({ open, onClose }: ImportWizardProps) {
-  const [step, setStep]       = useState<ImportStep>('upload');
-  const [rows, setRows]       = useState<ParsedRow[]>([]);
-  const [result, setResult]   = useState<{ inserted: number; skipped: number; failed: number; lastError?: string } | null>(null);
-  const [error, setError]     = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [fileName, setFileName] = useState('');
-  const [aiUsed, setAiUsed]   = useState(false);
-  const fileRef               = useRef<HTMLInputElement>(null);
-  const workspaceId           = useWorkspaceStore((s) => s.activeWorkspace?.id);
-  const queryClient           = useQueryClient();
+interface ContactList { id: string; name: string; contact_count: number }
+
+export function ImportWizard({ open, onClose, preselectedListId }: ImportWizardProps) {
+  const [step, setStep]           = useState<ImportStep>('upload');
+  const [rows, setRows]           = useState<ParsedRow[]>([]);
+  const [result, setResult]       = useState<{ inserted: number; skipped: number; failed: number; lastError?: string } | null>(null);
+  const [error, setError]         = useState<string | null>(null);
+  const [progress, setProgress]   = useState(0);
+  const [fileName, setFileName]   = useState('');
+  const [aiUsed, setAiUsed]       = useState(false);
+  // Folder state — preselect if caller passes a folder
+  const [folderMode, setFolderMode]   = useState<FolderMode>(preselectedListId ? 'existing' : 'none');
+  const [newFolderName, setNewFolderName] = useState('');
+  const [selectedListId, setSelectedListId] = useState<string>(preselectedListId ?? '');
+  const [existingLists, setExistingLists]   = useState<ContactList[]>([]);
+  const fileRef                   = useRef<HTMLInputElement>(null);
+  const workspaceId               = useWorkspaceStore((s) => s.activeWorkspace?.id);
+  const queryClient               = useQueryClient();
+
+  // Load existing folders when folder step is shown
+  useEffect(() => {
+    if (step === 'folder') {
+      fetch('/api/contact-lists')
+        .then((r) => r.json())
+        .then((d) => setExistingLists(d.lists ?? []))
+        .catch(() => {});
+    }
+  }, [step]);
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -91,11 +114,26 @@ export function ImportWizard({ open, onClose }: ImportWizardProps) {
     setStep('importing');
     setProgress(10);
     try {
+      // Resolve list ID: create new folder if needed
+      let listId: string | undefined;
+      if (folderMode === 'new' && newFolderName.trim()) {
+        const fr = await fetch('/api/contact-lists', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newFolderName.trim(), source: 'csv' }),
+        });
+        const fd = await fr.json() as { list?: { id: string } };
+        listId = fd.list?.id;
+        void queryClient.invalidateQueries({ queryKey: ['contact-lists'] });
+      } else if (folderMode === 'existing' && selectedListId) {
+        listId = selectedListId;
+      }
+
       // Use server-side API — handles batching + upsert properly for large sets
       const res = await fetch('/api/contacts/import', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ workspaceId, contacts: rows }),
+        body:    JSON.stringify({ workspaceId, contacts: rows, ...(listId ? { listId } : {}) }),
       });
       const data = await res.json() as { inserted?: number; skipped?: number; failed?: number; lastError?: string; error?: string; code?: string };
       if (!res.ok) {
@@ -128,6 +166,9 @@ export function ImportWizard({ open, onClose }: ImportWizardProps) {
   const handleClose = () => {
     setStep('upload'); setRows([]); setResult(null);
     setError(null); setProgress(0); setFileName(''); setAiUsed(false);
+    setFolderMode(preselectedListId ? 'existing' : 'none');
+    setNewFolderName('');
+    setSelectedListId(preselectedListId ?? '');
     if (fileRef.current) fileRef.current.value = '';
     onClose();
   };
@@ -226,7 +267,81 @@ export function ImportWizard({ open, onClose }: ImportWizardProps) {
               <Button variant="outline" className="flex-1" onClick={() => { setStep('upload'); setRows([]); }}>
                 Change File
               </Button>
-              <Button className="flex-1" onClick={handleImport}>
+              <Button className="flex-1" onClick={() => setStep('folder')}>
+                Next →
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* FOLDER */}
+        {step === 'folder' && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <FolderOpen className="h-4 w-4 text-orange-500" />
+              <p className="text-sm font-medium">Organize into a Folder <span className="text-xs text-gray-400 font-normal">(optional)</span></p>
+            </div>
+
+            <div className="space-y-2">
+              {[
+                { value: 'none',     label: 'Skip — no folder' },
+                { value: 'new',      label: 'Create a new folder' },
+                { value: 'existing', label: 'Add to existing folder' },
+              ].map(({ value, label }) => (
+                <label key={value} className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-gray-50 cursor-pointer transition-colors">
+                  <input
+                    type="radio"
+                    name="folderMode"
+                    value={value}
+                    checked={folderMode === value}
+                    onChange={() => setFolderMode(value as FolderMode)}
+                    className="accent-orange-500"
+                  />
+                  <span className="text-sm">{label}</span>
+                </label>
+              ))}
+            </div>
+
+            {folderMode === 'new' && (
+              <Input
+                placeholder="Folder name (e.g. Delhi Gym Campaign)"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                className="text-sm"
+                autoFocus
+              />
+            )}
+
+            {folderMode === 'existing' && (
+              <Select value={selectedListId} onValueChange={setSelectedListId}>
+                <SelectTrigger className="text-sm">
+                  <SelectValue placeholder="Select a folder…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {existingLists.map((l) => (
+                    <SelectItem key={l.id} value={l.id}>
+                      {l.name} <span className="text-xs text-gray-400 ml-1">({l.contact_count} contacts)</span>
+                    </SelectItem>
+                  ))}
+                  {existingLists.length === 0 && (
+                    <SelectItem value="__none__" disabled>No folders yet — create one first</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            )}
+
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setStep('preview')}>
+                ← Back
+              </Button>
+              <Button
+                className="flex-1"
+                disabled={
+                  (folderMode === 'new' && !newFolderName.trim()) ||
+                  (folderMode === 'existing' && !selectedListId)
+                }
+                onClick={handleImport}
+              >
                 Import {rows.length} Contacts
               </Button>
             </div>

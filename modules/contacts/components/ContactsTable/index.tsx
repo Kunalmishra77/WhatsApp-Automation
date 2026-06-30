@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,14 +31,17 @@ import type { ContactRow } from '../../services/contact.service';
 interface ContactsTableProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
+  listId?: string;
+  defaultImportOpen?: boolean;
+  onImportClose?: () => void;
 }
 
-export function ContactsTable({ selectedId, onSelect }: ContactsTableProps) {
+export function ContactsTable({ selectedId, onSelect, listId, defaultImportOpen, onImportClose }: ContactsTableProps) {
   const [searchInput, setSearchInput] = useState('');
   const search = useDebounce(searchInput, 300);
   const [page, setPage] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(defaultImportOpen ?? false);
   const [messageContact, setMessageContact] = useState<ContactRow | null>(null);
 
   // Bulk selection
@@ -48,7 +51,12 @@ export function ContactsTable({ selectedId, onSelect }: ContactsTableProps) {
   const [downloading, setDownloading] = useState(false);
 
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
-  const { data, isLoading, refetch } = useContacts({ search }, page);
+
+  // Reset to page 0 when folder changes
+  const prevListId = useRef(listId);
+  if (prevListId.current !== listId) { prevListId.current = listId; setPage(0); }
+
+  const { data, isLoading, refetch } = useContacts({ search, listId }, page);
   const contacts: ContactRow[] = data?.data ?? [];
   const total = data?.count ?? 0;
   const pageSize = 50;
@@ -295,7 +303,11 @@ export function ContactsTable({ selectedId, onSelect }: ContactsTableProps) {
       </Dialog>
 
       <ContactForm open={createOpen} onClose={() => setCreateOpen(false)} />
-      <ImportWizard open={importOpen} onClose={() => setImportOpen(false)} />
+      <ImportWizard
+        open={importOpen}
+        onClose={() => { setImportOpen(false); onImportClose?.(); }}
+        preselectedListId={listId}
+      />
       <StartConversationDialog
         contact={messageContact}
         open={!!messageContact}

@@ -36,6 +36,7 @@ const NAV_ITEMS: Array<{
   { href: '/contacts',      icon: Users,           label: 'Contacts'         },
   { href: '/crm',           icon: Kanban,          label: 'CRM Pipeline',    requiredFeature: 'crm',   requiredPlan: 'Pro' },
   { href: '/campaigns',     icon: Megaphone,       label: 'Campaigns'        },
+  { href: '/meta-leads',    icon: Brain,           label: 'Meta Leads'       },
   { href: '/templates',     icon: FileText,        label: 'Templates'        },
   { href: '/flows',         icon: GitBranch,       label: 'Flows',           requiredFeature: 'flows', requiredPlan: 'Pro' },
   { href: '/team',          icon: Users2,          label: 'Team'             },

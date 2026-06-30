@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   User, Building2, MessageSquare, Shield, Clock,
-  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText, Camera, CalendarCheck,
+  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText, Camera, CalendarCheck, Megaphone,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProfileSettings } from '../ProfileSettings';
@@ -33,11 +33,12 @@ import { ChatWidgetSettings } from '../ChatWidgetSettings';
 import { WaFormsSettings } from '../WaFormsSettings';
 import { InstagramSettings } from '../InstagramSettings';
 import { GoogleCalendarSettings } from '../GoogleCalendarSettings';
+import { MetaAdsSettings } from '../MetaAdsSettings';
 
 type SettingKey =
   | 'profile' | 'workspace' | 'branding' | 'billing'
   | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library' | 'chat-widget' | 'wa-forms'
-  | 'instagram'
+  | 'instagram' | 'meta-ads'
   | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers' | 'auto-triggers'
   | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models' | 'google-calendar'
   | 'audit-logs';
@@ -68,6 +69,7 @@ const NAV_SECTIONS: NavSection[] = [
       { key: 'chat-widget',    label: 'Chat Widget',     icon: MessageSquare },
       { key: 'media-library',  label: 'Media Library',  icon: MessagesSquare },
       { key: 'instagram',      label: 'Instagram DM',   icon: Camera },
+      { key: 'meta-ads',       label: 'Meta Ads',       icon: Megaphone },
     ],
   },
   {
@@ -127,6 +129,7 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'wa-forms':       <WaFormsSettings />,
   'media-library':  <MediaLibrary />,
   'instagram':      <InstagramSettings />,
+  'meta-ads':       <MetaAdsSettings />,
   'audit-logs':     <AuditLogs />,
 };
 

@@ -11,12 +11,13 @@ interface ContactRow {
 }
 
 // POST /api/contacts/import
-// Body: { workspaceId, contacts: ContactRow[] }
+// Body: { workspaceId, contacts: ContactRow[], listId?: string }
 export async function POST(request: NextRequest) {
   try {
-    const { workspaceId, contacts } = await request.json() as {
+    const { workspaceId, contacts, listId } = await request.json() as {
       workspaceId?: string;
       contacts?: ContactRow[];
+      listId?: string;
     };
 
     if (!workspaceId || !Array.isArray(contacts) || contacts.length === 0) {
@@ -78,6 +79,16 @@ export async function POST(request: NextRequest) {
         inserted += batchInserted;
         if (batchInserted > 0) {
           void import('@/lib/usage-tracker').then(({ trackContactCreated }) => trackContactCreated(workspaceId)).catch(() => {});
+
+          // Add newly inserted contacts to the chosen folder (list)
+          if (listId && data && data.length > 0) {
+            const memberRows = (data as Array<{ id: string }>).map((c) => ({
+              list_id:    listId,
+              contact_id: c.id,
+            }));
+            await db.from('contact_list_members')
+              .upsert(memberRows, { onConflict: 'list_id,contact_id', ignoreDuplicates: true });
+          }
         }
       }
     }
