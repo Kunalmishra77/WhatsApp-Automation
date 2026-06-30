@@ -11,6 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Brain, Download, Users, CalendarDays, TrendingUp, RefreshCw } from 'lucide-react';
+import { useRequirePageRole } from '@/hooks/useRequirePageRole';
 
 type Lead = {
   id: string;
@@ -26,6 +27,7 @@ type Lead = {
 };
 
 export default function MetaLeadsPage() {
+  useRequirePageRole('meta-leads');
   const router = useRouter();
   const [page,     setPage]     = useState(1);
   const [platform, setPlatform] = useState('all');

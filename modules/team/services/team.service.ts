@@ -56,12 +56,54 @@ export async function fetchTeamMembers(workspaceId: string): Promise<TeamMember[
   }));
 }
 
-export async function updateMemberRole(memberId: string, role: UserRole): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const supabase = createClient() as any;
-  const { error } = await supabase
-    .from('workspace_members')
-    .update({ role })
-    .eq('id', memberId);
-  if (error) throw error;
+export async function updateMemberRole(memberId: string, role: UserRole, workspaceId: string): Promise<void> {
+  const res = await fetch(`/api/team/members/${memberId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspaceId, role }),
+  });
+  if (!res.ok) {
+    const data = await res.json() as { error?: string };
+    throw new Error(data.error ?? 'Failed to update role');
+  }
+}
+
+export async function removeMember(memberId: string, workspaceId: string): Promise<void> {
+  const res = await fetch(`/api/team/members/${memberId}?workspaceId=${workspaceId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const data = await res.json() as { error?: string };
+    throw new Error(data.error ?? 'Failed to remove member');
+  }
+}
+
+export interface PendingInvite {
+  id: string;
+  email: string;
+  role: UserRole;
+  status: string;
+  expires_at: string;
+  created_at: string;
+}
+
+export async function fetchPendingInvites(workspaceId: string): Promise<PendingInvite[]> {
+  const res = await fetch(`/api/team/invite?workspaceId=${workspaceId}`);
+  if (!res.ok) throw new Error('Failed to load pending invites');
+  const data = await res.json() as { invites: PendingInvite[] };
+  return data.invites;
+}
+
+export async function revokeInvite(inviteId: string, workspaceId: string): Promise<void> {
+  const res = await fetch(`/api/team/invite/${inviteId}?workspaceId=${workspaceId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Failed to revoke invite');
+}
+
+export async function resendInvite(inviteId: string, workspaceId: string): Promise<void> {
+  const res = await fetch(`/api/team/invite/${inviteId}?workspaceId=${workspaceId}`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error('Failed to resend invite');
 }

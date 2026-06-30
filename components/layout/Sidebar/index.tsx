@@ -18,11 +18,14 @@ import { NavItem } from './NavItem';
 import { useUIStore } from '@/store/ui.store';
 import { useAuthStore } from '@/store/auth.store';
 import { useWorkspaceStore } from '@/store/workspace.store';
+import { useCurrentRole } from '@/hooks/useCurrentRole';
+import { useAgentPageAccess } from '@/hooks/useAgentPageAccess';
 import { signOutAction } from '@/app/actions/auth.actions';
 import { hasFeature } from '@/lib/plan-features';
 import { cn } from '@/lib/utils';
 import { SupportModal } from '@/modules/support/components/SupportModal';
 import type { LucideIcon } from 'lucide-react';
+import type { AgentPageKey } from '@/lib/agent-pages';
 
 const NAV_ITEMS: Array<{
   href:             string;
@@ -30,20 +33,24 @@ const NAV_ITEMS: Array<{
   label:            string;
   requiredFeature?: string;
   requiredPlan?:    string;
+  // Omitted = always visible to every role (core work surface: Dashboard,
+  // Conversations, Contacts). Present = admin-configurable for 'agent' role
+  // via Team page > Page Access, checked against useAgentPageAccess().
+  agentPageKey?:    AgentPageKey;
 }> = [
   { href: '/dashboard',     icon: LayoutDashboard, label: 'Dashboard'        },
   { href: '/conversations', icon: MessageSquare,   label: 'Conversations'    },
   { href: '/contacts',      icon: Users,           label: 'Contacts'         },
-  { href: '/crm',           icon: Kanban,          label: 'CRM Pipeline',    requiredFeature: 'crm',   requiredPlan: 'Pro' },
-  { href: '/campaigns',     icon: Megaphone,       label: 'Campaigns'        },
-  { href: '/meta-leads',    icon: Brain,           label: 'Meta Leads'       },
-  { href: '/templates',     icon: FileText,        label: 'Templates'        },
-  { href: '/flows',         icon: GitBranch,       label: 'Flows',           requiredFeature: 'flows', requiredPlan: 'Pro' },
-  { href: '/team',          icon: Users2,          label: 'Team'             },
-  { href: '/analytics',     icon: BarChart3,       label: 'Analytics'        },
-  { href: '/bookings',      icon: CalendarCheck,   label: 'Bookings & Events'},
-  { href: '/ai-revenue',    icon: TrendingUp,      label: 'AI Revenue'       },
-  { href: '/knowledge-base',icon: BookOpen,        label: 'Knowledge Base'   },
+  { href: '/crm',           icon: Kanban,          label: 'CRM Pipeline',    requiredFeature: 'crm',   requiredPlan: 'Pro', agentPageKey: 'crm' },
+  { href: '/campaigns',     icon: Megaphone,       label: 'Campaigns',       agentPageKey: 'campaigns' },
+  { href: '/meta-leads',    icon: Brain,           label: 'Meta Leads',      agentPageKey: 'meta-leads' },
+  { href: '/templates',     icon: FileText,        label: 'Templates',       agentPageKey: 'templates' },
+  { href: '/flows',         icon: GitBranch,       label: 'Flows',           requiredFeature: 'flows', requiredPlan: 'Pro', agentPageKey: 'flows' },
+  { href: '/team',          icon: Users2,          label: 'Team',            agentPageKey: 'team' },
+  { href: '/analytics',     icon: BarChart3,       label: 'Analytics',       agentPageKey: 'analytics' },
+  { href: '/bookings',      icon: CalendarCheck,   label: 'Bookings & Events', agentPageKey: 'bookings' },
+  { href: '/ai-revenue',    icon: TrendingUp,      label: 'AI Revenue',      agentPageKey: 'ai-revenue' },
+  { href: '/knowledge-base',icon: BookOpen,        label: 'Knowledge Base',  agentPageKey: 'knowledge-base' },
 ];
 
 const PLAN_BADGE: Record<string, { cls: string; label: string }> = {
@@ -58,7 +65,13 @@ export function Sidebar() {
   const user           = useAuthStore((s) => s.user);
   const workspace      = useWorkspaceStore((s) => s.activeWorkspace);
   const plan           = workspace?.plan ?? 'free';
+  const { data: role } = useCurrentRole();
+  const isAgent        = role === 'agent';
+  const { data: agentAllowedPages = [] } = useAgentPageAccess();
   const [supportOpen, setSupportOpen] = useState(false);
+
+  const visibleNavItems = NAV_ITEMS.filter((item) =>
+    !(isAgent && item.agentPageKey && !agentAllowedPages.includes(item.agentPageKey)));
 
   const initials = user?.full_name
     ? user.full_name.split(' ').map((n) => n[0] ?? '').join('').slice(0, 2).toUpperCase()
@@ -120,7 +133,7 @@ export function Sidebar() {
 
         {/* ── Navigation ────────────────────────────────────────────────── */}
         <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
-          {NAV_ITEMS.map((item) => {
+          {visibleNavItems.map((item) => {
             const locked = item.requiredFeature ? !hasFeature(plan, item.requiredFeature) : false;
             return (
               <NavItem
@@ -138,7 +151,9 @@ export function Sidebar() {
           {/* Divider */}
           <div className="mx-2 my-2 h-px bg-white/[0.07]" />
 
-          <NavItem href="/settings" icon={Settings} label="Settings" collapsed={collapsed} />
+          {!isAgent && (
+            <NavItem href="/settings" icon={Settings} label="Settings" collapsed={collapsed} />
+          )}
 
           <button
             onClick={() => setSupportOpen(true)}
@@ -191,11 +206,13 @@ export function Sidebar() {
                   <UserCircle className="h-4 w-4" /> Profile
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/settings" className="flex items-center gap-2">
-                  <Settings className="h-4 w-4" /> Settings
-                </Link>
-              </DropdownMenuItem>
+              {!isAgent && (
+                <DropdownMenuItem asChild>
+                  <Link href="/settings" className="flex items-center gap-2">
+                    <Settings className="h-4 w-4" /> Settings
+                  </Link>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive flex items-center gap-2"

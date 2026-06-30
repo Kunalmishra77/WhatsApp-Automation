@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '@/store/workspace.store';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useRequirePageRole } from '@/hooks/useRequirePageRole';
 
 type EventType = 'demo_booked' | 'callback_requested' | 'appointment_set' | 'not_interested' | 'follow_up';
 type Status    = 'pending' | 'confirmed' | 'done' | 'cancelled';
@@ -61,6 +62,7 @@ function timeAgo(iso: string) {
 }
 
 export default function BookingsPage() {
+  useRequirePageRole('bookings');
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
   const [events, setEvents]   = useState<ConvEvent[]>([]);
   const [counts, setCounts]   = useState<Record<string, number>>({});

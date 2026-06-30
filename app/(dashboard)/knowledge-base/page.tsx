@@ -23,6 +23,7 @@ import { EmptyIllustration } from '@/components/ui/empty-illustration';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
+import { useRequirePageRole } from '@/hooks/useRequirePageRole';
 
 type Tab = 'documents' | 'sandbox' | 'ai-generate' | 'flagged';
 
@@ -100,6 +101,7 @@ const DOC_TYPES = [
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function KnowledgeBasePage() {
+  useRequirePageRole('knowledge-base');
   const [tab, setTab]           = useState<Tab>('documents');
   const workspaceId             = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
   const queryClient             = useQueryClient();

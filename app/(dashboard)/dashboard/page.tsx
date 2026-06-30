@@ -14,6 +14,8 @@ import { useWorkspaceStore } from '@/store/workspace.store';
 import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useCurrentRole } from '@/hooks/useCurrentRole';
+import { MyWorkDashboard } from '@/modules/dashboard/components/MyWorkDashboard';
 
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
@@ -181,12 +183,14 @@ export default function DashboardPage() {
   const workspace   = useWorkspaceStore((s) => s.activeWorkspace);
   const user        = useAuthStore((s) => s.user);
   const workspaceId = workspace?.id ?? '';
+  const { data: role } = useCurrentRole();
+  const isAgent = role === 'agent';
 
   const [stats,   setStats]   = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!workspaceId || isAgent) return;
     setLoading(true);
     try {
       const res  = await fetch(`/api/dashboard-stats?workspaceId=${workspaceId}`);
@@ -207,6 +211,12 @@ export default function DashboardPage() {
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const name     = user?.full_name?.split(' ')[0] ?? 'there';
   const dateStr  = new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  // Agents get a focused "My Work" summary instead of the full workspace dashboard —
+  // matches the assignment-only data they can actually see under the new RLS isolation.
+  if (isAgent) {
+    return <MyWorkDashboard />;
+  }
 
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-background">

@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
     const { data: frBreached } = await db
       .from('conversations')
-      .select('id')
+      .select('id, assigned_agent_id')
       .eq('workspace_id', policy.workspace_id)
       .eq('status', 'open')
       .eq('sla_first_breach', false)
@@ -35,18 +35,21 @@ export async function GET(request: NextRequest) {
       .lt('created_at', frDeadline);
 
     if (frBreached && frBreached.length > 0) {
-      const ids = (frBreached as Array<{ id: string }>).map((c) => c.id);
+      const breachedRows = frBreached as Array<{ id: string; assigned_agent_id: string | null }>;
+      const ids = breachedRows.map((c) => c.id);
       await db.from('conversations').update({ sla_first_breach: true }).in('id', ids);
 
-      // Create notifications for agents
-      for (const convId of ids) {
+      // Notify the assigned agent — notifications.user_id is NOT NULL, so
+      // unassigned conversations have no one to notify here (nothing to insert).
+      for (const conv of breachedRows) {
+        if (!conv.assigned_agent_id) continue;
         await db.from('notifications').insert({
           workspace_id: policy.workspace_id,
+          user_id:      conv.assigned_agent_id,
           type:         'sla_breach',
           title:        '⚠️ SLA Breach — First Response',
           body:         'A conversation has exceeded the first response SLA.',
-          entity_type:  'conversation',
-          entity_id:    convId,
+          data:         { conversation_id: conv.id },
         }).catch(() => {});
       }
       breachMarked += ids.length;

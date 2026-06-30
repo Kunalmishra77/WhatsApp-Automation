@@ -19,8 +19,10 @@ import { FLOW_TEMPLATES } from '@/lib/flow-templates';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useRequirePageRole } from '@/hooks/useRequirePageRole';
 
 export default function FlowsPage() {
+  useRequirePageRole('flows');
   const router = useRouter();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
   const { data: flows = [], isLoading } = useFlows();

@@ -13,20 +13,24 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { UserPlus, BarChart2, Users2, Shuffle, Mail } from 'lucide-react';
+import { UserPlus, BarChart2, Users2, Shuffle, Mail, X, RotateCw, Trash2, Clock, ShieldCheck } from 'lucide-react';
+import { AgentPageAccess } from '../AgentPageAccess';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { useTeam, useUpdateMemberRole } from '../../hooks/useTeam';
+import {
+  useTeam, useUpdateMemberRole, useRemoveMember,
+  usePendingInvites, useRevokeInvite, useResendInvite,
+} from '../../hooks/useTeam';
 import { ROLE_LABELS, ROLE_COLORS } from '../../services/team.service';
 import type { Database } from '@/types/database.types';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/store/auth.store';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useWorkspaceStore } from '@/store/workspace.store';
 
 type UserRole = Database['public']['Tables']['workspace_members']['Row']['role'];
@@ -40,8 +44,15 @@ interface WorkloadAgent {
 export function TeamPage() {
   const { data: members = [], isLoading } = useTeam();
   const updateRole    = useUpdateMemberRole();
+  const removeMember  = useRemoveMember();
   const currentUserId = useAuthStore((s) => s.user?.id);
   const workspaceId   = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
+
+  const { data: pendingInvites = [], isLoading: invitesLoading } = usePendingInvites();
+  const revokeInvite = useRevokeInvite();
+  const resendInvite  = useResendInvite();
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const [inviteOpen,  setInviteOpen]  = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -62,6 +73,7 @@ export function TeamPage() {
       toast.success(data.message ?? 'Invitation sent!');
       setInviteOpen(false);
       setInviteEmail('');
+      void queryClient.invalidateQueries({ queryKey: ['team-invites', workspaceId] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to send invite');
     } finally {
@@ -124,6 +136,7 @@ export function TeamPage() {
         <TabsList className="shrink-0 mx-6 mt-3 w-fit">
           <TabsTrigger value="members" className="gap-1.5 text-xs"><Users2 className="h-3.5 w-3.5" />Members</TabsTrigger>
           <TabsTrigger value="workload" className="gap-1.5 text-xs"><BarChart2 className="h-3.5 w-3.5" />Workload</TabsTrigger>
+          <TabsTrigger value="access" className="gap-1.5 text-xs"><ShieldCheck className="h-3.5 w-3.5" />Page Access</TabsTrigger>
         </TabsList>
 
         <TabsContent value="workload" className="flex-1 overflow-auto p-6 space-y-4">
@@ -186,6 +199,57 @@ export function TeamPage() {
         </TabsContent>
 
         <TabsContent value="members" className="flex-1 overflow-auto">
+        {(!invitesLoading && pendingInvites.length > 0) && (
+          <div className="border-b border-border bg-amber-50/50 px-4 sm:px-6 py-3">
+            <p className="text-xs font-semibold text-amber-700 mb-2 flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5" /> Pending Invites ({pendingInvites.length})
+            </p>
+            <div className="space-y-1.5">
+              {pendingInvites.map((inv) => (
+                <div key={inv.id} className="flex items-center justify-between gap-3 rounded-lg bg-white border border-amber-200 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{inv.email}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {ROLE_LABELS[inv.role]} · invited {formatDistanceToNow(new Date(inv.created_at), { addSuffix: true })} · expires {formatDistanceToNow(new Date(inv.expires_at), { addSuffix: true })}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1"
+                      disabled={resendingId === inv.id}
+                      onClick={async () => {
+                        setResendingId(inv.id);
+                        try {
+                          await resendInvite.mutateAsync({ inviteId: inv.id, workspaceId });
+                          toast.success('Invite resent');
+                        } catch {
+                          toast.error('Failed to resend invite');
+                        } finally {
+                          setResendingId(null);
+                        }
+                      }}
+                    >
+                      <RotateCw className="h-3 w-3" /> Resend
+                    </Button>
+                    <Button
+                      size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1 text-destructive hover:text-destructive"
+                      onClick={async () => {
+                        try {
+                          await revokeInvite.mutateAsync(inv.id);
+                          toast.success('Invite revoked');
+                        } catch {
+                          toast.error('Failed to revoke invite');
+                        }
+                      }}
+                    >
+                      <X className="h-3 w-3" /> Revoke
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <Table>
           <TableHeader className="sticky top-0 bg-card z-10">
             <TableRow>
@@ -195,13 +259,14 @@ export function TeamPage() {
               <TableHead className="hidden sm:table-cell">Status</TableHead>
               <TableHead className="hidden md:table-cell">Max Chats</TableHead>
               <TableHead className="hidden lg:table-cell">Joined</TableHead>
+              <TableHead className="w-10"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading
               ? Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 6 }).map((__, j) => (
+                    {Array.from({ length: 7 }).map((__, j) => (
                       <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                     ))}
                   </TableRow>
@@ -267,11 +332,34 @@ export function TeamPage() {
                       <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
                         {format(new Date(m.joined_at), 'MMM d, yyyy')}
                       </TableCell>
+                      <TableCell>
+                        {!isSelf && (
+                          <Button
+                            size="icon" variant="ghost"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            disabled={removeMember.isPending}
+                            onClick={() => {
+                              if (confirm(`Remove ${m.full_name} from this workspace?`)) {
+                                removeMember.mutate(m.member_id, {
+                                  onSuccess: () => toast.success('Member removed'),
+                                  onError: (e) => toast.error(e instanceof Error ? e.message : 'Failed to remove member'),
+                                });
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
                   );
                 })}
           </TableBody>
         </Table>
+        </TabsContent>
+
+        <TabsContent value="access" className="flex-1 overflow-auto">
+          <AgentPageAccess />
         </TabsContent>
       </Tabs>
 
