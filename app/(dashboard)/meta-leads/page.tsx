@@ -51,9 +51,11 @@ export default function MetaLeadsPage() {
 
   function handleExport() {
     const exp = new URLSearchParams();
+    if (platform !== 'all') exp.set('platform', platform);
+    if (status   !== 'all') exp.set('status',   status);
     if (from) exp.set('from', from);
     if (to)   exp.set('to',   to);
-    window.location.href = `/api/meta-leads/export?${exp}`;
+    window.open(`/api/meta-leads/export?${exp}`, '_blank');
   }
 
   const platformColor = (p: string) =>

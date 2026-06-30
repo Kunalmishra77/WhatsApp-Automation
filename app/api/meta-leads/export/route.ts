@@ -20,8 +20,10 @@ export async function GET(req: NextRequest) {
 
   const workspaceId: string = member.workspace_id;
   const { searchParams } = new URL(req.url);
-  const from = searchParams.get('from');
-  const to   = searchParams.get('to');
+  const from     = searchParams.get('from');
+  const to       = searchParams.get('to');
+  const platform = searchParams.get('platform'); // 'facebook' | 'instagram'
+  const status   = searchParams.get('status');   // 'open' | 'resolved'
 
   let q = (supabase as any)
     .from('conversations')
@@ -35,43 +37,57 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false })
     .limit(5000);
 
-  if (from) q = q.gte('created_at', from);
-  if (to)   q = q.lte('created_at', to + 'T23:59:59Z');
+  if (from)     q = q.gte('created_at', from);
+  if (to)       q = q.lte('created_at', to + 'T23:59:59Z');
+  if (status)   q = q.eq('status', status);
+  // platform is stored inside meta->ad_source->platform; filter in JS after fetch
 
-  const { data: rows, error } = await q;
+  const { data: rawRows, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // Platform filter applied in JS (JSONB nested field not filterable via PostgREST)
+  const rows = platform
+    ? (rawRows ?? []).filter((r: any) => (r.meta?.ad_source?.platform ?? 'facebook') === platform)
+    : (rawRows ?? []);
+
   const headers = [
-    'Name', 'Phone', 'Platform', 'Ad Headline', 'Ad Body', 'Ad ID',
+    'Name', 'Phone', 'Platform', 'Ad Headline', 'Ad Body', 'Ad ID', 'Source',
     'First Message', 'Conversation Date', 'Status',
   ];
 
-  const csvRows = (rows ?? []).map((row: any) => {
+  const csvRows = rows.map((row: any) => {
     const ad = row.meta?.ad_source ?? {};
     const firstMsg = (row.messages ?? [])
       .filter((m: any) => m.direction === 'inbound')
       .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
 
     return [
-      row.contact?.name       ?? '',
-      row.contact?.phone      ?? '',
-      ad.platform             ?? 'facebook',
-      ad.headline             ?? '',
-      ad.body                 ?? '',
-      ad.ad_id                ?? '',
-      firstMsg?.content       ?? '',
+      row.contact?.name            ?? '',
+      row.contact?.phone           ?? '',
+      ad.platform                  ?? 'facebook',
+      ad.headline                  ?? '',
+      ad.body                      ?? '',
+      ad.ad_id                     ?? '',
+      ad.source                    ?? '',   // 'referral' | 'prefill_match' | 'prefill_backfill'
+      firstMsg?.content            ?? '',
       row.created_at?.slice(0, 10) ?? '',
-      row.status              ?? '',
+      row.status                   ?? '',
     ];
   });
 
   const csv = toCSV(headers, csvRows);
   const date = new Date().toISOString().slice(0, 10);
+  const parts = ['meta-leads', date];
+  if (platform) parts.push(platform);
+  if (status)   parts.push(status);
+  if (from)     parts.push(`from-${from}`);
+  if (to)       parts.push(`to-${to}`);
+  const filename = parts.join('_') + '.csv';
 
   return new NextResponse(csv, {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="meta-leads-${date}.csv"`,
+      'Content-Disposition': `attachment; filename="${filename}"`,
     },
   });
 }
