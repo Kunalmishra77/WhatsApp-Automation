@@ -40,7 +40,12 @@ export function useConversations(status = 'all', channel = 'all') {
         event: 'INSERT', schema: 'public', table: 'messages',
         filter: `workspace_id=eq.${workspaceId}`,
       }, refresh)
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.warn(`[useConversations] realtime channel ${status} for workspace ${workspaceId}`);
+          refresh();
+        }
+      });
 
     return () => { supabase.removeChannel(channel); };
   }, [workspaceId, queryClient]);

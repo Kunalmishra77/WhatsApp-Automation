@@ -51,7 +51,14 @@ export function useMessages(conversationId: string) {
           );
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        // Realtime can fail silently (CHANNEL_ERROR/TIMED_OUT) with no other signal —
+        // log it and refetch once so the conversation doesn't appear stuck.
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.warn(`[useMessages] realtime channel ${status} for conversation ${conversationId}`);
+          void queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
+        }
+      });
 
     return () => { supabase.removeChannel(channel); };
   }, [conversationId, queryClient]);

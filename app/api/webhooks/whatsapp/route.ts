@@ -2042,7 +2042,7 @@ function extractProductKeywords(
     ...history.slice(-2).map((m) => m.content),
   ].join(' ').toLowerCase();
 
-  // Broader context for fallback + gender detection (last 4 messages)
+  // Broader context for product-name fallback only (last 4 messages, any role)
   const broaderText = [
     customerMessage,
     ...history.slice(-4).map((m) => m.content),
@@ -2054,9 +2054,15 @@ function extractProductKeywords(
     specificFound = SPECIFIC_PRODUCT_KEYWORDS.filter((kw) => broaderText.includes(kw));
   }
 
-  // Step 2: Detect gender from broader context to narrow down Men/Women variants
-  const isMale   = /\b(male|man|men|boy|gents|bhai|sir)\b/.test(broaderText);
-  const isFemale = /\b(female|woman|women|girl|ladies|madam|didi|ma'am|mam)\b/.test(broaderText);
+  // Step 2: Detect gender ONLY from the customer's own words (user role + current message).
+  // Bot questions like "Male or Female?" contain both words — including assistant
+  // messages here would make isMale and isFemale both true and cancel the filter out.
+  const genderText = [
+    customerMessage,
+    ...history.slice(-6).filter((m) => m.role === 'user').map((m) => m.content),
+  ].join(' ').toLowerCase();
+  const isMale   = /\b(male|man|men|boy|gents|bhai|sir)\b/.test(genderText);
+  const isFemale = /\b(female|woman|women|girl|ladies|madam|didi|ma'am|mam)\b/.test(genderText);
 
   if (specificFound.length > 0) {
     const keywords = [...specificFound];
