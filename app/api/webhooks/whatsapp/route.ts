@@ -1137,8 +1137,14 @@ async function sendAutoReply(
     if (mediaItems.length > 0) {
       const token = ws.access_token.replace(/﻿/g, '').trim();
 
+      // Tell the AI the product image(s) were just sent above, so it writes a short
+      // supportive follow-up (price/next-step) instead of promising to send one later
+      // or claiming it "can't send images directly" — both confuse the customer.
+      const sentProductNames = mediaItems.slice(0, 3).map((m) => m.filename).join(', ');
+      const imageContextPrompt = `${customerMessage}\n\n[SYSTEM: You just sent the customer the product image(s) for: ${sentProductNames}. Do NOT say you will send an image or that you can't send images — they were already delivered above. Write a brief, friendly follow-up: confirm what they're seeing and ask if they'd like pricing or to proceed.]`;
+
       // Start AI reply generation in parallel with image uploads — saves 2-4 seconds
-      const aiReplyPromise = getAIReply(customerMessage, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+      const aiReplyPromise = getAIReply(imageContextPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
 
       // Upload + send images (while AI is thinking in parallel)
       let sentCount = 0;
@@ -2022,10 +2028,10 @@ function detectImageIntent(message: string): true | null {
   return IMAGE_KEYWORDS_LIST.some((phrase) => lower.includes(phrase)) ? true : null;
 }
 
-// Extract product keywords from recent conversation for image search.
-// Strategy: check last 2 messages for specific product names first.
-// Only fall back to generic category words if nothing specific is found.
-// This prevents "hair" from a greeting message matching VOLUMM when user is asking about SIMLAR.
+// Extract product keywords AND gender context from recent conversation for image search.
+// Strategy: specific product names first, then gender (men/women) to disambiguate variants.
+// Gender context matters because products like VOLUMM ship in separate Men/Women SKUs —
+// without it, a search for "volumm" matches both and sends the wrong one alongside the right one.
 function extractProductKeywords(
   history: Array<{ role: 'user' | 'assistant'; content: string }>,
   customerMessage: string,
@@ -2036,21 +2042,39 @@ function extractProductKeywords(
     ...history.slice(-2).map((m) => m.content),
   ].join(' ').toLowerCase();
 
-  // Step 1: Look for SPECIFIC product names in recent messages
-  const specificFound = SPECIFIC_PRODUCT_KEYWORDS.filter((kw) => recentText.includes(kw));
-  if (specificFound.length > 0) return specificFound;
-
-  // Step 2: Expand to last 4 messages for specific names
+  // Broader context for fallback + gender detection (last 4 messages)
   const broaderText = [
     customerMessage,
     ...history.slice(-4).map((m) => m.content),
   ].join(' ').toLowerCase();
-  const broaderSpecific = SPECIFIC_PRODUCT_KEYWORDS.filter((kw) => broaderText.includes(kw));
-  if (broaderSpecific.length > 0) return broaderSpecific;
 
-  // Step 3: Only now try generic words — but still only in recent 2 messages
+  // Step 1: Look for SPECIFIC product names in recent 2 messages, expand to 4 if none found
+  let specificFound = SPECIFIC_PRODUCT_KEYWORDS.filter((kw) => recentText.includes(kw));
+  if (specificFound.length === 0) {
+    specificFound = SPECIFIC_PRODUCT_KEYWORDS.filter((kw) => broaderText.includes(kw));
+  }
+
+  // Step 2: Detect gender from broader context to narrow down Men/Women variants
+  const isMale   = /\b(male|man|men|boy|gents|bhai|sir)\b/.test(broaderText);
+  const isFemale = /\b(female|woman|women|girl|ladies|madam|didi|ma'am|mam)\b/.test(broaderText);
+
+  if (specificFound.length > 0) {
+    const keywords = [...specificFound];
+    if (isMale && !isFemale)   keywords.push('men');
+    if (isFemale && !isMale)   keywords.push('women');
+    return keywords;
+  }
+
+  // Step 3: Only try generic words if no specific product found — still only recent 2 msgs
   const genericFound = GENERIC_PRODUCT_KEYWORDS.filter((kw) => recentText.includes(kw));
-  return genericFound;
+  if (genericFound.length > 0) {
+    const keywords = [...genericFound];
+    if (isMale && !isFemale)   keywords.push('men');
+    if (isFemale && !isMale)   keywords.push('women');
+    return keywords;
+  }
+
+  return [];
 }
 
 // Tags that identify payment/scanner images — never show these as product images
@@ -2079,13 +2103,34 @@ async function searchMediaLibrary(
         .eq('media_type', 'image')
         .overlaps('tags', keywords)
         .order('created_at', { ascending: false })
-        .limit(5);
+        .limit(10);
 
-      const filtered = filterOut(tagResults);
+      let filtered = filterOut(tagResults);
+
+      // Disambiguate gender variants: if keywords include 'men'/'women', exclude the
+      // opposite-gender tag instead of sending both (e.g. VOLUMM Men + VOLUMM Women).
+      const wantsMen   = keywords.includes('men');
+      const wantsWomen = keywords.includes('women');
+      if (wantsMen && !wantsWomen) {
+        filtered = filtered.filter((r) => !(r.tags ?? []).includes('women'));
+      } else if (wantsWomen && !wantsMen) {
+        filtered = filtered.filter((r) => !(r.tags ?? []).includes('men'));
+      }
+
+      // Rank by number of matching keywords (most relevant first), then take top 2
+      filtered = filtered
+        .map((r) => ({ row: r, score: (r.tags ?? []).filter((t) => keywords.includes(t)).length }))
+        .sort((a, b) => b.score - a.score)
+        .map((x) => x.row)
+        .slice(0, 2);
+
       if (filtered.length) return filtered;
 
-      // 2. Filename keyword search (each keyword tried separately)
+      // 2. Filename keyword search (each keyword tried separately).
+      // Skip gender words here — "men" is a substring of "women", so an ilike
+      // search would wrongly match the opposite-gender file.
       for (const kw of keywords) {
+        if (kw === 'men' || kw === 'women') continue;
         const { data: nameResults } = await (supabase as any)
           .from('media_library')
           .select('media_id, public_url, filename, media_type, tags')
@@ -2095,8 +2140,17 @@ async function searchMediaLibrary(
           .order('created_at', { ascending: false })
           .limit(3);
 
-        const filteredName = filterOut(nameResults);
-        if (filteredName.length) return filteredName;
+        let filteredName = filterOut(nameResults);
+
+        const wantsMen   = keywords.includes('men');
+        const wantsWomen = keywords.includes('women');
+        if (wantsMen && !wantsWomen) {
+          filteredName = filteredName.filter((r) => !/women/i.test(r.filename));
+        } else if (wantsWomen && !wantsMen) {
+          filteredName = filteredName.filter((r) => !/\bmen\b/i.test(r.filename));
+        }
+
+        if (filteredName.length) return filteredName.slice(0, 2);
       }
     }
 
