@@ -60,7 +60,7 @@ export async function POST() {
       // 3. Fetch the FIRST inbound message of this conversation
       const { data: msgs } = await db
         .from('messages')
-        .select('body, direction')
+        .select('content, direction')
         .eq('conversation_id', conv.id)
         .eq('direction', 'inbound')
         .order('created_at', { ascending: true })
@@ -68,7 +68,7 @@ export async function POST() {
 
       if (!msgs || msgs.length === 0) { skipped++; continue; }
 
-      const firstText = (msgs[0].body ?? '').trim().toLowerCase();
+      const firstText = (msgs[0].content ?? '').trim().toLowerCase();
       const matchedTemplate = prefillMap.get(firstText);
 
       if (!matchedTemplate) { skipped++; continue; }
