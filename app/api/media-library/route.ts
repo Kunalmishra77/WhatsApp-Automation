@@ -2,6 +2,39 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 
+// Auto-generate tags from a filename so image search works even without manual tagging.
+// Scans the filename for known product names and category words.
+function autoTagsFromFilename(filename: string): string[] {
+  const lower = filename.toLowerCase().replace(/\.[^.]+$/, '');
+  const tags: Set<string> = new Set(['product', 'catalog']);
+
+  const PRODUCT_MAP: string[] = [
+    'simlar', 'neck-lyte', 'necklyte', 'eye-lyte', 'eyelyte', 'revital', 'geluslim',
+    'volumm', 'inlyte', 'mamo plus', 'mamo firm', 'mamo', 'b-reduce', 'breduce',
+    'nip-lyte', 'niplyte', 'soft-nip', 'softnip', 'vg mist', 'vgmist',
+    'vg tone', 'vgtone', 'vg-lyte', 'vglyte', 'butt-shape', 'buttshape',
+    'butt-lyte', 'buttlyte', 'acnezyl', 'fair-u', 'fairu', 'nurum plus', 'nurum',
+    'arula', 'rejuve', 'night repair',
+    // category words
+    'hair', 'breast', 'nipple', 'vaginal', 'intimate', 'slimming', 'acne',
+    'neck', 'eye', 'stretch', 'skin', 'face', 'whitening', 'brightening',
+    'firming', 'regrowth', 'serum', 'cream', 'gel', 'oil', 'spray',
+    'scanner', 'payment', 'qr',
+  ];
+
+  for (const kw of PRODUCT_MAP) {
+    if (lower.includes(kw)) tags.add(kw);
+  }
+
+  // Remove product/catalog tags if it's a payment image
+  if (tags.has('scanner') || tags.has('payment') || tags.has('qr')) {
+    tags.delete('product');
+    tags.delete('catalog');
+  }
+
+  return [...tags];
+}
+
 // GET /api/media-library?workspaceId=&tag=product
 export async function GET(request: NextRequest) {
   try {
@@ -56,7 +89,10 @@ export async function POST(request: NextRequest) {
     const db = createAdminClient() as any;
 
     const displayName = filename || url.split('/').pop()?.split('?')[0] || 'media';
-    const normalizedTags = (tags ?? []).map((t) => t.toLowerCase().trim()).filter(Boolean);
+    const providedTags = (tags ?? []).map((t) => t.toLowerCase().trim()).filter(Boolean);
+
+    // Auto-generate tags from filename when none provided — ensures image search works correctly
+    const autoTags = providedTags.length > 0 ? providedTags : autoTagsFromFilename(displayName);
 
     // Upsert by URL
     const { data, error } = await db.from('media_library').upsert({
@@ -67,7 +103,7 @@ export async function POST(request: NextRequest) {
       media_type:   mediaType,
       mime_type:    mediaType === 'image' ? 'image/jpeg' : mediaType === 'video' ? 'video/mp4' : 'application/pdf',
       file_size:    0,
-      tags:         normalizedTags,
+      tags:         autoTags,
       description:  description ?? null,
     }, { onConflict: 'workspace_id,media_id' })
       .select('id, filename, media_id, public_url, media_type, tags, description, created_at')

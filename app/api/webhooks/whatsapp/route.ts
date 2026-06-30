@@ -1176,7 +1176,16 @@ async function sendAutoReply(
       return;
     }
 
-    // No matching images found — fall through to AI so workspace-specific persona handles it
+    // No matching images found — AI replies with a website redirect message
+    // (Never send random images; wrong images destroy trust)
+    {
+      const noImagePrompt = `${customerMessage}\n\n[SYSTEM: Customer is asking to see product images. You do NOT have the specific product image in your media library right now. Politely tell them you'll share it shortly OR direct them to your website/catalog to view all product images with photos. Use your persona's website URL if available. Do NOT make up an image URL. Keep it friendly and offer to answer any other questions about the product.]`;
+      const aiReply = await getAIReply(noImagePrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+      const textMsg = aiReply ?? `For detailed product images, please visit our website or catalog. Feel free to ask any questions about the product! 😊`;
+      await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, textMsg);
+      await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: textMsg });
+      return;
+    }
   }
   // ── End Image/Payment Intent ──────────────────────────────────────────────────
   // \u2500\u2500 End Image Intent \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -1985,17 +1994,25 @@ const IMAGE_KEYWORDS_LIST = [
   'pic dikhao', 'pic bhejo', 'kya kya hai', 'all products', 'sab products',
 ];
 
-// Known product name keywords — used to extract product context from message
-const PRODUCT_NAME_KEYWORDS = [
+// Specific product codes — exact product names, highest priority for image search
+const SPECIFIC_PRODUCT_KEYWORDS = [
   'mamo plus', 'mamo firm', 'b-reduce', 'breduce', 'nip-lyte', 'niplyte',
   'soft-nip', 'softnip', 'vg mist', 'vgmist', 'vg tone', 'vgtone',
   'vg-lyte', 'vglyte', 'vagilyte', 'inlyte', 'butt-shape', 'buttshape',
-  'butt-lyte', 'buttlyte', 'acnezyl', 'fair-u', 'fairu', 'nurum plus',
+  'butt-lyte', 'buttlyte', 'acnezyl', 'fair-u', 'fairu', 'nurum plus', 'nurum',
   'neck-lyte', 'necklyte', 'eye-lyte', 'eyelyte', 'simlar', 'geluslim',
-  'volumm', 'arula', 'rejuve', 'revital',
-  'breast', 'mamo', 'nipple', 'vaginal', 'intimate', 'slimming', 'hair',
-  'acne', 'neck', 'eye', 'stretch',
+  'volumm', 'arula', 'rejuve', 'revital', 'mamo',
 ];
+
+// Generic category words — only used if NO specific product found in recent messages
+// These are too broad and can accidentally match unrelated products
+const GENERIC_PRODUCT_KEYWORDS = [
+  'breast', 'nipple', 'vaginal', 'intimate', 'slimming', 'hair',
+  'acne', 'neck', 'eye', 'stretch', 'skin', 'face',
+];
+
+// Keep for backward compatibility
+const PRODUCT_NAME_KEYWORDS = [...SPECIFIC_PRODUCT_KEYWORDS, ...GENERIC_PRODUCT_KEYWORDS];
 
 function detectImageIntent(message: string): true | null {
   const lower = message.toLowerCase().trim();
@@ -2005,18 +2022,35 @@ function detectImageIntent(message: string): true | null {
   return IMAGE_KEYWORDS_LIST.some((phrase) => lower.includes(phrase)) ? true : null;
 }
 
-// Extract product keywords from recent conversation history (last few bot messages)
+// Extract product keywords from recent conversation for image search.
+// Strategy: check last 2 messages for specific product names first.
+// Only fall back to generic category words if nothing specific is found.
+// This prevents "hair" from a greeting message matching VOLUMM when user is asking about SIMLAR.
 function extractProductKeywords(
   history: Array<{ role: 'user' | 'assistant'; content: string }>,
   customerMessage: string,
 ): string[] {
-  const combined = [
+  // Recent context = current message + last 2 messages only (not 6 — avoids stale product matches)
+  const recentText = [
     customerMessage,
-    ...history.slice(-6).map((m) => m.content),
+    ...history.slice(-2).map((m) => m.content),
   ].join(' ').toLowerCase();
 
-  const found = PRODUCT_NAME_KEYWORDS.filter((kw) => combined.includes(kw));
-  return found.length > 0 ? found : [];
+  // Step 1: Look for SPECIFIC product names in recent messages
+  const specificFound = SPECIFIC_PRODUCT_KEYWORDS.filter((kw) => recentText.includes(kw));
+  if (specificFound.length > 0) return specificFound;
+
+  // Step 2: Expand to last 4 messages for specific names
+  const broaderText = [
+    customerMessage,
+    ...history.slice(-4).map((m) => m.content),
+  ].join(' ').toLowerCase();
+  const broaderSpecific = SPECIFIC_PRODUCT_KEYWORDS.filter((kw) => broaderText.includes(kw));
+  if (broaderSpecific.length > 0) return broaderSpecific;
+
+  // Step 3: Only now try generic words — but still only in recent 2 messages
+  const genericFound = GENERIC_PRODUCT_KEYWORDS.filter((kw) => recentText.includes(kw));
+  return genericFound;
 }
 
 // Tags that identify payment/scanner images — never show these as product images
@@ -2066,16 +2100,9 @@ async function searchMediaLibrary(
       }
     }
 
-    // 3. Final fallback: return all non-scanner images for this workspace (up to 5)
-    const { data: allImages } = await (supabase as any)
-      .from('media_library')
-      .select('media_id, public_url, filename, media_type, tags')
-      .eq('workspace_id', workspaceId)
-      .eq('media_type', 'image')
-      .order('created_at', { ascending: false })
-      .limit(20);
-
-    return filterOut(allImages).slice(0, 5);
+    // No match found — return empty so AI handles gracefully with text reply
+    // (Never send random images; that confuses the customer with wrong products)
+    return [];
   } catch {
     return [];
   }
