@@ -620,59 +620,93 @@ async function handleIncomingMessage(
   autoCreateOrUpdateLead(supabase as any, workspaceId, contact.id, conversation.id, content).catch(() => {});
 
   // ── Click-to-WhatsApp Ad Referral Detection — non-blocking ──────────────────
-  // When a customer clicks a Meta ad and opens WhatsApp, the webhook includes a
-  // `referral` object with campaign/ad metadata. Capture it once per conversation.
-  if (msg.referral?.source_type === 'ad') {
-    void (async () => {
-      try {
-        const adSource = {
-          headline:    msg.referral!.headline    ?? null,
-          body:        msg.referral!.body        ?? null,
-          ad_id:       msg.referral!.ads_fbid    ?? null,
-          ctwa_clid:   msg.referral!.ctwa_clid   ?? null,
-          source_url:  msg.referral!.source_url  ?? null,
+  // Two detection paths:
+  //   1. Meta referral object (present when user clicks a CTWA ad) — most reliable
+  //   2. Pre-fill text matching (client-registered texts from ad templates) — retroactive fallback
+  void (async () => {
+    try {
+      // Check if already tagged — skip both paths
+      const { data: conv } = await (supabase as any)
+        .from('conversations')
+        .select('meta')
+        .eq('id', conversation.id)
+        .single();
+      if (conv?.meta?.ad_source) return;
+
+      let adSource: Record<string, unknown> | null = null;
+
+      // Path 1: Meta referral object
+      if (msg.referral?.source_type === 'ad') {
+        adSource = {
+          headline:    msg.referral.headline    ?? null,
+          body:        msg.referral.body        ?? null,
+          ad_id:       msg.referral.ads_fbid    ?? null,
+          ctwa_clid:   msg.referral.ctwa_clid   ?? null,
+          source_url:  msg.referral.source_url  ?? null,
           platform:    'facebook',
           detected_at: new Date().toISOString(),
+          source:      'referral',
         };
+      }
 
-        // Store in conversations.meta (only if not already set — first message wins)
-        const { data: conv } = await (supabase as any)
-          .from('conversations')
-          .select('meta')
-          .eq('id', conversation.id)
-          .single();
-        if (!conv?.meta?.ad_source) {
-          await (supabase as any)
-            .from('conversations')
-            .update({ meta: { ...((conv?.meta as object) ?? {}), ad_source: adSource } })
-            .eq('id', conversation.id);
-        }
-
-        // Ensure "Meta Ad Lead" label exists in this workspace
-        await (supabase as any).from('workspace_labels').upsert(
-          { workspace_id: workspaceId, name: 'Meta Ad Lead', color: 'blue' },
-          { onConflict: 'workspace_id,name', ignoreDuplicates: true },
-        );
-
-        // Append label to conversation without overwriting other labels
-        await (supabase as any).rpc('append_conversation_label', {
-          p_conversation_id: conversation.id,
-          p_label: 'Meta Ad Lead',
-        });
-
-        // Update lead source if a lead was just created
-        await (supabase as any)
-          .from('leads')
-          .update({ source: 'meta_ad', tags: ['meta', 'facebook_ad'] })
-          .eq('contact_id', contact.id)
+      // Path 2: Pre-fill text matching (only if Path 1 didn't fire)
+      if (!adSource && content?.trim()) {
+        const { data: prefills } = await (supabase as any)
+          .from('meta_ad_prefill_messages')
+          .select('text, template_name')
           .eq('workspace_id', workspaceId);
 
-        console.log(`[AdLead] Captured Meta ad referral for conversation ${conversation.id} — ad_id: ${adSource.ad_id}`);
-      } catch (e) {
-        console.error('[AdLead] Failed to capture ad referral:', e);
+        if (prefills && prefills.length > 0) {
+          const normalised = content.trim().toLowerCase();
+          const match = (prefills as Array<{ text: string; template_name: string | null }>)
+            .find((p) => p.text.trim().toLowerCase() === normalised);
+          if (match) {
+            adSource = {
+              headline:    match.template_name ?? 'Meta Ad',
+              body:        null,
+              ad_id:       null,
+              ctwa_clid:   null,
+              source_url:  null,
+              platform:    'facebook',
+              detected_at: new Date().toISOString(),
+              source:      'prefill_match',
+            };
+          }
+        }
       }
-    })();
-  }
+
+      if (!adSource) return;
+
+      // Store ad_source in conversations.meta
+      await (supabase as any)
+        .from('conversations')
+        .update({ meta: { ...((conv?.meta as object) ?? {}), ad_source: adSource } })
+        .eq('id', conversation.id);
+
+      // Ensure "Meta Ad Lead" label exists in this workspace
+      await (supabase as any).from('workspace_labels').upsert(
+        { workspace_id: workspaceId, name: 'Meta Ad Lead', color: 'blue' },
+        { onConflict: 'workspace_id,name', ignoreDuplicates: true },
+      );
+
+      // Append label to conversation without overwriting other labels
+      await (supabase as any).rpc('append_conversation_label', {
+        p_conversation_id: conversation.id,
+        p_label: 'Meta Ad Lead',
+      });
+
+      // Update lead source if a lead was just created
+      await (supabase as any)
+        .from('leads')
+        .update({ source: 'meta_ad', tags: ['meta', 'facebook_ad'] })
+        .eq('contact_id', contact.id)
+        .eq('workspace_id', workspaceId);
+
+      console.log(`[AdLead] Detected ad conversation ${conversation.id} via ${adSource.source}`);
+    } catch (e) {
+      console.error('[AdLead] Detection failed:', e);
+    }
+  })();
 
   // ── VIP contact — skip bot, route straight to human agent ──────────────────
   if (contact.is_vip) {
