@@ -1,5 +1,8 @@
 import { createAdminClient } from '@/services/supabase/admin';
-import type { FlowNode, FlowEdge, ChatbotFlow } from '@/modules/flows/types';
+import type {
+  FlowNode, FlowEdge, ChatbotFlow,
+  QuestionNodeData, ConditionNodeData, ComparisonOperator,
+} from '@/modules/flows/types';
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -126,6 +129,36 @@ function matchesCondition(
     case 'contains':
     default:            return r.includes(k);
   }
+}
+
+export function parseNumberFromReply(reply: string): number {
+  const match = reply.match(/\d+/);
+  return match ? parseInt(match[0], 10) : 0;
+}
+
+export function compareNumeric(value: number, operator: ComparisonOperator, threshold: number): boolean {
+  switch (operator) {
+    case '>=': return value >= threshold;
+    case '>':  return value > threshold;
+    case '<':  return value < threshold;
+    case '<=': return value <= threshold;
+    case '==': return value === threshold;
+    case '!=': return value !== threshold;
+    default:   return false;
+  }
+}
+
+export function evaluateCondition(
+  data: ConditionNodeData,
+  incomingMessage: string,
+  context: Record<string, number>,
+): boolean {
+  if (data.conditionType === 'variable_compare') {
+    const variableName = data.variable ?? '';
+    const value = context[variableName] ?? 0;
+    return compareNumeric(value, data.operator ?? '>=', data.value ?? 0);
+  }
+  return matchesCondition(incomingMessage, data.keyword, data.matchType);
 }
 
 async function executeNode(
