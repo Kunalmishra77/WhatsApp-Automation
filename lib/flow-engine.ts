@@ -6,6 +6,10 @@ import type {
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
+// Context stores numeric values (used by condition nodes) AND raw text answers
+// (used for Google Sheets sync). Text answers use the key suffix `_text`.
+type FlowContext = Record<string, number | string>;
+
 async function sendWhatsAppMessage(
   phoneNumberId: string,
   accessToken: string,
@@ -154,14 +158,79 @@ export function compareNumeric(value: number, operator: ComparisonOperator, thre
 export function evaluateCondition(
   data: ConditionNodeData,
   incomingMessage: string,
-  context: Record<string, number>,
+  context: FlowContext,
 ): boolean {
   if (data.conditionType === 'variable_compare') {
     const variableName = data.variable ?? '';
-    const value = context[variableName] ?? 0;
+    const raw = context[variableName];
+    // Only numeric entries are used for comparisons; _text entries are skipped
+    const value = typeof raw === 'number' ? raw : 0;
     return compareNumeric(value, data.operator ?? '>=', data.value ?? 0);
   }
   return matchesCondition(incomingMessage, data.keyword, data.matchType);
+}
+
+// ── Off-topic inquiry detection ────────────────────────────────────────────────
+// When a flow is waiting on a question node, messages that look like questions
+// (rather than answers) are redirected so the session doesn't advance on
+// meaningless data. The same question is re-asked.
+const INQUIRY_PATTERN = /^(what|who|how|why|when|where|which|tell me|explain|kya\s|kaisa|kaise|kon\s|kyun|bata|mujhe bata|ye kya|ye kaisa)/i;
+
+function looksLikeOffTopicInquiry(message: string): boolean {
+  const m = message.trim();
+  return m.endsWith('?') || INQUIRY_PATTERN.test(m);
+}
+
+// ── Google Sheets notification ─────────────────────────────────────────────────
+// Fires when an assign_agent node completes. Checks if the workspace has a
+// `sheets_webhook_url` in its settings; if so, POSTs the captured answers.
+async function notifyGoogleSheets(
+  supabase: AdminClient,
+  workspaceId: string,
+  conversationId: string,
+  contactPhone: string,
+  context: FlowContext,
+): Promise<void> {
+  try {
+    const { data: ws } = await (supabase as any)
+      .from('workspaces')
+      .select('settings')
+      .eq('id', workspaceId)
+      .single();
+
+    const webhookUrl = (ws?.settings as Record<string, unknown> | null)?.sheets_webhook_url as string | undefined;
+    if (!webhookUrl) return;
+
+    const { data: contactRow } = await (supabase as any)
+      .from('contacts')
+      .select('name')
+      .eq('phone', contactPhone)
+      .eq('workspace_id', workspaceId)
+      .single();
+
+    const payload = {
+      timestamp:               new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+      phone:                   contactPhone,
+      name:                    (contactRow?.name as string | null) ?? '',
+      business_employee_count: context['employee_count_text'] ?? String(context['employee_count'] ?? ''),
+      attendance_method:       context['attendance_method_text'] ?? '',
+      calculator_person:       context['calculator_person_text'] ?? '',
+      calculation_time:        context['calculation_time_text'] ?? '',
+      demo_date:               context['demo_date_text'] ?? '',
+      demo_time:               context['demo_time_text'] ?? '',
+      demo_address:            context['demo_address_text'] ?? '',
+    };
+
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    console.log(`[FlowEngine] Google Sheets notified for conversation ${conversationId}`);
+  } catch (err) {
+    console.error('[FlowEngine] Google Sheets notification failed:', err);
+  }
 }
 
 async function executeNode(
@@ -176,7 +245,7 @@ async function executeNode(
   phoneNumberId: string,
   accessToken: string,
   contactPhone: string,
-  context: Record<string, number>,
+  context: FlowContext,
 ): Promise<boolean> {
   // Returns true = flow is still active (session should remain)
 
@@ -256,6 +325,8 @@ async function executeNode(
       // Set conversation to pending (human handoff)
       await (supabase as any).from('conversations').update({ status: 'pending' }).eq('id', conversationId);
       await endSession(supabase, sessionId);
+      // Notify Google Sheets if workspace has a webhook configured (fire-and-forget)
+      notifyGoogleSheets(supabase, workspaceId, conversationId, contactPhone, context).catch(() => {});
       return false;
     }
 
@@ -322,12 +393,28 @@ export async function processFlowForMessage(
         return false;
       }
 
-      // For question/condition nodes waiting for reply: advance
+      // For question nodes waiting for a reply: advance only if message looks like an answer.
+      // If the user sends an off-topic question instead, re-ask the current question
+      // and keep the session on this node so no data is lost.
       if (currentNode.type === 'question') {
         const qData = currentNode.data as QuestionNodeData;
-        let context = (session.context as Record<string, number>) ?? {};
+
+        if (looksLikeOffTopicInquiry(messageContent)) {
+          // Re-send the same question — session stays, no variable saved
+          const waId = await sendWhatsAppText(phoneNumberId, accessToken, contactPhone, qData.message);
+          await saveOutboundMessage(supabase, workspaceId, conversationId, qData.message, waId);
+          return true;
+        }
+
+        let context: FlowContext = (session.context as FlowContext) ?? {};
         if (qData.saveAsVariable) {
-          context = { ...context, [qData.saveAsVariable]: parseNumberFromReply(messageContent) };
+          context = {
+            ...context,
+            // Numeric value for condition nodes
+            [qData.saveAsVariable]:            parseNumberFromReply(messageContent),
+            // Raw text for Google Sheets and display
+            [`${qData.saveAsVariable}_text`]:  messageContent.trim(),
+          };
           await (supabase as any).from('flow_sessions').update({ context }).eq('id', session.id);
         }
         const next = findNextNode(nodes, edges, currentNodeId);
@@ -341,14 +428,14 @@ export async function processFlowForMessage(
           session.id as string, messageContent, phoneNumberId, accessToken, contactPhone, context,
         );
       } else if (currentNode.type === 'condition') {
-        const context = (session.context as Record<string, number>) ?? {};
+        const context: FlowContext = (session.context as FlowContext) ?? {};
         await executeNode(
           supabase, currentNode, nodes, edges, workspaceId, conversationId,
           session.id as string, messageContent, phoneNumberId, accessToken, contactPhone, context,
         );
       } else {
         // Shouldn't be waiting on other node types, just advance
-        const context = (session.context as Record<string, number>) ?? {};
+        const context: FlowContext = (session.context as FlowContext) ?? {};
         const next = findNextNode(nodes, edges, currentNodeId);
         if (next) {
           await updateSession(supabase, session.id as string, next.id);

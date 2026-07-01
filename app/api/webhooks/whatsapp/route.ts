@@ -250,13 +250,13 @@ async function handleIncomingMessage(
     contactId = existing.id as string;
   }
 
-  // Fetch contact flags needed for VIP routing
+  // Fetch contact flags needed for VIP routing and block check
   const { data: contactFlags } = await (supabase as any)
     .from('contacts')
-    .select('is_vip')
+    .select('is_vip, is_blocked')
     .eq('id', contactId)
     .single();
-  const contact = { id: contactId, is_vip: !!(contactFlags?.is_vip) };
+  const contact = { id: contactId, is_vip: !!(contactFlags?.is_vip), is_blocked: !!(contactFlags?.is_blocked) };
 
   // Check existing conversation status BEFORE upsert so we can reset bot_paused
   // when a resolved conversation gets a new inbound message (customer starting fresh).
@@ -504,6 +504,12 @@ async function handleIncomingMessage(
   // Block opted-out contacts from receiving AI replies
   if (optResult === 'blocked') {
     console.log(`[Webhook] Skipping opted-out contact ${waId}`);
+    return;
+  }
+
+  // Block contacts marked as blocked via the Contacts UI (is_blocked flag)
+  if (contact.is_blocked) {
+    console.log(`[Webhook] Skipping platform-blocked contact ${waId}`);
     return;
   }
   // ─────────────────────────────────────────────────────────────────────────────
