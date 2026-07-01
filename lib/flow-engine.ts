@@ -360,6 +360,13 @@ async function endSession(supabase: AdminClient, sessionId: string) {
   }).eq('id', sessionId);
 }
 
+// Returned by processFlowForMessage:
+//   true                     → flow fully handled (skip AI)
+//   false                    → no active flow / no trigger match (AI handles normally)
+//   { pendingQuestion:string }→ off-topic interruption in active flow; AI should answer
+//                               the user's question first, then re-ask pendingQuestion
+export type FlowHandleResult = true | false | { pendingQuestion: string };
+
 export async function processFlowForMessage(
   supabase: AdminClient,
   workspaceId: string,
@@ -369,7 +376,7 @@ export async function processFlowForMessage(
   phoneNumberId: string,
   accessToken: string,
   contactPhone: string,
-): Promise<boolean> {
+): Promise<FlowHandleResult> {
   try {
     // Check for active session
     const { data: session } = await (supabase as any)
@@ -400,10 +407,9 @@ export async function processFlowForMessage(
         const qData = currentNode.data as QuestionNodeData;
 
         if (looksLikeOffTopicInquiry(messageContent)) {
-          // Re-send the same question — session stays, no variable saved
-          const waId = await sendWhatsAppText(phoneNumberId, accessToken, contactPhone, qData.message);
-          await saveOutboundMessage(supabase, workspaceId, conversationId, qData.message, waId);
-          return true;
+          // Signal the webhook to let AI answer first, then re-ask this question.
+          // Session stays on the current node — no variable is saved, flow doesn't advance.
+          return { pendingQuestion: qData.message };
         }
 
         let context: FlowContext = (session.context as FlowContext) ?? {};

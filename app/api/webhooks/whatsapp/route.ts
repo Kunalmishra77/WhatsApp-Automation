@@ -258,6 +258,12 @@ async function handleIncomingMessage(
     .single();
   const contact = { id: contactId, is_vip: !!(contactFlags?.is_vip), is_blocked: !!(contactFlags?.is_blocked) };
 
+  // Blocked contacts are completely silenced — no message stored, no reply, no flow
+  if (contact.is_blocked) {
+    console.log(`[Webhook] Blocked contact ${waId} — message discarded before DB insert`);
+    return;
+  }
+
   // Check existing conversation status BEFORE upsert so we can reset bot_paused
   // when a resolved conversation gets a new inbound message (customer starting fresh).
   const { data: existingConv } = await (supabase as any)
@@ -501,15 +507,10 @@ async function handleIncomingMessage(
     return;
   }
 
-  // Block opted-out contacts from receiving AI replies
+  // Block opted-out contacts from receiving AI/bot replies
+  // (messages ARE stored for audit; is_blocked contacts are fully silenced earlier)
   if (optResult === 'blocked') {
     console.log(`[Webhook] Skipping opted-out contact ${waId}`);
-    return;
-  }
-
-  // Block contacts marked as blocked via the Contacts UI (is_blocked flag)
-  if (contact.is_blocked) {
-    console.log(`[Webhook] Skipping platform-blocked contact ${waId}`);
     return;
   }
   // ─────────────────────────────────────────────────────────────────────────────
@@ -590,6 +591,10 @@ async function handleIncomingMessage(
     .eq('id', workspaceId)
     .single();
 
+  // Hoisted: set inside the wsForRules block below, consumed after sendAutoReply
+  // which runs in a sibling block. String = the flow question to re-ask after AI replies.
+  let pendingFlowQuestion: string | null = null;
+
   if (wsForRules?.phone_number_id && wsForRules?.access_token) {
     // Strip BOM and whitespace from access_token — clients often copy-paste tokens
     // from Windows apps which prepend an invisible BOM (﻿) that breaks Meta API auth.
@@ -606,8 +611,9 @@ async function handleIncomingMessage(
       cleanToken,
     );
 
-    // Try flow engine first — structured conversation flows take priority
-    const flowHandled = await processFlowForMessage(
+    // Try flow engine first — structured conversation flows take priority.
+    // Returns: true = fully handled (skip AI) | false = no flow | { pendingQuestion } = off-topic
+    const flowResult = await processFlowForMessage(
       supabase,
       workspaceId,
       conversation.id,
@@ -618,7 +624,13 @@ async function handleIncomingMessage(
       waId,
     );
 
-    if (flowHandled) {
+    // Off-topic during an active flow: AI answers, then re-ask the pending question.
+    // pendingFlowQuestion is hoisted above — set here, consumed after sendAutoReply.
+    if (flowResult !== null && typeof flowResult === 'object' && 'pendingQuestion' in flowResult) {
+      pendingFlowQuestion = (flowResult as { pendingQuestion: string }).pendingQuestion;
+    }
+
+    if (flowResult === true) {
       console.log(`[Webhook] Flow handled message for conversation ${conversation.id}`);
       // Flow handled → still do lead scoring + sentiment but skip AI reply
       autoCreateOrUpdateLead(supabase as any, workspaceId, contact.id, conversation.id, content).catch(() => {});
@@ -851,9 +863,52 @@ async function handleIncomingMessage(
     // Build rich AI prompt for media messages so AI can reply contextually
     const aiPrompt = buildAiPrompt(msg, content);
     await sendAutoReply(supabase, waId, customerName, workspaceId, aiPrompt, conversation.id, contact.id, isEscalation, intentLabel, visionImageUrl);
+
   } else {
     console.log(`[AutoReply] Rate limited for contact ${contact.id} — skipping`);
   }
+
+  // Re-ask the pending flow question if the user asked an off-topic question mid-flow.
+  // Runs after AI has replied so the order is: AI answer → flow question.
+  if (pendingFlowQuestion && wsForRules?.phone_number_id && wsForRules?.access_token) {
+    await new Promise((r) => setTimeout(r, 800));
+    const reaskToken = (wsForRules.access_token as string).replace(/﻿/g, '').trim();
+    const reaskRes = await fetch(
+      `https://graph.facebook.com/v19.0/${wsForRules.phone_number_id}/messages`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${reaskToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: waId,
+          type: 'text',
+          text: { preview_url: false, body: pendingFlowQuestion },
+        }),
+      },
+    );
+    if (reaskRes.ok) {
+      const reaskData = await reaskRes.json() as { messages?: Array<{ id: string }> };
+      const now = new Date().toISOString();
+      await (supabase as any).from('messages').insert({
+        conversation_id: conversation.id,
+        workspace_id:    workspaceId,
+        sender_type:     'bot',
+        sender_id:       null,
+        direction:       'outbound',
+        type:            'text',
+        content:         pendingFlowQuestion,
+        status:          'sent',
+        whatsapp_msg_id: reaskData?.messages?.[0]?.id ?? null,
+        created_at:      now,
+      });
+      await (supabase as any).from('conversations').update({
+        last_message:    pendingFlowQuestion,
+        last_message_at: now,
+      }).eq('id', conversation.id);
+    }
+  }
+
   console.log(`[Webhook] Message from ${waId}: ${content}`);
 
   // ── Non-blocking sentiment update ───────────────────────────────────────────
