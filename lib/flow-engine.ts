@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/services/supabase/admin';
+import { callAI } from '@/lib/ai-client';
 import type {
   FlowNode, FlowEdge, ChatbotFlow,
   QuestionNodeData, ConditionNodeData, ComparisonOperator,
@@ -171,26 +172,42 @@ export function evaluateCondition(
 }
 
 // ── Off-topic inquiry detection ────────────────────────────────────────────────
-// Two-tier check:
-// Tier 1 — product name anywhere in message → always off-topic (no length/digit guard).
-//   Covers "Before I give you anything, tell me about what is pagarbook" etc.
-// Tier 2 — generic inquiry keywords with guards to avoid false positives on answers.
-//   e.g. "How about Monday?" should NOT be flagged, only "what is this software?" etc.
+// Uses AI to reliably classify whether the user's message answers the current
+// flow question or is asking something unrelated. Two fast paths skip the AI
+// call for unambiguous cases.
+async function isOffTopicReply(flowQuestion: string, userMessage: string): Promise<boolean> {
+  const m = userMessage.trim().toLowerCase();
 
-function looksLikeOffTopicInquiry(message: string): boolean {
-  const m = message.trim().toLowerCase();
+  // Fast path 1 — pure number or very short numeric reply → always an answer
+  if (/^\d+$/.test(m) || (/\d/.test(m) && m.length < 20)) return false;
 
-  // Tier 1: explicit product/company name → always an inquiry
+  // Fast path 2 — product name explicitly in message → always off-topic
   if (/\bpagarbook\b/i.test(m)) return true;
 
-  // Tier 2: generic inquiry keywords — apply guards first
-  if (/\d/.test(m)) return false;    // Contains digit → answering a count/time/date question
-  if (m.length > 80) return false;   // Very long → probably a description, not a bare question
-
-  // Only match patterns that are unambiguously a "tell me about this product" question
-  const GENERIC_INQUIRY =
-    /\b(software kya|app kya|features kya|price kya|cost kya|kitna paisa|kya hai ye|kya hota hai|what is this|tell me about this|how does this work|ye product kya|is software kya|company ke baare|product detail)\b/i;
-  return GENERIC_INQUIRY.test(m);
+  // AI classification for everything else (handles any language / phrasing)
+  try {
+    const result = await callAI(
+      [
+        {
+          role: 'system',
+          content:
+            'A chatbot is running a structured booking flow. Decide if the user\'s reply is answering the bot\'s question or asking something unrelated.\n' +
+            'Reply with ONLY the letter:\n' +
+            'A — reply answers (or attempts to answer) the bot\'s question\n' +
+            'B — reply is a new question, complaint, or completely off-topic',
+        },
+        {
+          role: 'user',
+          content: `Bot asked: "${flowQuestion}"\nUser replied: "${userMessage}"\n\nA or B?`,
+        },
+      ],
+      { model: 'openai/gpt-4o-mini', maxTokens: 3, temperature: 0 },
+    );
+    return result?.trim().toUpperCase().startsWith('B') ?? false;
+  } catch {
+    // On AI error: treat as a valid answer so the flow is never permanently stuck
+    return false;
+  }
 }
 
 // ── Google Sheets notification ─────────────────────────────────────────────────
@@ -418,7 +435,7 @@ export async function processFlowForMessage(
       if (currentNode.type === 'question') {
         const qData = currentNode.data as QuestionNodeData;
 
-        if (looksLikeOffTopicInquiry(messageContent)) {
+        if (await isOffTopicReply(qData.message, messageContent)) {
           // Signal the webhook to let AI answer first, then re-ask this question.
           // Session stays on the current node — no variable is saved, flow doesn't advance.
           return { pendingQuestion: qData.message };
