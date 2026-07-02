@@ -860,9 +860,14 @@ async function handleIncomingMessage(
       }
     }
 
-    // Build rich AI prompt for media messages so AI can reply contextually
+    // Build rich AI prompt for media messages so AI can reply contextually.
+    // When the user asked an off-topic question mid-flow, add a system note so the
+    // AI only answers that specific question and doesn't re-initiate the booking flow.
     const aiPrompt = buildAiPrompt(msg, content);
-    await sendAutoReply(supabase, waId, customerName, workspaceId, aiPrompt, conversation.id, contact.id, isEscalation, intentLabel, visionImageUrl);
+    const finalAiPrompt = pendingFlowQuestion
+      ? aiPrompt + '\n\n[SYSTEM: User is currently in an active booking flow. ONLY answer their question above. Do NOT ask about employee count, attendance, demo date/time/address, or initiate a booking — the automated flow is handling all of that.]'
+      : aiPrompt;
+    await sendAutoReply(supabase, waId, customerName, workspaceId, finalAiPrompt, conversation.id, contact.id, isEscalation, intentLabel, visionImageUrl);
 
   } else {
     console.log(`[AutoReply] Rate limited for contact ${contact.id} — skipping`);

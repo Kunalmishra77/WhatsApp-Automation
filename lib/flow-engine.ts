@@ -171,14 +171,18 @@ export function evaluateCondition(
 }
 
 // ── Off-topic inquiry detection ────────────────────────────────────────────────
-// When a flow is waiting on a question node, messages that look like questions
-// (rather than answers) are redirected so the session doesn't advance on
-// meaningless data. The same question is re-asked.
-const INQUIRY_PATTERN = /^(what|who|how|why|when|where|which|tell me|explain|kya\s|kaisa|kaise|kon\s|kyun|bata|mujhe bata|ye kya|ye kaisa)/i;
+// Only flags genuine product-knowledge questions — NOT answers that happen to
+// end with "?" or start with a question word (e.g. "Monday?", "How about Tuesday",
+// "Around 15?"). The previous pattern was too aggressive and caused the flow to
+// get stuck re-asking the same question when users sent normal answers.
+const OFF_TOPIC_KEYWORDS =
+  /\b(pagarbook|software|app\b|features?|pricing?|cost|kitna paisa|kya hai|kya hota|kya hain|what is|tell me about|how does it work|how do you|kaise kaam|ye kya hai|iska kya|kon si company|company kya|product kya|service kya|demo kya hota)\b/i;
 
 function looksLikeOffTopicInquiry(message: string): boolean {
-  const m = message.trim();
-  return m.endsWith('?') || INQUIRY_PATTERN.test(m);
+  const m = message.trim().toLowerCase();
+  if (/\d/.test(m)) return false;       // Contains digit → it's an answer (count, time, etc.)
+  if (m.length > 70) return false;      // Long message → substantive answer, not a bare question
+  return OFF_TOPIC_KEYWORDS.test(m);    // Only flag known product-inquiry keywords
 }
 
 // ── Google Sheets notification ─────────────────────────────────────────────────
