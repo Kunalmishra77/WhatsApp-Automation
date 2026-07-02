@@ -171,18 +171,26 @@ export function evaluateCondition(
 }
 
 // ── Off-topic inquiry detection ────────────────────────────────────────────────
-// Only flags genuine product-knowledge questions — NOT answers that happen to
-// end with "?" or start with a question word (e.g. "Monday?", "How about Tuesday",
-// "Around 15?"). The previous pattern was too aggressive and caused the flow to
-// get stuck re-asking the same question when users sent normal answers.
-const OFF_TOPIC_KEYWORDS =
-  /\b(pagarbook|software|app\b|features?|pricing?|cost|kitna paisa|kya hai|kya hota|kya hain|what is|tell me about|how does it work|how do you|kaise kaam|ye kya hai|iska kya|kon si company|company kya|product kya|service kya|demo kya hota)\b/i;
+// Two-tier check:
+// Tier 1 — product name anywhere in message → always off-topic (no length/digit guard).
+//   Covers "Before I give you anything, tell me about what is pagarbook" etc.
+// Tier 2 — generic inquiry keywords with guards to avoid false positives on answers.
+//   e.g. "How about Monday?" should NOT be flagged, only "what is this software?" etc.
 
 function looksLikeOffTopicInquiry(message: string): boolean {
   const m = message.trim().toLowerCase();
-  if (/\d/.test(m)) return false;       // Contains digit → it's an answer (count, time, etc.)
-  if (m.length > 70) return false;      // Long message → substantive answer, not a bare question
-  return OFF_TOPIC_KEYWORDS.test(m);    // Only flag known product-inquiry keywords
+
+  // Tier 1: explicit product/company name → always an inquiry
+  if (/\bpagarbook\b/i.test(m)) return true;
+
+  // Tier 2: generic inquiry keywords — apply guards first
+  if (/\d/.test(m)) return false;    // Contains digit → answering a count/time/date question
+  if (m.length > 80) return false;   // Very long → probably a description, not a bare question
+
+  // Only match patterns that are unambiguously a "tell me about this product" question
+  const GENERIC_INQUIRY =
+    /\b(software kya|app kya|features kya|price kya|cost kya|kitna paisa|kya hai ye|kya hota hai|what is this|tell me about this|how does this work|ye product kya|is software kya|company ke baare|product detail)\b/i;
+  return GENERIC_INQUIRY.test(m);
 }
 
 // ── Google Sheets notification ─────────────────────────────────────────────────
