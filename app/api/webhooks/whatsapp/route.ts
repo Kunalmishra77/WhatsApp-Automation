@@ -8,6 +8,7 @@ import { dispatchWebhookEvent } from '@/lib/outbound-webhook';
 import { checkAutoReplyLimit } from '@/lib/rate-limit';
 import { isWithinBusinessHours, type BusinessHoursConfig } from '@/app/api/business-hours/route';
 import { callAI } from '@/lib/ai-client';
+import { notifyWorkspaceSheets } from '@/lib/sheets-notify';
 import {
   categorizeMessage,
   fetchKnowledgeBaseContext,
@@ -809,6 +810,40 @@ async function handleIncomingMessage(
       .update({ status: 'pending' })
       .eq('id', conversation.id);
     console.log(`[Webhook] AI sentiment escalation detected for conversation ${conversation.id}`);
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // ── Action-event Google Sheets sync ─────────────────────────────────────────
+  // For any workspace that has `action_sheets_webhook_url` in its settings,
+  // log WhatsApp CTA button clicks and AI-detected complaints in real time.
+  //
+  // Trigger 1 — Template/interactive button tapped with a known CTA title
+  // Trigger 2 — intentLabel === 'complaint' (AI-categorized above)
+  {
+    const ACTION_CTАС = ['order now', 'book now', 'shop now', 'not interested', 'expert guidance'];
+    const btnTitle = (
+      (msg as any).interactive?.button_reply?.title ??
+      (msg as any).interactive?.list_reply?.title ??
+      (msg as any).button?.text ??
+      ''
+    ).toLowerCase();
+    const msgLower = content.toLowerCase().trim();
+
+    const matchedCTA = ACTION_CTАС.find((c) => btnTitle.includes(c) || msgLower === c);
+
+    if (matchedCTA || intentLabel === 'complaint') {
+      const actionLabel = matchedCTA
+        ? matchedCTA.replace(/\b\w/g, (ch) => ch.toUpperCase())
+        : 'Complaint';
+      notifyWorkspaceSheets(supabase, workspaceId, 'action_sheets_webhook_url', {
+        timestamp: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        phone:     waId,
+        name:      customerName,
+        action:    actionLabel,
+        message:   content.slice(0, 500),
+        source:    'WhatsApp Bot',
+      }).catch(() => {});
+    }
   }
   // ─────────────────────────────────────────────────────────────────────────────
 
