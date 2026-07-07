@@ -357,6 +357,37 @@ async function handleIncomingMessage(
     throw new Error(messageError.message);
   }
 
+  // ── Conversation log → Google Sheets (non-blocking) ───────────────────────
+  // Every inbound message is logged to the workspace's Google Sheet.
+  // Works for any workspace that has `sheets_webhook_url` (VMS) or
+  // `action_sheets_webhook_url` (Razorveda) in its settings.
+  // The Apps Script routes to the "All Conversations" tab via the `message_content` field.
+  {
+    const msgTypeLabel = msg.type === 'button'
+      ? 'Button'
+      : msg.type === 'interactive'
+      ? 'Button'
+      : msg.type === 'image'    ? 'Image'
+      : msg.type === 'audio'    ? 'Voice Note'
+      : msg.type === 'video'    ? 'Video'
+      : msg.type === 'document' ? 'Document'
+      : 'Text';
+    notifyWorkspaceSheets(
+      supabase,
+      workspaceId,
+      ['sheets_webhook_url', 'action_sheets_webhook_url'],
+      {
+        timestamp:       new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        phone:           waId,
+        name:            customerName,
+        message_content: content.slice(0, 500),
+        message_type:    msgTypeLabel,
+        source:          'WhatsApp',
+      },
+    ).catch(() => {});
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // Persist inbound media to permanent Supabase Storage in the background — the proxy
   // URL works immediately for display, but WhatsApp media IDs expire after ~30 days.
   // Swaps media_url to the permanent Storage URL once the upload finishes (non-blocking).

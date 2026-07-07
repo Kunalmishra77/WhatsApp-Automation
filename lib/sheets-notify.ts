@@ -2,12 +2,13 @@ import { createAdminClient } from '@/services/supabase/admin';
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
-// Generic function: reads a sheets webhook URL from workspace settings (any key)
-// and POSTs the payload to it. Fire-and-forget — caller should .catch(() => {}).
+// Reads workspace settings for the first matching key and POSTs payload to that URL.
+// Accepts a single key string or an array of keys (tries in order, uses first found).
+// Fire-and-forget — caller should .catch(() => {}).
 export async function notifyWorkspaceSheets(
   supabase: AdminClient,
   workspaceId: string,
-  settingsKey: string,
+  settingsKey: string | string[],
   payload: Record<string, string>,
 ): Promise<void> {
   const { data: ws } = await (supabase as any)
@@ -16,7 +17,9 @@ export async function notifyWorkspaceSheets(
     .eq('id', workspaceId)
     .single();
 
-  const webhookUrl = (ws?.settings as Record<string, unknown> | null)?.[settingsKey] as string | undefined;
+  const settings = (ws?.settings as Record<string, unknown> | null) ?? {};
+  const keys = Array.isArray(settingsKey) ? settingsKey : [settingsKey];
+  const webhookUrl = keys.map((k) => settings[k]).find(Boolean) as string | undefined;
   if (!webhookUrl) return;
 
   await fetch(webhookUrl, {
