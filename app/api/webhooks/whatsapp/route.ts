@@ -1276,53 +1276,79 @@ async function sendAutoReply(
   }
 
   // \u2500\u2500 Image Intent Detection \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-  // ── Payment Intent Detection ─────────────────────────────────────────────────
-  // When customer ready to pay → send scanner image from media library (if uploaded),
-  // then ALWAYS reply with payment instructions via AI.
-  if (!isEscalation && detectPaymentIntent(customerMessage)) {
-    console.log(`[PaymentIntent] detected for: "${customerMessage.slice(0, 60)}"`);
-    const scannerItems = await searchMediaLibrary(supabase, workspaceId, ['scanner', 'payment', 'qr'], false); // false = don't exclude payment images when searching FOR payment images
-    let scannerSent = false;
+  // ── Order Intent Detection (AI-powered) ──────────────────────────────────────
+  // Classifies: 'prepaid' (send scanner) | 'cod' (cash reply) | 'none' (skip)
+  // Uses conversation context so "lena hai" after discussing a product = order intent.
+  if (!isEscalation) {
+    const orderIntent = await classifyOrderIntent(customerMessage, conversationHistory);
 
-    if (scannerItems.length > 0) {
-      const scanner = scannerItems[0]!;
-      const scanRawUrl = scanner.public_url ?? scanner.media_id ?? '';
-      console.log(`[PaymentIntent] scanner found: ${scanRawUrl.slice(0, 60)}`);
-      if (scanRawUrl.startsWith('http')) {
-        const token = ws.access_token.replace(/﻿/g, '').trim();
-        const uploaded = await uploadMediaToWhatsApp(ws.phone_number_id, token, scanRawUrl);
-        if (uploaded) {
-          const scanRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              messaging_product: 'whatsapp', recipient_type: 'individual', to: toPhone,
-              type: uploaded.waType,
-              [uploaded.waType]: { id: uploaded.mediaId, caption: 'Payment QR / Scanner 📲' },
-            }),
-          });
-          const scanData = await scanRes.json() as { messages?: Array<{ id: string }> };
-          await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, {
-            type: 'image', content: 'Payment QR / Scanner', media_url: scanRawUrl,
-            whatsapp_msg_id: (scanData as any)?.messages?.[0]?.id,
-          });
-          scannerSent = true;
+    // Build a "don't repeat" note from recent bot replies to prevent same reply loop
+    const recentBotReplies = conversationHistory
+      .filter((m) => m.role === 'assistant')
+      .slice(-3)
+      .map((m) => m.content.slice(0, 200))
+      .join(' | ');
+    const noRepeatNote = recentBotReplies
+      ? `\n\n[SYSTEM NOTE: Your recent replies were: "${recentBotReplies.slice(0, 400)}". Do NOT repeat the same content. Give a DIFFERENT, FRESH response that moves the conversation forward.]`
+      : '';
+
+    if (orderIntent === 'prepaid') {
+      console.log(`[OrderIntent] prepaid — sending scanner + payment reply`);
+      const scannerItems = await searchMediaLibrary(supabase, workspaceId, ['scanner', 'payment', 'qr'], false);
+      let scannerSent = false;
+
+      if (scannerItems.length > 0) {
+        const scanner = scannerItems[0]!;
+        const scanRawUrl = scanner.public_url ?? scanner.media_id ?? '';
+        if (scanRawUrl.startsWith('http')) {
+          const token = ws.access_token.replace(/﻿/g, '').trim();
+          const uploaded = await uploadMediaToWhatsApp(ws.phone_number_id, token, scanRawUrl);
+          if (uploaded) {
+            const scanRes = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                messaging_product: 'whatsapp', recipient_type: 'individual', to: toPhone,
+                type: uploaded.waType,
+                [uploaded.waType]: { id: uploaded.mediaId, caption: 'Payment QR / Scanner 📲' },
+              }),
+            });
+            const scanData = await scanRes.json() as { messages?: Array<{ id: string }> };
+            await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, {
+              type: 'image', content: 'Payment QR / Scanner', media_url: scanRawUrl,
+              whatsapp_msg_id: (scanData as any)?.messages?.[0]?.id,
+            });
+            scannerSent = true;
+          }
         }
+      } else {
+        console.log(`[OrderIntent] no scanner in media library — sending payment instructions only`);
       }
-    } else {
-      console.log(`[PaymentIntent] no scanner image found in media library for workspace ${workspaceId} — sending payment instructions only`);
+
+      const paymentPrompt = (scannerSent
+        ? `${customerMessage}\n\n[SYSTEM: Scanner/QR image has been sent. Tell customer: scan QR and pay via UPI, then send screenshot of payment confirmation. Confirm order will be processed after payment verification within 5-6 working days.]`
+        : `${customerMessage}\n\n[SYSTEM: Customer wants to pay online. Provide complete payment instructions from your knowledge base (UPI ID, bank details). Tell them to send payment screenshot. Confirm order in 5-6 working days after payment verification.]`
+      ) + noRepeatNote;
+
+      const payMsg = await getAIReply(paymentPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+      if (payMsg) {
+        await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, payMsg);
+        await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: payMsg });
+      }
+      return;
     }
 
-    // Always send an AI payment reply — whether or not scanner image was available.
-    const paymentPrompt = scannerSent
-      ? `${customerMessage}\n\n[SYSTEM: Scanner/QR image has been sent. Now tell customer: exact amount to pay, scan QR and pay via UPI, send screenshot of payment confirmation. Also confirm order is placed and will be delivered in 5-6 working days after team verifies payment.]`
-      : `${customerMessage}\n\n[SYSTEM: Customer wants to place an order/pay. Provide complete payment instructions from your knowledge base (UPI ID, bank account details, or any payment method available). Tell them to send payment screenshot after paying. Confirm order will be processed after payment verification within 5-6 working days.]`;
-    const payMsg = await getAIReply(paymentPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
-    if (payMsg) {
-      await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, payMsg);
-      await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: payMsg });
+    if (orderIntent === 'cod') {
+      console.log(`[OrderIntent] COD — sending COD confirmation reply (no scanner)`);
+      const codPrompt = `${customerMessage}\n\n[SYSTEM: Customer wants Cash on Delivery (COD). Confirm their COD order warmly. Tell them: order will be placed, payment is collected at delivery, delivery takes 5-7 working days. Ask them to confirm their delivery address if not already given. Do NOT ask for any online payment or scanner.]${noRepeatNote}`;
+      const codMsg = await getAIReply(codPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+      if (codMsg) {
+        await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, codMsg);
+        await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: codMsg });
+      }
+      return;
     }
-    return;
+    // orderIntent === 'none' → fall through to image detection / regular AI
   }
 
   // ── Image Intent Detection ────────────────────────────────────────────────────
@@ -1403,8 +1429,16 @@ async function sendAutoReply(
   const escalationPrefix = isEscalation
     ? `[ESCALATION: Customer is frustrated and requesting human support or manager callback. Empathetically acknowledge their concern, share your team contact details (phone/email/website) exactly as specified in your persona, and assure them someone will follow up. Do NOT continue with sales pitch or product info.]\n\n`
     : '';
+
+  // Repeat-reply prevention: if the last 2 bot messages were identical or near-identical,
+  // inject a note so the AI gives a fresh, context-advancing reply.
+  const lastBotMsgs = conversationHistory.filter((m) => m.role === 'assistant').slice(-3);
+  const repeatNote = lastBotMsgs.length >= 2 && lastBotMsgs[lastBotMsgs.length - 1]?.content === lastBotMsgs[lastBotMsgs.length - 2]?.content
+    ? '\n\n[SYSTEM: You just sent the same reply twice. The customer is waiting for something NEW. Acknowledge what they said, ask a clarifying question, or provide different information to move the conversation forward.]'
+    : '';
+
   const message = (await getAIReply(
-    escalationPrefix + customerMessage,
+    escalationPrefix + customerMessage + repeatNote,
     name, kbContext, imageUrl, wsSettings, businessName, conversationHistory, intentLabel,
   )) ?? `Thanks for reaching out to ${businessName}! Our team received your message and will get back to you shortly.`;
 
@@ -2193,6 +2227,76 @@ const PAYMENT_KEYWORDS = [
 function detectPaymentIntent(message: string): boolean {
   const lower = message.toLowerCase();
   return PAYMENT_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+// COD keywords — if matched, customer wants cash payment (no scanner needed)
+const COD_KEYWORDS = [
+  'cod', 'cash on delivery', 'cash delivery', 'cash pe', 'cash payment',
+  'haath mein', 'haath pe', 'delivery pe dena', 'delivery par payment',
+  'delivery ke time', 'delivery pe payment', 'delivery wala', 'delivery mein pay',
+  'naqd', 'cash dena', 'cash dunga', 'cash de dunga', 'cash lunga',
+  'cash leke', 'cash chahiye', 'ulta mat karo', 'baad mein payment',
+  'pehle product', 'product aane ke baad', 'milne ke baad pay',
+];
+
+function detectCODIntent(message: string): boolean {
+  const lower = message.toLowerCase();
+  return COD_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+// AI-based order intent classification — understands context, not just keywords.
+// Returns: 'prepaid' | 'cod' | 'none'
+// Only called when a rough signal is detected (payment keyword OR buy/order language),
+// so it doesn't add latency to unrelated messages.
+async function classifyOrderIntent(
+  userMessage: string,
+  conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>,
+): Promise<'prepaid' | 'cod' | 'none'> {
+  const lower = userMessage.toLowerCase();
+
+  // Fast path: explicit COD keyword — no AI call needed
+  if (detectCODIntent(userMessage)) return 'cod';
+
+  // Fast path: no order/payment signal at all — skip AI call
+  const hasAnySignal =
+    detectPaymentIntent(userMessage) ||
+    /\b(order|book|buy|kharid|lena|chahiye|purchase|manga|mangvana|bhejdo|bhej do)\b/.test(lower);
+  if (!hasAnySignal) return 'none';
+
+  // AI classification with conversation context
+  try {
+    const recentContext = conversationHistory
+      .slice(-6)
+      .map((m) => `${m.role === 'user' ? 'Customer' : 'Bot'}: ${m.content.slice(0, 120)}`)
+      .join('\n');
+
+    const result = await callAI(
+      [
+        {
+          role: 'system',
+          content:
+            'Classify customer intent in a WhatsApp product ordering conversation.\n' +
+            'Reply with ONLY one letter:\n' +
+            'A — Customer wants to place an order and pay ONLINE (UPI, scanner, prepaid, digital)\n' +
+            'B — Customer wants CASH ON DELIVERY (COD, cash, haath mein, baad mein pay)\n' +
+            'C — Not placing an order right now (asking question, browsing, other)',
+        },
+        {
+          role: 'user',
+          content: `${recentContext ? `Recent conversation:\n${recentContext}\n\n` : ''}Customer\'s message: "${userMessage}"\n\nA, B, or C?`,
+        },
+      ],
+      { model: 'openai/gpt-4o-mini', maxTokens: 3, temperature: 0 },
+    );
+
+    const letter = result?.trim().toUpperCase().charAt(0);
+    if (letter === 'A') return 'prepaid';
+    if (letter === 'B') return 'cod';
+    return 'none';
+  } catch {
+    // Fallback to keyword on AI error
+    return detectPaymentIntent(userMessage) ? 'prepaid' : 'none';
+  }
 }
 
 // ── Image Intent Detection ────────────────────────────────────────────────────
