@@ -1277,12 +1277,17 @@ async function sendAutoReply(
 
   // \u2500\u2500 Image Intent Detection \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   // ── Payment Intent Detection ─────────────────────────────────────────────────
-  // When customer ready to pay → send scanner image from media library
+  // When customer ready to pay → send scanner image from media library (if uploaded),
+  // then ALWAYS reply with payment instructions via AI.
   if (!isEscalation && detectPaymentIntent(customerMessage)) {
+    console.log(`[PaymentIntent] detected for: "${customerMessage.slice(0, 60)}"`);
     const scannerItems = await searchMediaLibrary(supabase, workspaceId, ['scanner', 'payment', 'qr']);
+    let scannerSent = false;
+
     if (scannerItems.length > 0) {
       const scanner = scannerItems[0]!;
       const scanRawUrl = scanner.public_url ?? scanner.media_id ?? '';
+      console.log(`[PaymentIntent] scanner found: ${scanRawUrl.slice(0, 60)}`);
       if (scanRawUrl.startsWith('http')) {
         const token = ws.access_token.replace(/﻿/g, '').trim();
         const uploaded = await uploadMediaToWhatsApp(ws.phone_number_id, token, scanRawUrl);
@@ -1301,16 +1306,23 @@ async function sendAutoReply(
             type: 'image', content: 'Payment QR / Scanner', media_url: scanRawUrl,
             whatsapp_msg_id: (scanData as any)?.messages?.[0]?.id,
           });
+          scannerSent = true;
         }
       }
-      const paymentPrompt = `${customerMessage}\n\n[SYSTEM: Scanner/QR image has been sent. Now tell customer: exact amount to pay, scan QR and pay via UPI, send screenshot of payment confirmation. Also confirm order is placed and will be delivered in 5-6 working days after team verifies payment.]`;
-      const payMsg = await getAIReply(paymentPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
-      if (payMsg) {
-        await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, payMsg);
-        await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: payMsg });
-      }
-      return;
+    } else {
+      console.log(`[PaymentIntent] no scanner image found in media library for workspace ${workspaceId} — sending payment instructions only`);
     }
+
+    // Always send an AI payment reply — whether or not scanner image was available.
+    const paymentPrompt = scannerSent
+      ? `${customerMessage}\n\n[SYSTEM: Scanner/QR image has been sent. Now tell customer: exact amount to pay, scan QR and pay via UPI, send screenshot of payment confirmation. Also confirm order is placed and will be delivered in 5-6 working days after team verifies payment.]`
+      : `${customerMessage}\n\n[SYSTEM: Customer wants to place an order/pay. Provide complete payment instructions from your knowledge base (UPI ID, bank account details, or any payment method available). Tell them to send payment screenshot after paying. Confirm order will be processed after payment verification within 5-6 working days.]`;
+    const payMsg = await getAIReply(paymentPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+    if (payMsg) {
+      await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, payMsg);
+      await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: payMsg });
+    }
+    return;
   }
 
   // ── Image Intent Detection ────────────────────────────────────────────────────
@@ -2173,6 +2185,9 @@ const PAYMENT_KEYWORDS = [
   'order confirm', 'order karna hai', 'order kr', 'order kru',
   'buy karna', 'purchase karna', 'khareedna', 'le lena', 'book karna',
   'account number',
+  // CTA button clicks (exact button titles sent as message text)
+  'order now', 'book now', 'shop now', 'buy now',
+  'order karo', 'abhi order', 'order place',
 ];
 
 function detectPaymentIntent(message: string): boolean {
