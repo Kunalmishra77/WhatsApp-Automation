@@ -14,7 +14,6 @@ import {
 import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown, Bot, BotOff, Sparkles, Wand2, GitMerge, RefreshCw, FileText, Tag, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { createClient } from '@/services/supabase/client';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { useAssignAgent, useChangeStatus, useResolveConversation, useBotPause, useSummarize } from '../../hooks/useConversationActions';
 import type { ConversationWithContact } from '../../services/conversation.service';
@@ -32,11 +31,9 @@ interface ConversationHeaderProps {
 interface WorkspaceMember {
   user_id: string;
   role: string;
-  profiles: {
-    full_name: string;
-    email: string;
-    avatar_url: string | null;
-  } | null;
+  full_name: string | null;
+  email: string | null;
+  avatar_url: string | null;
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -94,27 +91,18 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
   const name = contact?.name ?? contact?.phone ?? 'Unknown';
   const initials = name.slice(0, 2).toUpperCase();
 
-  // Fetch workspace members for assign dropdown
+  // Fetch workspace members via server API (admin client bypasses profiles RLS)
   useEffect(() => {
     if (!workspaceId) return;
-    const supabase = createClient();
-    const fetchMembers = async () => {
-      const { data, error } = await (supabase as any)
-        .from('workspace_members')
-        .select('user_id, role, profiles(full_name, email, avatar_url)')
-        .eq('workspace_id', workspaceId);
-      if (!error && data) {
-        setMembers(data as WorkspaceMember[]);
-      }
-    };
-    void fetchMembers();
+    fetch(`/api/team/members?workspaceId=${workspaceId}`)
+      .then((r) => r.ok ? r.json() as Promise<{ members: WorkspaceMember[] }> : null)
+      .then((d) => { if (d?.members) setMembers(d.members); })
+      .catch(() => {});
   }, [workspaceId]);
 
   // Find assigned agent name
   const assignedMember = members.find((m) => m.user_id === conversation.assigned_agent_id);
-  const assignedName = assignedMember?.profiles?.full_name
-    ?? assignedMember?.profiles?.email
-    ?? null;
+  const assignedName = assignedMember?.full_name ?? assignedMember?.email ?? null;
 
   const handleAssign = (agentId: string | null) => {
     assignAgent.mutate(
@@ -265,7 +253,7 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
               </DropdownMenuItem>
             )}
             {members.map((member) => {
-              const memberName = member.profiles?.full_name ?? member.profiles?.email ?? member.user_id;
+              const memberName = member.full_name ?? member.email ?? member.user_id;
               const isAssigned = member.user_id === conversation.assigned_agent_id;
               return (
                 <DropdownMenuItem

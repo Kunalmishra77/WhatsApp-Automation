@@ -794,6 +794,60 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   // Final flush in case anything remains
   await flushRecipients();
 
+  // Reconcile failed count (race-condition fix):
+  // Meta webhooks can arrive BEFORE flushRecipients writes the campaign_recipients row.
+  // The webhook updates messages (always present) but finds no CR row => failed_count stays 0.
+  // After all flushes, scan messages for already-failed entries and correct CR rows.
+  try {
+    const { data: sentCRs } = await db
+      .from('campaign_recipients')
+      .select('id, whatsapp_msg_id')
+      .eq('campaign_id', campaignId)
+      .eq('status', 'sent')
+      .not('whatsapp_msg_id', 'is', null);
+
+    if (sentCRs && sentCRs.length > 0) {
+      const msgIds = (sentCRs as Array<{ id: string; whatsapp_msg_id: string }>)
+        .map((r) => r.whatsapp_msg_id).filter(Boolean);
+
+      if (msgIds.length > 0) {
+        const { data: failedMsgs } = await db
+          .from('messages')
+          .select('whatsapp_msg_id')
+          .in('whatsapp_msg_id', msgIds)
+          .eq("status", "failed");
+
+        if (failedMsgs && failedMsgs.length > 0) {
+          const failedIds = new Set((failedMsgs as Array<{ whatsapp_msg_id: string }>).map((m) => m.whatsapp_msg_id));
+          const crIdsToFail = (sentCRs as Array<{ id: string; whatsapp_msg_id: string }>)
+            .filter((r) => failedIds.has(r.whatsapp_msg_id))
+            .map((r) => r.id);
+
+          if (crIdsToFail.length > 0) {
+            await db.from('campaign_recipients').update({ status: 'failed' }).in('id', crIdsToFail);
+
+            const { data: allCRs } = await db
+              .from('campaign_recipients')
+              .select('status')
+              .eq('campaign_id', campaignId);
+            if (allCRs) {
+              const cr = allCRs as Array<{ status: string }>;
+              const reconciled_sent   = cr.filter((r) => r.status === 'sent').length;
+              const reconciled_failed = cr.filter((r) => r.status === 'failed').length;
+              await db.from('campaigns')
+                .update({ sent_count: reconciled_sent, failed_count: reconciled_failed })
+                .eq('id', campaignId);
+              sentCount   = reconciled_sent;
+              failedCount = reconciled_failed;
+            }
+          }
+        }
+      }
+    }
+  } catch (reconcileErr) {
+    console.warn('[Campaign] Failed-count reconciliation error (non-fatal):', reconcileErr);
+  }
+
   // â”€â”€ Create conversations + save outbound campaign messages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Campaign executor never wrote to messages table, so conversations appeared
   // empty in the platform. We batch-create them here after the send loop.

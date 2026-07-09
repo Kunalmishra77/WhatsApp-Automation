@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   User, Building2, MessageSquare, Shield, Clock,
-  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText, Camera, CalendarCheck, Megaphone,
+  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText, Camera, CalendarCheck, Megaphone, Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProfileSettings } from '../ProfileSettings';
@@ -34,6 +34,7 @@ import { WaFormsSettings } from '../WaFormsSettings';
 import { InstagramSettings } from '../InstagramSettings';
 import { GoogleCalendarSettings } from '../GoogleCalendarSettings';
 import { MetaAdsSettings } from '../MetaAdsSettings';
+import { RetentionSettings } from '../RetentionSettings';
 
 type SettingKey =
   | 'profile' | 'workspace' | 'branding' | 'billing'
@@ -41,7 +42,7 @@ type SettingKey =
   | 'instagram' | 'meta-ads'
   | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers' | 'auto-triggers'
   | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models' | 'google-calendar'
-  | 'audit-logs';
+  | 'audit-logs' | 'retention';
 
 interface NavSection {
   label: string;
@@ -98,7 +99,8 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Admin',
     items: [
-      { key: 'audit-logs', label: 'Audit Logs', icon: ScrollText },
+      { key: 'audit-logs', label: 'Audit Logs',      icon: ScrollText },
+      { key: 'retention',  label: 'Data Retention',  icon: Trash2 },
     ],
   },
 ];
@@ -131,6 +133,7 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'instagram':      <InstagramSettings />,
   'meta-ads':       <MetaAdsSettings />,
   'audit-logs':     <AuditLogs />,
+  'retention':      <RetentionSettings />,
 };
 
 export function SettingsLayout() {
