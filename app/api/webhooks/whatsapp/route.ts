@@ -1281,7 +1281,7 @@ async function sendAutoReply(
   // then ALWAYS reply with payment instructions via AI.
   if (!isEscalation && detectPaymentIntent(customerMessage)) {
     console.log(`[PaymentIntent] detected for: "${customerMessage.slice(0, 60)}"`);
-    const scannerItems = await searchMediaLibrary(supabase, workspaceId, ['scanner', 'payment', 'qr']);
+    const scannerItems = await searchMediaLibrary(supabase, workspaceId, ['scanner', 'payment', 'qr'], false); // false = don't exclude payment images when searching FOR payment images
     let scannerSent = false;
 
     if (scannerItems.length > 0) {
