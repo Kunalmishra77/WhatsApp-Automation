@@ -1279,6 +1279,33 @@ async function sendAutoReply(
   // ── Order Intent Detection (AI-powered) ──────────────────────────────────────
   // Classifies: 'prepaid' (send scanner) | 'cod' (cash reply) | 'none' (skip)
   // Uses conversation context so "lena hai" after discussing a product = order intent.
+
+  // -- Payment Screenshot Detection -------------------------------------------------
+  // If the user sends an image AND the bot recently mentioned payment/scanner/QR,
+  // treat this as a payment confirmation screenshot. Bot acknowledges receipt; team verifies.
+  if (!isEscalation && imageUrl) {
+    const PAYMENT_BOT_SIGNALS = ['scanner', 'qr', 'payment qr', 'scan kar', 'scan karo', 'upi', 'payment', 'pay karo', 'bhugtan', 'screenshot', 'send payment'];
+    const recentBotContent = conversationHistory
+      .filter((m) => m.role === 'assistant')
+      .slice(-5)
+      .map((m) => m.content.toLowerCase())
+      .join(' ');
+    const botMentionedPayment = PAYMENT_BOT_SIGNALS.some((kw) => recentBotContent.includes(kw));
+
+    if (botMentionedPayment) {
+      console.log('[PaymentScreenshot] image received after payment context — sending receipt confirmation');
+      const confirmPrompt =
+        customerName + ' ne payment screenshot bheja hai.' +
+        '\n\n[SYSTEM: Customer paid and sent a payment screenshot. Respond warmly in 2-3 lines: (1) confirm screenshot received (2) tell them team will verify payment within a few hours and then process the order (3) thank them for choosing us. Be brief and reassuring. Do NOT ask for more payment details.]';
+      const confirmMsg = await getAIReply(confirmPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+      if (confirmMsg) {
+        await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, confirmMsg);
+        await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: confirmMsg });
+      }
+      return;
+    }
+  }
+
   if (!isEscalation) {
     const orderIntent = await classifyOrderIntent(customerMessage, conversationHistory);
 
