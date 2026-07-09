@@ -40,7 +40,30 @@ export async function GET(request: NextRequest) {
     }
     if (!effectiveWorkspaceId) return NextResponse.json({ error: 'workspace not found' }, { status: 404 });
 
-    await requireWorkspacePermission(effectiveWorkspaceId, 'manage_contacts');
+    const ctx = await requireWorkspacePermission(effectiveWorkspaceId, 'manage_contacts');
+
+    // Agents may only download their own assigned contacts — not the full workspace list.
+    // admin / manager / super_admin get all contacts (unchanged behaviour).
+    let agentContactIds: string[] | null = null;
+    if (ctx.role === 'agent') {
+      const { data: assignedConvs } = await db
+        .from('conversations')
+        .select('contact_id')
+        .eq('workspace_id', effectiveWorkspaceId)
+        .eq('assigned_agent_id', ctx.userId);
+      agentContactIds = (assignedConvs ?? [])
+        .map((c: { contact_id: string }) => c.contact_id)
+        .filter(Boolean) as string[];
+      // Agent has no assigned conversations — return empty CSV
+      if (agentContactIds.length === 0) {
+        return new NextResponse('Name,Phone,Email,Company,Tags,Added\n', {
+          headers: {
+            'Content-Type':        'text/csv; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="contacts.csv"',
+          },
+        });
+      }
+    }
 
     const selectExpr = listId
       ? 'id, name, phone, email, company, tags, created_at, contact_list_members!inner(list_id)'
@@ -58,6 +81,8 @@ export async function GET(request: NextRequest) {
         .range(offset, offset + CHUNK - 1);
       if (listId) q = q.eq('contact_list_members.list_id', listId);
       if (search.trim()) q = q.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
+      // Agent scope: restrict to assigned contacts only
+      if (agentContactIds) q = q.in('id', agentContactIds);
       const { data: chunk } = await q;
       if (!chunk || chunk.length === 0) break;
       allRows = allRows.concat(chunk as Array<Record<string, unknown>>);
