@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
 import { loginSchema, signupSchema, forgotPasswordSchema } from '@/modules/auth/types';
 import {
   signInWithPassword,
@@ -11,6 +12,7 @@ import {
 } from '@/modules/auth/services/auth.service';
 import { getUserWorkspaces } from '@/modules/auth/services/workspace.service';
 import { ROUTES } from '@/lib/constants';
+import { SESSION_COOKIE_NAME } from '@/lib/session';
 import type { AuthActionResult } from '@/modules/auth/types';
 
 export async function loginAction(
@@ -25,7 +27,6 @@ export async function loginAction(
 
   let { user, error } = await signInWithPassword(parsed.data.email, parsed.data.password);
 
-  // If email not confirmed (old accounts), auto-confirm via admin and retry once
   if (!user && error === 'Please verify your email before signing in.') {
     try {
       const { createAdminClient } = await import('@/services/supabase/admin');
@@ -74,8 +75,6 @@ export async function signupAction(
   );
   if (error || !user) return { success: false, error: error ?? 'Sign up failed.' };
 
-  // Sign in immediately to create session cookie
-  // (admin createUser has no auto-session, need explicit signIn)
   await signInWithPassword(parsed.data.email, parsed.data.password);
 
   revalidatePath('/', 'layout');
@@ -96,6 +95,14 @@ export async function forgotPasswordAction(
 }
 
 export async function signOutAction(): Promise<void> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  if (token) {
+    const { deleteSession } = await import('@/lib/session');
+    await deleteSession(token);
+    cookieStore.delete(SESSION_COOKIE_NAME);
+  }
+
   await signOut();
   revalidatePath('/', 'layout');
   redirect(ROUTES.LOGIN);
