@@ -6,6 +6,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { MobileNav } from '@/components/layout/MobileNav';
 import { CommandPalette } from '@/components/layout/CommandPalette';
 import { PageTransition } from '@/components/layout/PageTransition';
+import { SessionHeartbeat } from '@/components/SessionHeartbeat';
 import { cn } from '@/lib/utils';
 
 interface AppShellProps {
@@ -17,6 +18,8 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-surface-secondary">
+      <SessionHeartbeat />
+
       {/* Desktop sidebar */}
       <div className="hidden md:flex md:shrink-0">
         <Sidebar />

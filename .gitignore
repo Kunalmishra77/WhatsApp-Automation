@@ -37,7 +37,7 @@ dev.log
 *.png
 !public/**/*.png
 
-# scripts/ folder contains DB credentials — NEVER commit
+# scripts/ folder contains DB credentials ï¿½ NEVER commit
 scripts/
 .pnpm-debug.log*
 
@@ -55,3 +55,5 @@ scripts/
 next-env.d.ts
 
 .vercel
+node_modules
+d:/WhatsApp-Automation/.superpowers/sdd/
