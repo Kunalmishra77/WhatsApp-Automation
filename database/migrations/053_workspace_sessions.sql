@@ -27,6 +27,7 @@ CREATE INDEX IF NOT EXISTS idx_ws_sessions_expires
 ALTER TABLE public.workspace_sessions ENABLE ROW LEVEL SECURITY;
 
 -- Block all direct client access — only service-role (admin) client may access this table.
+DROP POLICY IF EXISTS "sessions_deny_all_client_access" ON public.workspace_sessions;
 CREATE POLICY "sessions_deny_all_client_access"
   ON public.workspace_sessions
   FOR ALL
