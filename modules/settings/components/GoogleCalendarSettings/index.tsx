@@ -25,13 +25,19 @@ export function GoogleCalendarSettings() {
 
   useEffect(() => {
     if (!workspaceId) return;
+    setLoading(true);
     void (async () => {
       try {
-        const res  = await fetch(`/api/workspaces/${workspaceId}/settings`);
-        const data = await res.json() as { settings?: Record<string, unknown> };
-        const hasToken = !!(data?.settings?.google_calendar_refresh_token);
-        setConnected(hasToken);
-        setConnectedAt((data?.settings?.google_calendar_connected_at as string) ?? null);
+        const res = await fetch(
+          `/api/integrations/google-calendar/status?workspaceId=${workspaceId}`,
+        );
+        if (!res.ok) throw new Error(`Status check failed (${res.status})`);
+        const data = await res.json() as { connected: boolean; connectedAt: string | null };
+        setConnected(data.connected);
+        setConnectedAt(data.connectedAt);
+      } catch (err) {
+        console.error('[GCal] status check failed:', err);
+        toast.error('Could not check Google Calendar status. Refresh to retry.');
       } finally {
         setLoading(false);
       }
