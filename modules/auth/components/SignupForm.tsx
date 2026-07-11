@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { signupAction } from '@/app/actions/auth.actions';
 import type { AuthActionResult } from '@/modules/auth/types';
@@ -55,10 +56,9 @@ export function SignupForm() {
 
       <div className="space-y-1.5">
         <Label htmlFor="password">Password</Label>
-        <Input
+        <PasswordInput
           id="password"
           name="password"
-          type="password"
           autoComplete="new-password"
           placeholder="Min 8 chars, 1 uppercase, 1 number"
           required
@@ -68,10 +68,9 @@ export function SignupForm() {
 
       <div className="space-y-1.5">
         <Label htmlFor="confirm_password">Confirm password</Label>
-        <Input
+        <PasswordInput
           id="confirm_password"
           name="confirm_password"
-          type="password"
           autoComplete="new-password"
           placeholder="••••••••"
           required

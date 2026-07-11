@@ -30,6 +30,10 @@ export function ForgotPasswordForm() {
             We sent a password reset link. Check spam if you do not see it.
           </p>
         </div>
+        <p className="rounded-lg bg-muted px-3 py-2 text-label text-muted-foreground">
+          Open the link within 60 minutes and click it only once. Requesting
+          another email will make this link stop working.
+        </p>
         <Link
           href="/login"
           className="inline-block text-body-md font-medium text-brand-600 transition-colors hover:text-brand-700"

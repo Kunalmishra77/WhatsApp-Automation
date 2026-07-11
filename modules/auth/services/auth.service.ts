@@ -30,8 +30,12 @@ export async function signOut() {
 
 export async function resetPasswordForEmail(email: string) {
   const supabase = await createClient();
+  // redirectTo becomes {{ .RedirectTo }} in the "Reset Password" email template.
+  // The template must link to `{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=recovery`
+  // so the one-time token is only redeemed when the user submits the form
+  // (see app/(auth)/reset-password/page.tsx) — not when a mail scanner GETs it.
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${APP_URL}/api/auth/callback?next=/reset-password`,
+    redirectTo: `${APP_URL}/reset-password`,
   });
   if (error) return { error: friendlySupabaseError(error.message) };
   return { error: null };
