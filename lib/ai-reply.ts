@@ -209,32 +209,74 @@ export function extractButtonLabel(message: string): string | null {
   return m?.[1]?.trim() ?? null;
 }
 
-// ── Programmatic language detection — injected into user message so AI cannot ignore ──
-export function detectReplyLanguage(text: string): 'english' | 'hindi' | 'hinglish' | null {
+// ── Programmatic language detection — a reliability safety net injected into the
+// user message so the AI cannot default to English. Native scripts are detected
+// by Unicode range (robust, not keyword matching); romanized Latin text uses
+// heuristics for English vs Hinglish, and anything ambiguous is left to the model.
+export type ReplyLanguage =
+  | 'english' | 'hinglish' | 'devanagari' // devanagari = Hindi OR Marathi (same script)
+  | 'tamil' | 'telugu' | 'kannada' | 'bengali'
+  | null;
+
+// Unicode blocks for the supported native scripts. Devanagari covers both Hindi
+// and Marathi — they share the script, so the model decides which one.
+const NATIVE_SCRIPTS: Array<[Exclude<ReplyLanguage, null | 'english' | 'hinglish'>, RegExp]> = [
+  ['tamil',      /[஀-௿]/g],
+  ['telugu',     /[ఀ-౿]/g],
+  ['kannada',    /[ಀ-೿]/g],
+  ['bengali',    /[ঀ-৿]/g],
+  ['devanagari', /[ऀ-ॿ]/g],
+];
+
+export function detectMessageLanguage(text: string): ReplyLanguage {
   // Strip button/system tags before checking
   const clean = text.replace(/\[.*?\]/g, '').trim();
   if (!clean) return null;
 
-  // Devanagari Unicode block → several chars is unambiguous Hindi script
-  const devanagariChars = (clean.match(/[ऀ-ॿ]/g) ?? []).length;
+  // Native script wins when present — Unicode ranges are unambiguous.
+  for (const [lang, re] of NATIVE_SCRIPTS) {
+    if ((clean.match(re) ?? []).length >= 2) return lang;
+  }
+
   const latinLetters = (clean.match(/[a-zA-Z]/g) ?? []).length;
-  if (devanagariChars >= 3) return 'hindi';
+  if (latinLetters <= 3) return null; // too short to tell → let the model decide
 
   // English indicator: common English-only words not found in Roman Hindi
   const hasEnglishWords = /\b(the|is|are|was|were|your|you\b|tell|about|first|what|how|when|where|why|please|thank|thanks|hello|hi\b|because|with|for\b|and\b|but\b|business|product|feature|price|demo|information|help|support|company|office|work|i am|i want|i need|can you|do you|are you|this is|that is|okay|ok\b|yes\b|no\b|sure|sorry|good|great|nice|today|tomorrow|time\b|address|location|order|payment|pay\b|cost|charge|free\b|available|service|services|team\b|call\b|message|send\b|reply|confirm|confirmed|cancel|change|update|account|name\b|number|details|detail)\b/i.test(clean);
 
-  if (latinLetters > 3 && hasEnglishWords) return 'english';
+  // Hinglish markers: Roman-script Hindi words
+  const hasHindiRoman = /\b(kya|hai|nahi|nahin|nai|haan|han|kaise|kab|kahan|kaun|kyun|kyunki|tha|thi|the|ho|hoga|hogi|honge|karo|karna|karta|karti|raha|rahi|rahe|chahiye|chahie|chaiye|mujhe|tumhe|aapko|usse|inhe|unhe|aap|tum|hum|mein|pe|se|ko|ka|ki|ke|aur|bhi|phir|fir|sab|ek|do|koi|kuch|bahut|thoda|jaldi|abhi|aaj|kal|yahan|wahan|bhai|yaar|bolo|btao|batao|dekho|sunlo|theek|thik|accha|acha|sahi|galat|zyada|kam|lena|dena|dedo|lelo|bhejo|bhej|milega|milegi|hogya|hogyi|krdiya|krdega|krna|krke|krlo|mt|nhi|toh|tou|par\b|matlab|samjha|samjho|pata|malum|bata|kitna|kitni)\b/i.test(clean);
 
-  // A couple of stray Devanagari chars only acts as a tie-breaker when there isn't
-  // already substantial Latin text competing with it — not an automatic override.
-  if (devanagariChars >= 1 && latinLetters <= 3) return 'hindi';
-
-  // Hinglish detection: Latin script with Roman Hindi markers (no English-only words found)
-  const hasHindiRoman = /\b(kya|hai|nahi|nahin|nai|haan|han|kaise|kab|kahan|kaun|kyun|kyunki|tha|thi|the|ho|hoga|hogi|honge|karo|karna|karta|karti|raha|rahi|rahe|chahiye|chahie|chaiye|mujhe|tumhe|aapko|usse|inhe|unhe|aap|tum|hum|mein|pe|se|ko|ka|ki|ke|aur|bhi|phir|fir|sab|ek|do|koi|kuch|bahut|thoda|jaldi|abhi|aaj|kal|yahan|wahan|bhai|yaar|bolo|btao|batao|dekho|sunlo|theek|thik|accha|acha|sahi|galat|zyada|kam|lena|dena|dedo|lelo|bhejo|bhej|milega|milegi|hogya|hogyi|krdiya|krdega|krna|krke|krlo|mt|nhi|toh|tou|par\b|matlab|samjha|samjho|pata|malum|bata|batao|kitna|kitni|kuch|koi)\b/i.test(clean);
-
-  if (latinLetters > 3 && hasHindiRoman) return 'hinglish';
+  // Roman-Hindi markers take priority: a Hinglish line often also contains an
+  // English loanword ("appointment", "book"), so check Hindi markers first.
+  if (hasHindiRoman) return 'hinglish';
+  if (hasEnglishWords) return 'english';
 
   return null; // truly ambiguous — let AI decide
+}
+
+// Builds the [SYSTEM OVERRIDE] appended to the user message. Empty when detection
+// is inconclusive, so the model's own detection (per the system prompt) takes over.
+export function languageDirective(lang: ReplyLanguage): string {
+  const wrap = (s: string) => `\n\n[SYSTEM OVERRIDE: ${s}]`;
+  switch (lang) {
+    case 'english':
+      return wrap('Customer wrote in English. Reply in English only. No other language.');
+    case 'hinglish':
+      return wrap('Customer wrote in Hinglish (Roman-script Hindi mixed with English). Reply in Hinglish — write Hindi words in Roman script (not Devanagari), mixing English words naturally as they did. Do NOT reply in pure English or pure Devanagari Hindi.');
+    case 'devanagari':
+      return wrap('Customer wrote in Devanagari script. Reply in the SAME language they used — Hindi or Marathi — in Devanagari script. Match their language exactly; do not switch to English.');
+    case 'tamil':
+      return wrap('Customer wrote in Tamil. Reply entirely in Tamil (Tamil script). No English.');
+    case 'telugu':
+      return wrap('Customer wrote in Telugu. Reply entirely in Telugu (Telugu script). No English.');
+    case 'kannada':
+      return wrap('Customer wrote in Kannada. Reply entirely in Kannada (Kannada script). No English.');
+    case 'bengali':
+      return wrap('Customer wrote in Bengali. Reply entirely in Bengali (Bengali script). No English.');
+    default:
+      return '';
+  }
 }
 
 const HOT_KEYWORDS  = ['buy', 'purchase', 'price', 'cost', 'how much', 'interested', 'want', 'need', 'demo', 'trial', 'order', 'book', 'plan', 'pricing', 'quote', 'kharidna', 'lena hai', 'chahiye', 'kitna', 'rate'];
@@ -363,12 +405,18 @@ ${temperatureGuidance}
 ${kbContext ? '' : '\nIf you do not know the answer, say a team member will follow up — do NOT guess or invent information.'}
 
 CRITICAL LANGUAGE RULE — HIGHEST PRIORITY, OVERRIDES EVERYTHING ABOVE:
-Identify the language of the customer's CURRENT message (the last message they sent, not previous history).
-- If the customer wrote in ENGLISH → your reply MUST be in English only. No Hindi words.
-- If the customer wrote in HINDI (Devanagari or Roman Hindi) → your reply MUST be in Hindi only. No English sentences.
-- If the customer wrote in HINGLISH (mixed) → reply in the same Hinglish mix they used.
-- The persona language, previous messages, and conversation history do NOT determine your reply language. Only the customer's current message does.
-- When in doubt: match the script the customer used (English letters → English reply, Hindi/Roman-Hindi → Hindi reply).`;
+Detect the language of the customer's CURRENT message (their most recent one, not the history) and write your ENTIRE reply in that same language and script. Never default to English unless the customer wrote in English.
+Supported languages: English, Hindi, Hinglish (Roman-script Hindi), Marathi, Tamil, Telugu, Kannada, Bengali.
+- English → reply in English only.
+- Hindi (Devanagari) → reply in Hindi (Devanagari) only.
+- Hinglish (Roman-script Hindi, often mixed with English words) → reply in the SAME Hinglish mix. Do NOT convert to pure Hindi or pure English.
+- Marathi (Devanagari) → reply entirely in Marathi. Marathi and Hindi share the Devanagari script — read the words to tell them apart and match the one the customer used.
+- Tamil / Telugu / Kannada / Bengali → reply entirely in that language, in its own native script.
+- Romanized text (e.g. Roman Tamil/Marathi) → reply in the same romanized style the customer used.
+- Preserve the conversation language: keep replying in the customer's language until THEY switch. If they switch language mid-conversation, adapt immediately to their new language.
+- Only the customer's current message decides the reply language — not the persona, the knowledge base, or earlier messages.
+- This rule changes ONLY the language of the reply. The meaning, intent, knowledge-base facts, and reasoning must stay exactly the same as they would be in any language.
+- If a [SYSTEM OVERRIDE: ...] language note is attached to the customer's message, follow it exactly.`;
 
   // Vision path: multimodal content (image URL array) requires direct OpenRouter fetch
   if (imageUrl) {
@@ -419,15 +467,10 @@ Identify the language of the customer's CURRENT message (the last message they s
 
   // Text path: use the central AI client with conversation history for context
   try {
-    // Programmatically detect language and append an instruction the AI cannot ignore
-    const detectedLang = detectReplyLanguage(customerMessage);
-    const langInstruction = detectedLang === 'english'
-      ? '\n\n[SYSTEM OVERRIDE: Customer wrote in English. You MUST reply in English only. No Hindi words.]'
-      : detectedLang === 'hindi'
-      ? '\n\n[SYSTEM OVERRIDE: Customer wrote in Hindi. You MUST reply in Hindi only. No English sentences.]'
-      : detectedLang === 'hinglish'
-      ? '\n\n[SYSTEM OVERRIDE: Customer wrote in Hinglish (Roman-script Hindi mixed with English). You MUST reply in Hinglish — write Hindi words in Roman script (not Devanagari), mix in English words naturally, exactly as the customer wrote. Do NOT reply in pure English.]'
-      : '';
+    // Programmatically detect language (native-script safety net) and append an
+    // instruction the AI cannot ignore. Ambiguous cases return '' so the model's
+    // own detection (per the system prompt language rule) decides.
+    const langInstruction = languageDirective(detectMessageLanguage(customerMessage));
     const userContent = customerMessage + langInstruction;
 
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [

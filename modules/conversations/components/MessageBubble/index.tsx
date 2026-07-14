@@ -16,7 +16,7 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
   queued:    <Clock className="h-3 w-3" />,
   sent:      <Check className="h-3 w-3" />,
   delivered: <CheckCheck className="h-3 w-3" />,
-  read:      <CheckCheck className="h-3 w-3 text-brand-400" />,
+  read:      <CheckCheck className="h-3 w-3 text-[#53bdeb]" />,
   failed:    <span className="text-[10px] text-destructive">!</span>,
 };
 
