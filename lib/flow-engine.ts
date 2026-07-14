@@ -171,6 +171,124 @@ export function evaluateCondition(
   return matchesCondition(incomingMessage, data.keyword, data.matchType);
 }
 
+// ── Template interpolation ─────────────────────────────────────────────────────
+// Replaces {{variable}} placeholders in outbound copy with captured answers.
+// Prefers the raw text answer (`${key}_text`), falls back to the numeric value,
+// and resolves unknown placeholders to an empty string. Existing flows contain
+// no placeholders, so their messages pass through unchanged.
+export function interpolateTemplate(text: string, context: FlowContext): string {
+  if (!text || !text.includes('{{')) return text;
+  return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, key: string) => {
+    const t = context[`${key}_text`];
+    if (t !== undefined && t !== null && String(t).length > 0) return String(t);
+    const v = context[key];
+    return v !== undefined && v !== null ? String(v) : '';
+  });
+}
+
+// ── Smart extraction helpers ───────────────────────────────────────────────────
+// Counts how many question nodes save into each variable. A variable used by
+// more than one question is ambiguous (some flows reuse a single variable for
+// every question); such variables are excluded from extraction and skip-ahead.
+function questionVarCounts(nodes: FlowNode[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const n of nodes) {
+    if (n.type === 'question') {
+      const v = (n.data as QuestionNodeData).saveAsVariable;
+      if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+// Heuristic gate: only spend an AI extraction call when the reply plausibly
+// carries more than one field. Short, single-value answers (the norm) skip
+// extraction, so cost and behaviour are unchanged for the vast majority of
+// messages — and for every existing flow whose users answer one thing at a time.
+export function looksMultiField(message: string): boolean {
+  const t = message.trim();
+  if (t.length < 15) return false;
+  const words = t.split(/\s+/).length;
+  const separators = (t.match(/[,;\n]/g)?.length ?? 0) + (/\band\b/i.test(t) ? 1 : 0);
+  return words >= 5 && (separators >= 1 || words >= 8);
+}
+
+// A downstream question can be skipped only when its answer is already known:
+// the variable is unique within the flow, present in context, and the node is
+// not marked forceAsk (validation re-ask loops set forceAsk so they always run).
+export function isSkippableQuestion(
+  node: FlowNode,
+  varCounts: Map<string, number>,
+  context: FlowContext,
+): boolean {
+  if (node.type !== 'question') return false;
+  const d = node.data as QuestionNodeData & { forceAsk?: boolean };
+  const v = d.saveAsVariable;
+  if (!v || d.forceAsk) return false;
+  if ((varCounts.get(v) ?? 0) !== 1) return false;
+  return context[`${v}_text`] !== undefined;
+}
+
+interface ExtractField { variable: string; description: string; }
+
+// Builds the list of fields extraction may fill: unique question variables only.
+function extractableFields(nodes: FlowNode[], varCounts: Map<string, number>): ExtractField[] {
+  const out: ExtractField[] = [];
+  for (const n of nodes) {
+    if (n.type !== 'question') continue;
+    const d = n.data as QuestionNodeData;
+    const v = d.saveAsVariable;
+    if (!v || (varCounts.get(v) ?? 0) !== 1) continue;
+    out.push({ variable: v, description: (d.label || d.message || v).slice(0, 60) });
+  }
+  return out;
+}
+
+// Parses the model's JSON reply, keeping only allowed keys with non-empty values.
+// Tolerant of prose around the JSON and of numeric values. Never throws.
+export function parseExtraction(raw: string, allowed: string[]): Record<string, string> {
+  try {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return {};
+    const obj = JSON.parse(match[0]) as Record<string, unknown>;
+    const out: Record<string, string> = {};
+    for (const k of allowed) {
+      const val = obj[k];
+      if (typeof val === 'string' && val.trim().length > 0) out[k] = val.trim();
+      else if (typeof val === 'number') out[k] = String(val);
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+// Asks the model to pull any explicitly-present fields from a single message.
+// Strict prompt + temperature 0; returns {} on any error so the flow proceeds
+// exactly as it would without extraction.
+async function extractFlowVariables(
+  message: string,
+  fields: ExtractField[],
+): Promise<Record<string, string>> {
+  if (fields.length === 0) return {};
+  const schema = fields.map((f) => `"${f.variable}": <${f.description}>`).join(', ');
+  try {
+    const result = await callAI(
+      [
+        { role: 'system', content:
+          'Extract structured fields from the user message for a booking flow. ' +
+          'Return ONLY a JSON object. Include a key ONLY if its value is explicitly ' +
+          'and unambiguously present in the message. Omit anything uncertain — never guess.' },
+        { role: 'user', content: `Fields: {${schema}}\n\nMessage: "${message}"\n\nJSON:` },
+      ],
+      { model: 'openai/gpt-4o-mini', maxTokens: 200, temperature: 0 },
+    );
+    return parseExtraction(result ?? '', fields.map((f) => f.variable));
+  } catch {
+    return {};
+  }
+}
+
 // ── Off-topic inquiry detection ────────────────────────────────────────────────
 // Uses AI to reliably classify whether the user's message answers the current
 // flow question or is asking something unrelated. Two fast paths skip the AI
@@ -297,8 +415,9 @@ async function executeNode(
     case 'message': {
       const d = node.data as { message: string };
       if (d.message) {
-        const waId = await sendWhatsAppText(phoneNumberId, accessToken, contactPhone, d.message);
-        await saveOutboundMessage(supabase, workspaceId, conversationId, d.message, waId);
+        const text = interpolateTemplate(d.message, context);
+        const waId = await sendWhatsAppText(phoneNumberId, accessToken, contactPhone, text);
+        await saveOutboundMessage(supabase, workspaceId, conversationId, text, waId);
       }
       const next = findNextNode(nodes, edges, node.id);
       if (!next) {
@@ -313,16 +432,33 @@ async function executeNode(
     }
 
     case 'question': {
+      // Skip-ahead: if this answer was already captured via smart extraction
+      // (unique variable, present in context, not forceAsk), advance without
+      // re-asking. Protects existing flows via the guards in isSkippableQuestion.
+      if (isSkippableQuestion(node, questionVarCounts(nodes), context)) {
+        const skipNext = findNextNode(nodes, edges, node.id);
+        if (!skipNext) {
+          await endSession(supabase, sessionId);
+          return false;
+        }
+        await updateSession(supabase, sessionId, skipNext.id);
+        return executeNode(
+          supabase, skipNext, nodes, edges, workspaceId, conversationId,
+          sessionId, incomingMessage, phoneNumberId, accessToken, contactPhone, context,
+        );
+      }
+
       const d = node.data as { message: string; buttons?: string[]; footer?: string; header?: string };
       if (d.message) {
+        const text = interpolateTemplate(d.message, context);
         let waId: string | null;
         if (d.buttons && d.buttons.length > 0) {
           // Send interactive button message — customer taps instead of typing
-          waId = await sendWhatsAppButtons(phoneNumberId, accessToken, contactPhone, d.message, d.buttons, d.header, d.footer);
-          await saveOutboundMessage(supabase, workspaceId, conversationId, d.message, waId, 'interactive');
+          waId = await sendWhatsAppButtons(phoneNumberId, accessToken, contactPhone, text, d.buttons, d.header, d.footer);
+          await saveOutboundMessage(supabase, workspaceId, conversationId, text, waId, 'interactive');
         } else {
-          waId = await sendWhatsAppText(phoneNumberId, accessToken, contactPhone, d.message);
-          await saveOutboundMessage(supabase, workspaceId, conversationId, d.message, waId);
+          waId = await sendWhatsAppText(phoneNumberId, accessToken, contactPhone, text);
+          await saveOutboundMessage(supabase, workspaceId, conversationId, text, waId);
         }
       }
       // Wait for reply — session stays on this node
@@ -348,8 +484,9 @@ async function executeNode(
     case 'assign_agent': {
       const d = node.data as { message: string };
       if (d.message) {
-        const waId = await sendWhatsAppText(phoneNumberId, accessToken, contactPhone, d.message);
-        await saveOutboundMessage(supabase, workspaceId, conversationId, d.message, waId);
+        const text = interpolateTemplate(d.message, context);
+        const waId = await sendWhatsAppText(phoneNumberId, accessToken, contactPhone, text);
+        await saveOutboundMessage(supabase, workspaceId, conversationId, text, waId);
       }
       // Set conversation to pending (human handoff)
       await (supabase as any).from('conversations').update({ status: 'pending' }).eq('id', conversationId);
@@ -362,8 +499,9 @@ async function executeNode(
     case 'end': {
       const d = node.data as { message: string };
       if (d.message) {
-        const waId = await sendWhatsAppText(phoneNumberId, accessToken, contactPhone, d.message);
-        await saveOutboundMessage(supabase, workspaceId, conversationId, d.message, waId);
+        const text = interpolateTemplate(d.message, context);
+        const waId = await sendWhatsAppText(phoneNumberId, accessToken, contactPhone, text);
+        await saveOutboundMessage(supabase, workspaceId, conversationId, text, waId);
       }
       await endSession(supabase, sessionId);
       return false;
@@ -450,6 +588,23 @@ export async function processFlowForMessage(
             // Raw text for Google Sheets and display
             [`${qData.saveAsVariable}_text`]:  messageContent.trim(),
           };
+        }
+
+        // Smart extraction: when the reply plausibly carries several fields,
+        // pull any other unique flow variables the user volunteered so the
+        // engine can skip those questions. Gated + strict, so simple single
+        // answers and existing flows are unaffected.
+        const varCounts = questionVarCounts(nodes);
+        if (looksMultiField(messageContent)) {
+          const fields = extractableFields(nodes, varCounts)
+            .filter((f) => f.variable !== qData.saveAsVariable);
+          const extracted = await extractFlowVariables(messageContent, fields);
+          for (const [k, v] of Object.entries(extracted)) {
+            context = { ...context, [k]: parseNumberFromReply(v), [`${k}_text`]: v };
+          }
+        }
+
+        if (qData.saveAsVariable || Object.keys(context).length > 0) {
           await (supabase as any).from('flow_sessions').update({ context }).eq('id', session.id);
         }
         const next = findNextNode(nodes, edges, currentNodeId);
