@@ -35,7 +35,7 @@ export default function LandingPage() {
             <a href="#pricing" className="text-sm font-medium text-slate-500 transition-colors hover:text-navy-900">Pricing</a>
           </div>
           <div className="flex items-center gap-3">
-            <Link href="/login" className="text-sm font-medium text-slate-600 hover:text-navy-900">Client Login</Link>
+            <Link href="/login" className="hidden text-sm font-medium text-slate-600 hover:text-navy-900 sm:inline">Client Login</Link>
             <Link
               href="/login"
               className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-600"
