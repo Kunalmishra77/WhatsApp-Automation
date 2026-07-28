@@ -1872,21 +1872,29 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
   const validStatuses = ['sent', 'delivered', 'read', 'failed'] as const;
   if (!validStatuses.includes(status.status as (typeof validStatuses)[number])) return;
 
-  const patch: Record<string, string> = { status: status.status };
   const ts = new Date(parseInt(status.timestamp, 10) * 1000).toISOString();
-  if (status.status === 'delivered') patch.delivered_at = ts;
-  if (status.status === 'read')      patch.read_at      = ts;
-  if (status.status === 'failed' && status.errors?.length) {
-    const err = status.errors[0]!;
-    patch.error_message = `(#${err.code}) ${err.title}${err.error_data?.details ? ': ' + err.error_data.details : ''}`;
+
+  // The two tables have DIFFERENT columns — build a patch per table so an update
+  // never references a column the target lacks (that would throw and abort the
+  // whole status update). messages has `failed_at` (not error_message);
+  // campaign_recipients has `error_message` (not failed_at).
+  const messagesPatch: Record<string, string> = { status: status.status };
+  const recipientsPatch: Record<string, string> = { status: status.status };
+  if (status.status === 'delivered') { messagesPatch.delivered_at = ts; recipientsPatch.delivered_at = ts; }
+  if (status.status === 'read')      { messagesPatch.read_at      = ts; recipientsPatch.read_at      = ts; }
+  if (status.status === 'failed') {
+    messagesPatch.failed_at = ts;
+    if (status.errors?.length) {
+      const err = status.errors[0]!;
+      recipientsPatch.error_message = `(#${err.code}) ${err.title}${err.error_data?.details ? ': ' + err.error_data.details : ''}`;
+    }
   }
-  // failed_at column not yet in DB schema — status='failed' is tracked via status field above
 
   const db = supabase as any;
 
   const { error } = await db
     .from('messages')
-    .update(patch)
+    .update(messagesPatch)
     .eq('whatsapp_msg_id', status.id);
 
   if (error) throw new Error(error.message);
@@ -1896,7 +1904,7 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
   // from Meta must not downgrade a record that already reached a terminal state.
   const { data: updatedCr } = await db
     .from('campaign_recipients')
-    .update(patch)
+    .update(recipientsPatch)
     .eq('whatsapp_msg_id', status.id)
     .not('status', 'in', '(replied,filtered)')
     .select('campaign_id')
