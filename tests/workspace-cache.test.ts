@@ -61,6 +61,14 @@ describe('getWorkspaceById', () => {
     expect(got).toEqual(row);
     expect(r.store.get('agentix:ws:id:w1')).toBeTruthy();
   });
+
+  it('warms only the id key on a miss, not the pnid key (avoids poisoning pnid from a by-id lookup)', async () => {
+    const r = fakeRedis();
+    const got = await getWorkspaceById(fakeSupabase({ data: [row], error: null }), 'w1', r);
+    expect(got).toEqual(row);
+    expect(r.store.get('agentix:ws:id:w1')).toBeTruthy();
+    expect(r.store.get('agentix:ws:pnid:p1')).toBeUndefined();
+  });
 });
 
 describe('invalidateWorkspace', () => {

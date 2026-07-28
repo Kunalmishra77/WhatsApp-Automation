@@ -30,12 +30,12 @@ async function readCache(redis: RedisLike | null, key: string): Promise<Workspac
   }
 }
 
-async function writeCache(redis: RedisLike | null, row: WorkspaceCacheRow): Promise<void> {
+async function writeCache(redis: RedisLike | null, row: WorkspaceCacheRow, includePnid = true): Promise<void> {
   if (!redis) return;
   const payload = JSON.stringify(row);
   try {
     await redis.set(`agentix:ws:id:${row.id}`, payload, { ex: TTL_SECONDS });
-    if (row.phone_number_id) await redis.set(`agentix:ws:pnid:${row.phone_number_id}`, payload, { ex: TTL_SECONDS });
+    if (includePnid && row.phone_number_id) await redis.set(`agentix:ws:pnid:${row.phone_number_id}`, payload, { ex: TTL_SECONDS });
   } catch {
     /* fail-open */
   }
@@ -66,7 +66,10 @@ export async function getWorkspaceById(
   if (cached) return cached;
   const { data } = await supabase.from('workspaces').select(SELECT).eq('id', id);
   const row = pickSingle(data);
-  if (row) await writeCache(redis, row);
+  // Only warm the id key: a by-id lookup can't guarantee phone_number_id maps to
+  // exactly one workspace, so writing the pnid key here could poison it. That
+  // invariant is only established by getWorkspaceByPhoneNumberId's pnid-scoped query.
+  if (row) await writeCache(redis, row, false);
   return row;
 }
 
