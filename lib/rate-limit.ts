@@ -1,16 +1,5 @@
 import { Ratelimit } from '@upstash/ratelimit';
-import { Redis } from '@upstash/redis';
-
-let redis: Redis | null = null;
-
-function getRedis(): Redis | null {
-  if (redis) return redis;
-  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
-  if (!url || !token) return null;
-  redis = new Redis({ url, token });
-  return redis;
-}
+import { getRedis } from '@/lib/redis';
 
 // Auto-reply rate limiter: max 1 reply per 5 seconds per contact
 // 30s was too aggressive — caused missing replies when customer sends multiple messages in a conversation
