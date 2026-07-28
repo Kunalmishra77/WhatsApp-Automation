@@ -15,6 +15,8 @@ import {
   getAIReply,
   detectLeadTemperature,
 } from '@/lib/ai-reply';
+import { getWorkspaceByPhoneNumberId } from '@/lib/workspace-cache';
+import { webhookIdemKey, isWebhookProcessed, markWebhookProcessed } from '@/lib/webhook-idempotency';
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -70,12 +72,8 @@ export async function POST(request: NextRequest) {
   const phoneNumberId = peekPhoneNumberId(rawBody);
   if (phoneNumberId) {
     const db = createAdminClient() as any;
-    const { data: ws } = await db
-      .from('workspaces')
-      .select('settings')
-      .eq('phone_number_id', phoneNumberId)
-      .single();
-    const appSecret: string | undefined = ws?.settings?.app_secret;
+    const ws = await getWorkspaceByPhoneNumberId(db, phoneNumberId);
+    const appSecret = (ws?.settings as Record<string, unknown> | undefined)?.app_secret as string | undefined;
 
     if (appSecret && signature) {
       if (!checkSignature(rawBody, signature, appSecret)) {
@@ -86,6 +84,12 @@ export async function POST(request: NextRequest) {
     // If no app_secret stored yet, skip signature check (client hasn't filled it in)
   }
 
+  // Idempotency short-circuit — dedupe Meta's retried deliveries before we do any DB work.
+  const idemKey = webhookIdemKey(signature, extractMetaMessageIds(payload));
+  if (await isWebhookProcessed(idemKey)) {
+    return NextResponse.json({ status: 'ok', deduped: true }, { status: 200 });
+  }
+
   const supabase = createAdminClient();
   const eventId = await recordWebhookEvent(supabase, payload, signature);
 
@@ -93,6 +97,7 @@ export async function POST(request: NextRequest) {
     await markWebhookEvent(supabase, eventId, 'processing');
     const result = await processPayload(supabase, payload);
     await markWebhookEvent(supabase, eventId, 'processed');
+    await markWebhookProcessed(idemKey);
 
     return NextResponse.json({ status: 'ok', eventId, ...result }, { status: 200 });
   } catch (error) {
@@ -206,17 +211,13 @@ async function handleIncomingMessage(
     console.log(`[Webhook] INBOUND type=${msg.type} phone=${waId} wa_msg_id=${msg.id}`);
   }
 
-  const { data: workspace, error: workspaceError } = await supabase
-    .from('workspaces')
-    .select('id, access_token')
-    .eq('phone_number_id', phoneNumberId)
-    .single();
+  const ws = await getWorkspaceByPhoneNumberId(supabase, phoneNumberId);
 
-  if (workspaceError || !workspace) {
+  if (!ws) {
     throw new Error(`No workspace for phone_number_id ${phoneNumberId}`);
   }
 
-  const workspaceId = workspace.id;
+  const workspaceId = ws.id;
 
   const hasRealName = !!contactInfo?.profile?.name;
 
@@ -391,13 +392,13 @@ async function handleIncomingMessage(
   // Persist inbound media to permanent Supabase Storage in the background — the proxy
   // URL works immediately for display, but WhatsApp media IDs expire after ~30 days.
   // Swaps media_url to the permanent Storage URL once the upload finishes (non-blocking).
-  const inboundAccessToken = (workspace as { id: string; access_token?: string }).access_token;
+  const inboundAccessToken = ws.access_token ?? undefined;
   if (inboundMediaId && insertedMessage?.id && inboundAccessToken) {
     void persistInboundMediaToStorage(supabase, inboundAccessToken, inboundMediaId, workspaceId, insertedMessage.id);
   }
 
   // Mark incoming message as read — shows blue ticks on customer's WhatsApp (non-blocking)
-  const _accessToken = (workspace as { id: string; access_token?: string }).access_token;
+  const _accessToken = ws.access_token ?? undefined;
   if (_accessToken) {
     fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
       method: 'POST',
@@ -564,7 +565,7 @@ async function handleIncomingMessage(
     waId,
     content,
     phoneNumberId,
-    (workspace as any).access_token as string,
+    ws.access_token as string,
   );
   if (formHandled) {
     console.log(`[Webhook] Form session handled for conversation ${conversation.id}`);

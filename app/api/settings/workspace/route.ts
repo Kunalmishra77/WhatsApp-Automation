@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { invalidateWorkspace } from '@/lib/workspace-cache';
 import type { Json } from '@/types/database.types';
 
 export async function GET(request: NextRequest) {
@@ -95,6 +96,9 @@ export async function PATCH(request: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // phone_number_id isn't in scope here — the 60s cache TTL covers the pnid key.
+    await invalidateWorkspace({ id: workspaceId });
 
     return NextResponse.json({ success: true });
   } catch (error) {
