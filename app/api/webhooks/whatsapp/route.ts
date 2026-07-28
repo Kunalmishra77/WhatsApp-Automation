@@ -15,7 +15,7 @@ import {
   getAIReply,
   detectLeadTemperature,
 } from '@/lib/ai-reply';
-import { getWorkspaceByPhoneNumberId } from '@/lib/workspace-cache';
+import { getWorkspaceByPhoneNumberId, getWorkspaceById } from '@/lib/workspace-cache';
 import { webhookIdemKey, isWebhookProcessed, markWebhookProcessed } from '@/lib/webhook-idempotency';
 
 type AdminClient = ReturnType<typeof createAdminClient>;
@@ -1230,11 +1230,7 @@ async function sendAutoReply(
   intentLabel?: string | null,
   imageUrl?: string,
 ) {
-  const { data: ws } = await (supabase as any)
-    .from('workspaces')
-    .select('phone_number_id, access_token, settings, name')
-    .eq('id', workspaceId)
-    .single();
+  const ws = await getWorkspaceById(supabase, workspaceId);
 
   if (!ws?.phone_number_id || !ws?.access_token) {
     console.error(`[AutoReply] Skipping workspace ${workspaceId} — missing phone_number_id or access_token. Check WhatsApp settings.`);
