@@ -12,6 +12,7 @@ import {
 } from '@dnd-kit/core';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { LeadExportMenu } from '@/modules/crm/components/LeadExportMenu';
 import { Plus, Flame, Thermometer, Snowflake, LayoutGrid } from 'lucide-react';
 import { KanbanColumn } from '../KanbanColumn';
 import { LeadCard } from '../LeadCard';
@@ -109,9 +110,12 @@ export function KanbanBoard() {
               })}
             </div>
           </div>
-          <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-3.5 w-3.5" /> New Lead
-          </Button>
+          <div className="flex items-center gap-2">
+            <LeadExportMenu />
+            <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-3.5 w-3.5" /> New Lead
+            </Button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-x-auto">

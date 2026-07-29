@@ -12,6 +12,7 @@ import { ConversationItem } from '../ConversationItem';
 import { useConversations } from '../../hooks/useConversations';
 import { useConversationStore } from '@/store/conversation.store';
 import { useWorkspaceStore } from '@/store/workspace.store';
+import { LeadExportMenu } from '@/modules/crm/components/LeadExportMenu';
 import type { ConversationWithContact } from '../../services/conversation.service';
 
 const STATUS_TABS = ['all', 'mine', 'open', 'assigned', 'pending', 'resolved'] as const;
@@ -158,14 +159,17 @@ export function ConversationList() {
       <div className="shrink-0 border-b border-border px-4 py-3">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-base font-semibold text-foreground">Conversations</h2>
-          <button
-            onClick={() => setShowExport(true)}
-            title="Export conversations to Excel"
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export
-          </button>
+          <div className="flex items-center gap-0.5">
+            <LeadExportMenu compact />
+            <button
+              onClick={() => setShowExport(true)}
+              title="Export conversations to Excel"
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export
+            </button>
+          </div>
         </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
