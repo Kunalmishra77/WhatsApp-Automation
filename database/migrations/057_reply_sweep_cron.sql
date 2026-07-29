@@ -73,6 +73,25 @@ AS $$
   LIMIT p_limit;
 $$;
 
+-- SECURITY: the function is SECURITY DEFINER and returns every workspace's
+-- WhatsApp access_token + customer messages. Postgres grants EXECUTE to PUBLIC
+-- by default — revoke it so ONLY the service-role admin client (used by the cron
+-- route) can call it. Never expose this to anon/authenticated (browser) clients.
+REVOKE EXECUTE ON FUNCTION public.get_unanswered_conversations(int, int, int) FROM PUBLIC, anon, authenticated;
+
+-- ── Single-flight lock ───────────────────────────────────────────────────────
+-- A one-row lease so two overlapping sweep invocations can never both reply to
+-- the same conversation. The endpoint claims it with an atomic conditional
+-- UPDATE and releases it when done; a crashed run's lease self-expires.
+CREATE TABLE IF NOT EXISTS public.reply_sweep_lock (
+  id            int PRIMARY KEY DEFAULT 1,
+  locked_until  timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO public.reply_sweep_lock (id, locked_until) VALUES (1, now()) ON CONFLICT (id) DO NOTHING;
+ALTER TABLE public.reply_sweep_lock ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS reply_sweep_lock_no_client ON public.reply_sweep_lock;
+CREATE POLICY reply_sweep_lock_no_client ON public.reply_sweep_lock FOR ALL USING (false) WITH CHECK (false);
+
 -- ── Schedule: every 3 minutes ────────────────────────────────────────────────
 SELECT cron.unschedule('missed-reply-sweep') WHERE EXISTS (
   SELECT 1 FROM cron.job WHERE jobname = 'missed-reply-sweep'
