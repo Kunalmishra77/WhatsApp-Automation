@@ -10,6 +10,7 @@ export const AGENT_RESTRICTABLE_PAGES = [
   { key: 'team',           label: 'Team',                href: '/team' },
   { key: 'analytics',      label: 'Analytics',          href: '/analytics' },
   { key: 'bookings',       label: 'Bookings & Events',  href: '/bookings' },
+  { key: 'tasks',          label: 'Tasks',              href: '/tasks' },
   { key: 'ai-revenue',     label: 'AI Revenue',         href: '/ai-revenue' },
   { key: 'knowledge-base', label: 'Knowledge Base',     href: '/knowledge-base' },
   { key: 'settings',       label: 'Settings',           href: '/settings' },
