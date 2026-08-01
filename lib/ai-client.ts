@@ -49,6 +49,24 @@ function resolveModel(model: string, useOpenAI: boolean): string {
   return model; // already a direct model name like 'gpt-4o-mini'
 }
 
+// Transient failures worth retrying: rate limits (429) and server errors (5xx).
+// Client errors (4xx like 400 bad request / 401 auth) will never succeed on retry.
+export function isRetriableStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status <= 599);
+}
+
+const MAX_ATTEMPTS = 3;
+// Per-request timeout kept tight so the full retry sequence stays within callers'
+// budgets: worst case = 8s + 0.5s + 8s + 1s + 8s ≈ 25.5s, under the 30s maxDuration
+// of the UI routes and comfortably ahead of the inbound-webhook auto-reply path
+// (whose remaining misses the every-3-min reply-sweep watchdog backstops anyway).
+const REQUEST_TIMEOUT_MS = 8_000;
+
+/**
+ * Central AI call. Retries transient failures (429 / 5xx / network / timeout) up
+ * to MAX_ATTEMPTS with backoff so a hiccup during a campaign burst doesn't drop a
+ * customer's reply. Returns null only after all attempts fail (unchanged contract).
+ */
 export async function callAI(
   messages: ChatMessage[],
   options: CallAIOptions = {},
@@ -69,36 +87,44 @@ export async function callAI(
     max_tokens:  options.maxTokens  ?? 1024,
     temperature: options.temperature ?? 0.7,
   };
+  if (options.jsonMode) body.response_format = { type: 'json_object' };
 
-  if (options.jsonMode) {
-    body.response_format = { type: 'json_object' };
-  }
+  const provider = useOpenAI ? 'OpenAI' : 'OpenRouter';
 
-  try {
-    const res = await fetch(url, {
-      method:  'POST',
-      headers: {
-        Authorization:  `Bearer ${key}`,
-        'Content-Type': 'application/json',
-        ...(useOpenAI ? {} : { 'HTTP-Referer': 'https://agentix.in', 'X-Title': 'Agentix' }),
-      },
-      body: JSON.stringify(body),
-    });
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+          ...(useOpenAI ? {} : { 'HTTP-Referer': 'https://agentix.in', 'X-Title': 'Agentix' }),
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
 
-    if (!res.ok) {
+      if (res.ok) {
+        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+        return data.choices?.[0]?.message?.content ?? null;
+      }
+
       const err = await res.text();
-      console.error(`[AI] ${useOpenAI ? 'OpenAI' : 'OpenRouter'} error ${res.status}:`, err.slice(0, 200));
-      return null;
+      console.error(`[AI] ${provider} error ${res.status} (attempt ${attempt}/${MAX_ATTEMPTS}):`, err.slice(0, 200));
+      if (!isRetriableStatus(res.status) || attempt === MAX_ATTEMPTS) return null;
+    } catch (err) {
+      // Network error or timeout (AbortError) — transient, worth retrying.
+      console.error(`[AI] fetch error (attempt ${attempt}/${MAX_ATTEMPTS}):`, err instanceof Error ? err.message : String(err));
+      if (attempt === MAX_ATTEMPTS) return null;
+    } finally {
+      clearTimeout(timer);
     }
-
-    const data = await res.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    return data.choices?.[0]?.message?.content ?? null;
-  } catch (err) {
-    console.error('[AI] Fetch error:', err instanceof Error ? err.message : String(err));
-    return null;
+    // Backoff before the next attempt (0.5s, then 1s).
+    await new Promise((r) => setTimeout(r, 500 * attempt));
   }
+  return null;
 }
 
 // Helper: which provider is active right now

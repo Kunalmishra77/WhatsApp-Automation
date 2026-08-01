@@ -93,6 +93,15 @@ DROP POLICY IF EXISTS reply_sweep_lock_no_client ON public.reply_sweep_lock;
 CREATE POLICY reply_sweep_lock_no_client ON public.reply_sweep_lock FOR ALL USING (false) WITH CHECK (false);
 
 -- ── Schedule: every 3 minutes ────────────────────────────────────────────────
+-- NOTE: this uses the app.base_url / app.cron_secret database settings. Setting
+-- them requires the postgres superuser (ALTER DATABASE ... SET) and can only be
+-- done from the Supabase SQL editor, NOT from the pooler service role:
+--     ALTER DATABASE postgres SET app.base_url   = 'https://app.aiagentixdev.com';
+--     ALTER DATABASE postgres SET app.cron_secret = '<CRON_SECRET>';
+-- (This also fixes the pre-existing sla-breach-check job, which shares them.)
+-- If those settings cannot be applied, inline the URL + CRON_SECRET literally in
+-- the command below instead of current_setting() — which is what the live job
+-- currently does, since the settings were never configured.
 SELECT cron.unschedule('missed-reply-sweep') WHERE EXISTS (
   SELECT 1 FROM cron.job WHERE jobname = 'missed-reply-sweep'
 );

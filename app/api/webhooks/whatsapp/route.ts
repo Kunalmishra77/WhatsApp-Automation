@@ -18,6 +18,11 @@ import {
 import { getWorkspaceByPhoneNumberId, getWorkspaceById } from '@/lib/workspace-cache';
 import { webhookIdemKey, isWebhookProcessed, markWebhookProcessed } from '@/lib/webhook-idempotency';
 
+// Node runtime (uses crypto + admin client); allow headroom for the inbound
+// auto-reply pipeline (AI call is internally bounded to ~25s of retries).
+export const runtime = 'nodejs';
+export const maxDuration = 60;
+
 type AdminClient = ReturnType<typeof createAdminClient>;
 
 export async function GET(request: NextRequest) {
