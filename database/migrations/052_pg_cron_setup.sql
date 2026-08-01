@@ -14,8 +14,14 @@ CREATE EXTENSION IF NOT EXISTS pg_cron;
 GRANT USAGE ON SCHEMA cron TO postgres;
 
 -- ── 1. SLA Breach Detection ───────────────────────────────────────────────────
--- Calls the existing /api/cron/check-sla-breaches endpoint via http_post.
+-- Calls the existing /api/cron/check-sla-breaches endpoint. That route is a GET
+-- handler authenticated by a ?secret= query param (NOT a POST with a Bearer
+-- header), so this job MUST use net.http_get with the secret in the URL —
+-- a POST/Bearer call returns 405 and the check never runs.
 -- Runs every 15 minutes. Requires pg_net extension (enabled on Supabase Pro).
+-- Uses the app.base_url / app.cron_secret settings (see note at bottom of file);
+-- if those can't be set (they need the postgres superuser), inline the URL +
+-- CRON_SECRET literally here instead of current_setting().
 CREATE EXTENSION IF NOT EXISTS pg_net;
 
 -- Remove any existing version of this job
@@ -27,10 +33,10 @@ SELECT cron.schedule(
   'sla-breach-check',
   '*/15 * * * *',   -- every 15 minutes
   $$
-    SELECT net.http_post(
-      url       := current_setting('app.base_url', true) || '/api/cron/check-sla-breaches',
-      headers   := '{"Authorization": "Bearer ' || current_setting('app.cron_secret', true) || '", "Content-Type": "application/json"}'::jsonb,
-      body      := '{}'::jsonb
+    SELECT net.http_get(
+      url := current_setting('app.base_url', true)
+             || '/api/cron/check-sla-breaches?secret='
+             || current_setting('app.cron_secret', true)
     ) AS request_id;
   $$
 );
