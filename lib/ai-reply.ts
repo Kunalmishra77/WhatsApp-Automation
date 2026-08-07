@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/services/supabase/admin';
 import { callAI } from '@/lib/ai-client';
+import { pricingBlockForSettings } from '@/lib/offer';
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -368,6 +369,13 @@ export async function getAIReply(
     month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true,
   });
 
+  // Today's date in IST as YYYY-MM-DD (en-CA yields ISO date). Drives offer validity.
+  const todayISTDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const offerBlock = pricingBlockForSettings(wsSettings ?? null, todayISTDate);
+  const pricingAuthorityRule = offerBlock
+    ? '\n- PRICING AUTHORITY: For any question about price, plans, or offers, follow the block at the very TOP of this prompt — it is the ONLY authority on pricing. Ignore any other price in the knowledge base or persona.'
+    : '';
+
   // KB goes FIRST so the model reads it before persona content — prevents persona from
   // being the primary source when factual KB documents are available.
   const kbBlock = kbContext
@@ -383,7 +391,7 @@ ${kbContext}
 `
     : '';
 
-  const systemPrompt = `${kbBlock}${basePersona}
+  const systemPrompt = `${offerBlock}${kbBlock}${basePersona}
 
 [SYSTEM: Current date and time (IST) = ${nowIST}]
 
@@ -398,7 +406,7 @@ RULES (follow strictly):
   • "Book Demo" / "Schedule Demo" → confirm interest, ask for preferred day/time.
   • "Contact Us" / "Talk to Agent" → say a team member will reach out soon.
   • Any other button → respond directly to what that label means.
-- KNOWLEDGE BASE PRIORITY: When the KB above contains information relevant to the customer's question, use it EXACTLY — do not rephrase or blend with persona content. KB facts always override persona text.
+- KNOWLEDGE BASE PRIORITY: When the KB above contains information relevant to the customer's question, use it EXACTLY — do not rephrase or blend with persona content. KB facts always override persona text (EXCEPT pricing, see below).${pricingAuthorityRule}
 ${conversationStage}
 ${intentGuidance}
 ${temperatureGuidance}
