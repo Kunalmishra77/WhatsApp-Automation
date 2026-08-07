@@ -24,6 +24,7 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useRequirePageRole } from '@/hooks/useRequirePageRole';
+import { CurrentOfferCard } from '@/modules/settings/components/CurrentOfferCard';
 
 type Tab = 'documents' | 'sandbox' | 'ai-generate' | 'flagged';
 
@@ -54,6 +55,10 @@ interface TestReplyResult {
   reply: string | null;
   kbContext: string;
   intentLabel: string | null;
+}
+
+interface OfferShape {
+  name?: string; details?: string; valid_from?: string; valid_until?: string;
 }
 
 interface FlaggedReply {
@@ -130,14 +135,21 @@ export default function KnowledgeBasePage() {
   const [persona,      setPersona]      = useState('');
   const [personaSaving, setPersonaSaving] = useState(false);
 
+  // Current Offer
+  const [offer, setOffer]           = useState<OfferShape | null>(null);
+  const [offerLoaded, setOfferLoaded] = useState(false);
+
   useEffect(() => {
     if (!workspaceId) return;
+    setOfferLoaded(false);
     fetch(`/api/settings/workspace?workspaceId=${workspaceId}`)
       .then((r) => r.json())
-      .then((d: { workspace?: { settings?: { agent_persona?: string } } }) => {
+      .then((d: { workspace?: { settings?: { agent_persona?: string; active_offer?: OfferShape } } }) => {
         setPersona(d.workspace?.settings?.agent_persona ?? '');
+        setOffer(d.workspace?.settings?.active_offer ?? null);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setOfferLoaded(true));
   }, [workspaceId]);
 
   const handleSavePersona = async () => {
@@ -461,6 +473,13 @@ export default function KnowledgeBasePage() {
             Save Persona
           </Button>
         </div>
+
+        {/* ══ CURRENT OFFER ═══════════════════════════════════════════════ */}
+        {offerLoaded && (
+          <div className="mb-6">
+            <CurrentOfferCard key={workspaceId} workspaceId={workspaceId} initialOffer={offer} />
+          </div>
+        )}
 
         <Separator className="mb-6 max-w-3xl" />
 
