@@ -406,7 +406,7 @@ RULES (follow strictly):
   • "Book Demo" / "Schedule Demo" → confirm interest, ask for preferred day/time.
   • "Contact Us" / "Talk to Agent" → say a team member will reach out soon.
   • Any other button → respond directly to what that label means.
-- KNOWLEDGE BASE PRIORITY: When the KB above contains information relevant to the customer's question, use it EXACTLY — do not rephrase or blend with persona content. KB facts always override persona text (EXCEPT pricing, see below).${pricingAuthorityRule}
+- KNOWLEDGE BASE PRIORITY: When the KB above contains information relevant to the customer's question, use it EXACTLY — do not rephrase or blend with persona content. KB facts always override persona text.${pricingAuthorityRule}
 ${conversationStage}
 ${intentGuidance}
 ${temperatureGuidance}

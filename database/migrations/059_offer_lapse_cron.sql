@@ -34,7 +34,7 @@ SELECT cron.schedule(
     notify AS (
       INSERT INTO public.notifications (workspace_id, user_id, type, title, body, data)
       SELECT l.id, m.user_id, 'offer_lapsed',
-             'Your offer "' || COALESCE(l.offer_name, '') || '" expired — set a new Current Offer or the bot will defer pricing to your team.',
+             left('Your offer "' || COALESCE(l.offer_name, '') || '" expired — set a new Current Offer or the bot will defer pricing to your team.', 255),
              'Set a new Current Offer or the bot will defer pricing to your team.',
              jsonb_build_object('valid_until', l.valid_until)
       FROM lapsed l

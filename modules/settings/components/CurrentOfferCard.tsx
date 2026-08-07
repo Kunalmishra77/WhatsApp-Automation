@@ -96,6 +96,7 @@ export function CurrentOfferCard({ workspaceId, initialOffer }: { workspaceId: s
       </p>
       <Input
         value={name}
+        maxLength={120}
         onChange={(e) => setName(e.target.value)}
         placeholder="Offer name (e.g. Monsoon Offer)"
       />

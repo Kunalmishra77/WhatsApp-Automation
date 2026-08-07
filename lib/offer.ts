@@ -105,6 +105,7 @@ export function validateOfferInput(
   const name = typeof body.name === 'string' ? body.name.trim() : '';
   const details = typeof body.details === 'string' ? body.details.trim() : '';
   if (!name) return { ok: false, error: 'name is required' };
+  if (name.length > 120) return { ok: false, error: 'name must be 120 characters or fewer' };
   if (!details) return { ok: false, error: 'details is required' };
   if (details.length > 1500) return { ok: false, error: 'details must be 1500 characters or fewer' };
   const vf = typeof body.valid_from === 'string' && body.valid_from ? body.valid_from : undefined;

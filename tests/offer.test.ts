@@ -93,6 +93,13 @@ describe('validateOfferInput', () => {
     const r = validateOfferInput({ name: 'A', details: 'B', valid_until: '2026-08-31' });
     expect(r.ok).toBe(true);
   });
+  it('rejects a name longer than 120 characters', () => {
+    expect(validateOfferInput({ name: 'x'.repeat(121), details: 'y' }).ok).toBe(false);
+  });
+  it('accepts a name exactly 120 characters', () => {
+    const r = validateOfferInput({ name: 'x'.repeat(120), details: 'y' });
+    expect(r.ok).toBe(true);
+  });
 });
 
 describe('isValidDate', () => {
