@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   parseActiveOffer, computeOfferStatus, buildOfferBlock, pricingBlockForSettings,
-  extractMoneyAmounts, findConflictingAmounts, validateOfferInput,
+  extractMoneyAmounts, findConflictingAmounts, validateOfferInput, isValidDate,
 } from '../lib/offer';
 
 const OFFER = { name: 'Monsoon Offer', details: 'Buy 1 Year for ₹75,000, get 1 Year FREE.', valid_from: '2026-08-04', valid_until: '2026-08-31' };
@@ -17,6 +17,10 @@ describe('parseActiveOffer', () => {
     expect(o?.name).toBe('Monsoon Offer');
     expect(o?.valid_from).toBeUndefined();
     expect(o?.valid_until).toBe('2026-08-31');
+  });
+  it('drops a calendar-invalid valid_until (format-valid but not a real date)', () => {
+    const o = parseActiveOffer({ active_offer: { name: 'X', details: 'Y', valid_until: '2026-02-30' } });
+    expect(o?.valid_until).toBeUndefined();
   });
 });
 
@@ -76,9 +80,34 @@ describe('validateOfferInput', () => {
     expect(validateOfferInput({ name: 'A', details: 'B', valid_until: '31-08-2026' }).ok).toBe(false);
     expect(validateOfferInput({ name: 'A', details: 'B', valid_from: '2026-08-31', valid_until: '2026-08-01' }).ok).toBe(false);
   });
+  it('rejects calendar-invalid dates that pass the YYYY-MM-DD format regex', () => {
+    expect(validateOfferInput({ name: 'A', details: 'B', valid_until: '2026-13-40' }).ok).toBe(false);
+    expect(validateOfferInput({ name: 'A', details: 'B', valid_until: '2026-02-30' }).ok).toBe(false);
+  });
   it('accepts a valid offer and trims', () => {
     const r = validateOfferInput({ name: '  Monsoon  ', details: '  ₹75,000  ' });
     expect(r.ok).toBe(true);
     if (r.ok) { expect(r.offer.name).toBe('Monsoon'); expect(r.offer.details).toBe('₹75,000'); }
+  });
+  it('accepts a valid calendar date', () => {
+    const r = validateOfferInput({ name: 'A', details: 'B', valid_until: '2026-08-31' });
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe('isValidDate', () => {
+  it('accepts real calendar dates', () => {
+    expect(isValidDate('2026-08-31')).toBe(true);
+    expect(isValidDate('2024-02-29')).toBe(true); // leap year
+  });
+  it('rejects format-valid but calendar-invalid dates', () => {
+    expect(isValidDate('2026-13-40')).toBe(false);
+    expect(isValidDate('2026-02-30')).toBe(false);
+    expect(isValidDate('2023-02-29')).toBe(false); // not a leap year
+  });
+  it('rejects malformed strings', () => {
+    expect(isValidDate('31-08-2026')).toBe(false);
+    expect(isValidDate('bad')).toBe(false);
+    expect(isValidDate('')).toBe(false);
   });
 });

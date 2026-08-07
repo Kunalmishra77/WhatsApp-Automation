@@ -11,9 +11,16 @@ export interface ActiveOffer {
 
 export type OfferStatus = 'active' | 'expired' | 'scheduled' | 'none';
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // ₹/Rs/INR followed by grouped digits. Word-boundary on rs/inr avoids matching inside words.
 const MONEY_RE = /(?:₹|\brs\.?|\binr\b)\s*(\d[\d,\s]{2,})/gi;
+
+// Validates a real calendar date in 'YYYY-MM-DD' form (rejects format-valid but
+// calendar-invalid values like '2026-13-40' or '2026-02-30' via round-trip).
+export function isValidDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(s + 'T00:00:00Z');
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
 
 export function parseActiveOffer(settings: Record<string, unknown> | null | undefined): ActiveOffer | null {
   const raw = settings?.active_offer;
@@ -24,8 +31,8 @@ export function parseActiveOffer(settings: Record<string, unknown> | null | unde
   return {
     name: o.name,
     details: o.details,
-    valid_from: typeof o.valid_from === 'string' && DATE_RE.test(o.valid_from) ? o.valid_from : undefined,
-    valid_until: typeof o.valid_until === 'string' && DATE_RE.test(o.valid_until) ? o.valid_until : undefined,
+    valid_from: typeof o.valid_from === 'string' && isValidDate(o.valid_from) ? o.valid_from : undefined,
+    valid_until: typeof o.valid_until === 'string' && isValidDate(o.valid_until) ? o.valid_until : undefined,
     updated_at: typeof o.updated_at === 'string' ? o.updated_at : undefined,
     lapse_notified: o.lapse_notified === true,
   };
@@ -102,8 +109,8 @@ export function validateOfferInput(
   if (details.length > 1500) return { ok: false, error: 'details must be 1500 characters or fewer' };
   const vf = typeof body.valid_from === 'string' && body.valid_from ? body.valid_from : undefined;
   const vu = typeof body.valid_until === 'string' && body.valid_until ? body.valid_until : undefined;
-  if (vf && !DATE_RE.test(vf)) return { ok: false, error: 'valid_from must be YYYY-MM-DD' };
-  if (vu && !DATE_RE.test(vu)) return { ok: false, error: 'valid_until must be YYYY-MM-DD' };
+  if (vf && !isValidDate(vf)) return { ok: false, error: 'valid_from must be YYYY-MM-DD' };
+  if (vu && !isValidDate(vu)) return { ok: false, error: 'valid_until must be YYYY-MM-DD' };
   if (vf && vu && vu < vf) return { ok: false, error: 'valid_until must be on or after valid_from' };
   return { ok: true, offer: { name, details, valid_from: vf, valid_until: vu } };
 }

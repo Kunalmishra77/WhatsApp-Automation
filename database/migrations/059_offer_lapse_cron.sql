@@ -6,6 +6,17 @@ SELECT cron.unschedule('offer-lapse-check') WHERE EXISTS (
   SELECT 1 FROM cron.job WHERE jobname = 'offer-lapse-check'
 );
 
+-- Defense in depth: the app validates dates before persisting (lib/offer.ts
+-- isValidDate), but the cron runs as a single batch over ALL workspaces, so a
+-- malformed valid_until already in the DB must never throw and abort the run.
+CREATE OR REPLACE FUNCTION public.try_to_date(txt text) RETURNS date AS $fn$
+BEGIN
+  RETURN txt::date;
+EXCEPTION WHEN others THEN
+  RETURN NULL;
+END;
+$fn$ LANGUAGE plpgsql STABLE STRICT;
+
 SELECT cron.schedule(
   'offer-lapse-check',
   '0 4 * * *',   -- 04:00 UTC daily (~09:30 IST)
@@ -16,14 +27,14 @@ SELECT cron.schedule(
              w.settings->'active_offer'->>'valid_until' AS valid_until
       FROM public.workspaces w
       WHERE w.settings ? 'active_offer'
-        AND (w.settings->'active_offer'->>'valid_until') ~ '^\d{4}-\d{2}-\d{2}$'
-        AND (w.settings->'active_offer'->>'valid_until')::date < CURRENT_DATE
+        AND public.try_to_date(w.settings->'active_offer'->>'valid_until') IS NOT NULL
+        AND public.try_to_date(w.settings->'active_offer'->>'valid_until') < CURRENT_DATE
         AND COALESCE((w.settings->'active_offer'->>'lapse_notified')::boolean, false) = false
     ),
     notify AS (
       INSERT INTO public.notifications (workspace_id, user_id, type, title, body, data)
       SELECT l.id, m.user_id, 'offer_lapsed',
-             'Your offer "' || COALESCE(l.offer_name, '') || '" has expired',
+             'Your offer "' || COALESCE(l.offer_name, '') || '" expired — set a new Current Offer or the bot will defer pricing to your team.',
              'Set a new Current Offer or the bot will defer pricing to your team.',
              jsonb_build_object('valid_until', l.valid_until)
       FROM lapsed l
