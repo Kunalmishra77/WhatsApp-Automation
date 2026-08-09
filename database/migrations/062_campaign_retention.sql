@@ -35,7 +35,7 @@ BEGIN
   ins AS (
     INSERT INTO public.notifications (workspace_id, user_id, type, title, body, data)
     SELECT d.workspace_id, m.user_id, 'campaign_retention_due',
-           'Campaign "' || COALESCE(d.name, '') || '" data is due for retention',
+           left('Campaign "' || COALESCE(d.name, '') || '" data is due for retention', 255),
            'This campaign passed its 2-month retention window. Download or delete its data from the campaign page.',
            jsonb_build_object('campaign_id', d.id)
     FROM due d
