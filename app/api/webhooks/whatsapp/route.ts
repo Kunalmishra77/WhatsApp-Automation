@@ -814,13 +814,15 @@ async function handleIncomingMessage(
   ]);
 
   // Update conversation intent labels + engagement-gated spam flag (non-blocking).
-  if (intentLabel) {
+  // Runs unconditionally (even when intentLabel is null) so a later null/failed
+  // categorization still clears a stale is_spam flag from an earlier message.
+  {
     const supabaseForCat = supabase;
     const convIdForCat = conversation.id;
     const contactIdForCat = contact.id;
     (async () => {
       // Append the real intent labels only — NEVER 'spam' (it is not a sticky label).
-      if (intentLabel !== 'spam') {
+      if (intentLabel && intentLabel !== 'spam') {
         const { data: conv } = await (supabaseForCat as any)
           .from('conversations')
           .select('labels')
@@ -835,7 +837,8 @@ async function handleIncomingMessage(
         }
       }
 
-      // Engagement-gated spam: recomputed on every categorized inbound.
+      // Engagement-gated spam: recomputed on every inbound, regardless of whether
+      // this message categorized successfully.
       const { count: inboundCount } = await (supabaseForCat as any)
         .from('messages')
         .select('id', { count: 'exact', head: true })
@@ -846,7 +849,7 @@ async function handleIncomingMessage(
         .select('id', { count: 'exact', head: true })
         .eq('contact_id', contactIdForCat);
       const is_spam = decideSpam({
-        label: intentLabel,
+        label: intentLabel ?? null,
         inboundCount: inboundCount ?? 0,
         hasLead: (leadCount ?? 0) > 0,
       });
