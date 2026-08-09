@@ -27,10 +27,13 @@ export function CampaignRetention({ campaignId }: { campaignId: string }) {
   const [info, setInfo] = useState<RetentionInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState(false);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/campaigns/${campaignId}/retention`);
-    if (res.ok) setInfo(await res.json() as RetentionInfo);
+    if (res.ok) { setInfo(await res.json() as RetentionInfo); setLoadError(false); return; }
+    if (res.status === 403) return; // no permission — stay hidden
+    setLoadError(true);
   }, [campaignId]);
 
   useEffect(() => { void load(); }, [load]);
@@ -45,6 +48,8 @@ export function CampaignRetention({ campaignId }: { campaignId: string }) {
         body: JSON.stringify({ confirmed: true }),
       });
       if (!res.ok) { setError((await res.json()).error ?? 'Delete failed'); return; }
+      // Optimistic update so the tombstone shows even if the re-fetch below fails.
+      setInfo((prev) => prev ? { ...prev, status: 'deleted', data_deleted_at: new Date().toISOString() } : prev);
       await load();
     } finally { setBusy(false); }
   }, [campaignId, load]);
@@ -61,15 +66,17 @@ export function CampaignRetention({ campaignId }: { campaignId: string }) {
     }
   };
 
-  if (!info) return null;
+  if (!info && !loadError) return null;
 
   return (
     <div className="rounded-xl border border-border bg-card p-5 space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-foreground">Data Retention</h3>
-        <span className={cn('text-[11px] rounded-full px-2.5 py-0.5 font-semibold', BADGE[info.status])}>{LABEL[info.status]}</span>
+        {info && <span className={cn('text-[11px] rounded-full px-2.5 py-0.5 font-semibold', BADGE[info.status])}>{LABEL[info.status]}</span>}
       </div>
-      {info.status === 'deleted' ? (
+      {!info ? (
+        <p className="text-xs text-muted-foreground">Couldn&rsquo;t load retention status.</p>
+      ) : info.status === 'deleted' ? (
         <p className="text-xs text-muted-foreground">
           Data deleted on {info.data_deleted_at ? new Date(info.data_deleted_at).toLocaleDateString() : '—'}. Campaign stats are retained.
         </p>
