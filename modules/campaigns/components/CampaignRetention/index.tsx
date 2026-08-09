@@ -59,12 +59,27 @@ export function CampaignRetention({ campaignId }: { campaignId: string }) {
       void doDelete();
     }
   };
-  const onDownloadDelete = () => {
-    download();
-    if (window.confirm('A download has started. Delete the campaign’s recipient data now that you have a copy?')) {
-      void doDelete();
+  const onDownloadDelete = useCallback(async () => {
+    setBusy(true); setError('');
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/retention/export`);
+      if (!res.ok) { setError('Export failed — data was NOT deleted.'); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `campaign_${campaignId}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      if (window.confirm('Your copy has downloaded. Delete this campaign’s recipient data now?')) {
+        await doDelete();
+      }
+    } catch {
+      setError('Export failed — data was NOT deleted.');
+    } finally {
+      setBusy(false);
     }
-  };
+  }, [campaignId, doDelete]);
 
   if (!info && !loadError) return null;
 
@@ -91,7 +106,7 @@ export function CampaignRetention({ campaignId }: { campaignId: string }) {
             <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={busy} onClick={download}>
               <Download className="h-3.5 w-3.5" /> Download
             </Button>
-            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={busy} onClick={onDownloadDelete}>
+            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={busy} onClick={() => void onDownloadDelete()}>
               <DownloadCloud className="h-3.5 w-3.5" /> Download &amp; Delete
             </Button>
             <Button size="sm" variant="destructive" className="h-7 gap-1.5 text-xs" disabled={busy} onClick={onDeleteClick}>
