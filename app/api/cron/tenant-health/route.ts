@@ -118,9 +118,21 @@ export async function POST(request: NextRequest) {
   // Summary row for the existing admin health-reports UI.
   await db.from('platform_health_reports').insert({
     checked_at: nowIso,
-    overall_status: silent.length ? 'error' : 'ok',
-    checks: { type: 'tenant_health', silent_count: silent.length, ok_count: current.length - silent.length },
-    errors: silent.map((c) => ({ workspace: c.row.name, last_inbound_at: c.row.last_inbound_at, probe: probes.get(c.workspace_id) })),
+    overall_status: silent.length ? 'critical' : 'healthy',
+    checks: {
+      silent_tenants: {
+        status: silent.length ? 'error' : 'ok',
+        message: `${silent.length} silent / ${current.length - silent.length} ok`,
+        value: silent.length,
+      },
+    },
+    errors: silent.map((c) => {
+      const p = probes.get(c.workspace_id);
+      const why = p?.token_ok
+        ? `token OK, quality ${p.quality ?? '?'} → delivery/webhook issue`
+        : `credential/number issue: ${p?.error ?? 'unknown'}`;
+      return `${c.row.name ?? c.workspace_id}: no inbound since ${c.row.last_inbound_at ?? 'ever'} — ${why}`;
+    }),
     has_errors: silent.length > 0,
   });
 
