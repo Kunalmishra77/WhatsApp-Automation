@@ -23,13 +23,16 @@ export async function fetchConversations(
     .eq('workspace_id', workspaceId)
     .order('last_message_at', { ascending: false, nullsFirst: false });
 
-  if (status === 'mine') {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      query = (query as any).eq('assigned_agent_id', user.id);
+  if (status === 'spam') {
+    query = (query as any).eq('is_spam', true);
+  } else {
+    query = (query as any).eq('is_spam', false);
+    if (status === 'mine') {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) query = (query as any).eq('assigned_agent_id', user.id);
+    } else if (status && status !== 'all') {
+      query = query.eq('status', status);
     }
-  } else if (status && status !== 'all') {
-    query = query.eq('status', status);
   }
 
   if (channel && channel !== 'all') {

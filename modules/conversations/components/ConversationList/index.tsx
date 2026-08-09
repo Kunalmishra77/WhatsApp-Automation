@@ -15,7 +15,7 @@ import { useWorkspaceStore } from '@/store/workspace.store';
 import { LeadExportMenu } from '@/modules/crm/components/LeadExportMenu';
 import type { ConversationWithContact } from '../../services/conversation.service';
 
-const STATUS_TABS = ['all', 'mine', 'open', 'assigned', 'pending', 'resolved'] as const;
+const STATUS_TABS = ['all', 'mine', 'open', 'assigned', 'pending', 'resolved', 'spam'] as const;
 
 const CHANNEL_TABS = [
   { key: 'all',       label: 'All',       icon: null },
