@@ -17,6 +17,7 @@ import {
 } from '@/lib/ai-reply';
 import { getWorkspaceByPhoneNumberId, getWorkspaceById } from '@/lib/workspace-cache';
 import { webhookIdemKey, isWebhookProcessed, markWebhookProcessed } from '@/lib/webhook-idempotency';
+import { decideSpam } from '@/lib/spam';
 
 // Node runtime (uses crypto + admin client); allow headroom for the inbound
 // auto-reply pipeline (AI call is internally bounded to ~25s of retries).
@@ -812,23 +813,47 @@ async function handleIncomingMessage(
       .maybeSingle(),
   ]);
 
-  // Update conversation labels async (non-blocking)
+  // Update conversation intent labels + engagement-gated spam flag (non-blocking).
   if (intentLabel) {
     const supabaseForCat = supabase;
     const convIdForCat = conversation.id;
+    const contactIdForCat = contact.id;
     (async () => {
-      const { data: conv } = await (supabaseForCat as any)
-        .from('conversations')
-        .select('labels')
-        .eq('id', convIdForCat)
-        .single();
-      const existing: string[] = conv?.labels ?? [];
-      if (!existing.includes(intentLabel)) {
-        await (supabaseForCat as any)
+      // Append the real intent labels only — NEVER 'spam' (it is not a sticky label).
+      if (intentLabel !== 'spam') {
+        const { data: conv } = await (supabaseForCat as any)
           .from('conversations')
-          .update({ labels: [...existing, intentLabel] })
-          .eq('id', convIdForCat);
+          .select('labels')
+          .eq('id', convIdForCat)
+          .single();
+        const existing: string[] = conv?.labels ?? [];
+        if (!existing.includes(intentLabel)) {
+          await (supabaseForCat as any)
+            .from('conversations')
+            .update({ labels: [...existing, intentLabel] })
+            .eq('id', convIdForCat);
+        }
       }
+
+      // Engagement-gated spam: recomputed on every categorized inbound.
+      const { count: inboundCount } = await (supabaseForCat as any)
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', convIdForCat)
+        .eq('direction', 'inbound');
+      const { count: leadCount } = await (supabaseForCat as any)
+        .from('leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('contact_id', contactIdForCat);
+      const is_spam = decideSpam({
+        label: intentLabel,
+        inboundCount: inboundCount ?? 0,
+        hasLead: (leadCount ?? 0) > 0,
+      });
+      await (supabaseForCat as any)
+        .from('conversations')
+        .update({ is_spam })
+        .eq('id', convIdForCat);
     })().catch(() => {});
   }
 

@@ -21,7 +21,7 @@ export async function categorizeMessage(content: string): Promise<string | null>
         },
         { role: 'user', content },
       ],
-      { model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free', maxTokens: 10, temperature: 0 },
+      { model: 'openai/gpt-4o-mini', maxTokens: 10, temperature: 0 },
     );
     const lower = label?.toLowerCase().trim();
     const validLabels = ['billing', 'support', 'sales', 'complaint', 'inquiry', 'spam', 'general'];
