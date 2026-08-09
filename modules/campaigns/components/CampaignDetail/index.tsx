@@ -23,6 +23,7 @@ import {
 import { format, formatDistanceStrict } from 'date-fns';
 import { cn } from '@/lib/utils';
 import type { DailyStatRow } from '@/app/api/campaigns/[id]/daily-stats/route';
+import { CampaignRetention } from '@/modules/campaigns/components/CampaignRetention';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtDuration(startedAt: string | null, completedAt: string | null): string | null {
@@ -322,6 +323,9 @@ function OverviewTab({ campaign, stats, daily, loading, workspaceId }: {
             </div>
           )}
         </div>
+
+        {/* Data retention */}
+        <CampaignRetention campaignId={campaign.id} />
 
         {/* Template preview */}
         {tpl?.body && (
