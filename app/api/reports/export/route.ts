@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { paginateAll } from '@/lib/export-stream';
 
 // ── CSV helper ──────────────────────────────────────────────────────────────
 function toCSV(headers: string[], rows: string[][]): string {
@@ -37,17 +38,24 @@ export async function GET(request: NextRequest) {
 
     // ── conversations ──────────────────────────────────────────────────────
     if (type === 'conversations') {
-      const { data, error } = await (supabase as any)
-        .from('conversations')
-        .select(
-          'id, status, channel, sentiment, last_message, last_message_at, created_at, resolved_at, labels, contacts(name, phone, temperature), assigned_agent:workspace_members!conversations_assigned_agent_id_fkey(user_id)',
-        )
-        .eq('workspace_id', workspaceId)
-        .gte('created_at', `${from}T00:00:00.000Z`)
-        .lte('created_at', `${to}T23:59:59.999Z`)
-        .order('created_at', { ascending: false });
-
-      if (error) {
+      const SELECT =
+        'id, status, channel, sentiment, last_message, last_message_at, created_at, resolved_at, labels, contacts(name, phone, temperature), assigned_agent:workspace_members!conversations_assigned_agent_id_fkey(user_id)';
+      const data: any[] = [];
+      try {
+        for await (const page of paginateAll<any>((offset, pageSize) =>
+          (supabase as any)
+            .from('conversations')
+            .select(SELECT)
+            .eq('workspace_id', workspaceId)
+            .gte('created_at', `${from}T00:00:00.000Z`)
+            .lte('created_at', `${to}T23:59:59.999Z`)
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: true })
+            .range(offset, offset + pageSize - 1),
+        )) {
+          data.push(...page);
+        }
+      } catch (error) {
         console.error('[Export] conversations error', error);
         return NextResponse.json({ error: 'Failed to fetch conversations' }, { status: 500 });
       }
@@ -102,15 +110,23 @@ export async function GET(request: NextRequest) {
 
     // ── messages ───────────────────────────────────────────────────────────
     else if (type === 'messages') {
-      const { data, error } = await (supabase as any)
-        .from('messages')
-        .select('id, conversation_id, direction, type, content, sender_type, status, created_at')
-        .eq('workspace_id', workspaceId)
-        .gte('created_at', `${from}T00:00:00.000Z`)
-        .lte('created_at', `${to}T23:59:59.999Z`)
-        .order('created_at', { ascending: false });
-
-      if (error) {
+      const SELECT = 'id, conversation_id, direction, type, content, sender_type, status, created_at';
+      const data: any[] = [];
+      try {
+        for await (const page of paginateAll<any>((offset, pageSize) =>
+          (supabase as any)
+            .from('messages')
+            .select(SELECT)
+            .eq('workspace_id', workspaceId)
+            .gte('created_at', `${from}T00:00:00.000Z`)
+            .lte('created_at', `${to}T23:59:59.999Z`)
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: true })
+            .range(offset, offset + pageSize - 1),
+        )) {
+          data.push(...page);
+        }
+      } catch (error) {
         console.error('[Export] messages error', error);
         return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 });
       }
@@ -143,13 +159,21 @@ export async function GET(request: NextRequest) {
 
     // ── contacts ───────────────────────────────────────────────────────────
     else {
-      const { data, error } = await (supabase as any)
-        .from('contacts')
-        .select('id, name, phone, email, company, country, tags, temperature, language, opted_out, created_at')
-        .eq('workspace_id', workspaceId)
-        .order('created_at', { ascending: false });
-
-      if (error) {
+      const SELECT = 'id, name, phone, email, company, country, tags, temperature, language, opted_out, created_at';
+      const data: any[] = [];
+      try {
+        for await (const page of paginateAll<any>((offset, pageSize) =>
+          (supabase as any)
+            .from('contacts')
+            .select(SELECT)
+            .eq('workspace_id', workspaceId)
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: true })
+            .range(offset, offset + pageSize - 1),
+        )) {
+          data.push(...page);
+        }
+      } catch (error) {
         console.error('[Export] contacts error', error);
         return NextResponse.json({ error: 'Failed to fetch contacts' }, { status: 500 });
       }
