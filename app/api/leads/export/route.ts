@@ -53,6 +53,7 @@ export async function GET(request: NextRequest) {
     const pages = paginateAll<LeadRecord>((offset, pageSize) =>
       applyFilters(db.from('leads').select(SELECT))
         .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
         .range(offset, offset + pageSize - 1),
     );
 
