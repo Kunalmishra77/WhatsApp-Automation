@@ -1,0 +1,15 @@
+// lib/meta-spend-load.ts — shared uncapped loader for meta_spend_daily reads.
+// PostgREST caps .select() at 1000 rows; read routes must page through
+// paginateAll to avoid undercounting totals for workspaces with more history.
+import { paginateAll } from '@/lib/export-stream';
+import type { SpendRow } from '@/lib/meta-spend';
+
+export async function loadSpendRows(db: any, workspaceId: string): Promise<SpendRow[]> {
+  const out: SpendRow[] = [];
+  for await (const page of paginateAll<SpendRow>((offset, pageSize) =>
+    db.from('meta_spend_daily').select('day, category, volume, cost, currency')
+      .eq('workspace_id', workspaceId).order('day', { ascending: true }).order('category', { ascending: true })
+      .range(offset, offset + pageSize - 1),
+  )) out.push(...page);
+  return out;
+}
