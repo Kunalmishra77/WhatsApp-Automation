@@ -9,6 +9,7 @@ export const AGENT_RESTRICTABLE_PAGES = [
   { key: 'flows',          label: 'Flows',               href: '/flows' },
   { key: 'team',           label: 'Team',                href: '/team' },
   { key: 'analytics',      label: 'Analytics',          href: '/analytics' },
+  { key: 'billing',        label: 'Billing & Meta Spend', href: '/billing' },
   { key: 'bookings',       label: 'Bookings & Events',  href: '/bookings' },
   { key: 'tasks',          label: 'Tasks',              href: '/tasks' },
   { key: 'ai-revenue',     label: 'AI Revenue',         href: '/ai-revenue' },

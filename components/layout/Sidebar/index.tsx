@@ -6,7 +6,7 @@ import {
   MessageSquare, Users, Kanban, Megaphone, FileText,
   BarChart3, Settings, UserCircle, ChevronLeft, ChevronRight,
   Users2, GitBranch, BookOpen, TrendingUp, LifeBuoy, CalendarCheck,
-  LayoutDashboard, LogOut, Brain, CheckSquare,
+  LayoutDashboard, LogOut, Brain, CheckSquare, Receipt,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -48,6 +48,7 @@ const NAV_ITEMS: Array<{
   { href: '/flows',         icon: GitBranch,       label: 'Flows',           requiredFeature: 'flows', requiredPlan: 'Pro', agentPageKey: 'flows' },
   { href: '/team',          icon: Users2,          label: 'Team',            agentPageKey: 'team' },
   { href: '/analytics',     icon: BarChart3,       label: 'Analytics',       agentPageKey: 'analytics' },
+  { href: '/billing',       icon: Receipt,         label: 'Billing & Meta Spend', agentPageKey: 'billing' },
   { href: '/bookings',      icon: CalendarCheck,   label: 'Bookings & Events', agentPageKey: 'bookings' },
   { href: '/tasks',         icon: CheckSquare,     label: 'Tasks',           agentPageKey: 'tasks' },
   { href: '/ai-revenue',    icon: TrendingUp,      label: 'AI Revenue',      agentPageKey: 'ai-revenue' },
