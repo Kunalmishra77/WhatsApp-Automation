@@ -10,7 +10,11 @@ export async function loadSpendRows(db: any, workspaceId: string): Promise<Spend
     db.from('meta_spend_daily').select('day, category, volume, cost, currency')
       .eq('workspace_id', workspaceId).order('day', { ascending: true }).order('category', { ascending: true })
       .range(offset, offset + pageSize - 1),
-  )) out.push(...page);
+  )) {
+    // Coerce numeric(14,4) cost/volume defensively: if a driver ever serializes
+    // numeric as a string, `total += r.cost` must stay arithmetic, not concat.
+    for (const r of page) out.push({ ...r, cost: Number(r.cost), volume: Number(r.volume) });
+  }
   return out;
 }
 
@@ -24,6 +28,8 @@ export async function loadSpendRowsAdmin(db: any, from: string, to: string): Pro
       .gte('day', from).lte('day', to)
       .order('day', { ascending: true }).order('workspace_id', { ascending: true })
       .range(offset, offset + pageSize - 1),
-  )) out.push(...page);
+  )) {
+    for (const r of page) out.push({ ...r, cost: Number(r.cost) });
+  }
   return out;
 }
