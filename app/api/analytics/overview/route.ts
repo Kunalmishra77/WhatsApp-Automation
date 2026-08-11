@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     //      RPCs (migration 064). Uncapped: aggregated server-side instead of the
     //      old bare `.select()` that silently truncated at 1000 rows. ─────────────
     const [{ data: daily }, { data: heat }, { data: convStatus }] = await Promise.all([
-      db.rpc('analytics_message_daily', { p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc }),
+      db.rpc('analytics_message_daily', { p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc, p_tz: 'Asia/Kolkata' }),
       db.rpc('analytics_message_heatmap', { p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc, p_tz: 'Asia/Kolkata' }),
       db.rpc('analytics_conversation_status', { p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc }),
     ]);
@@ -76,16 +76,11 @@ export async function GET(request: NextRequest) {
     //      derived from a status tally over all messages: inbound messages are
     //      stored with status='delivered' at ingestion (see whatsapp/instagram/meta
     //      webhooks), so an undirected status count would inflate this past 100%.
-    const [{ count: deliveredCount }, { count: readCount }] = await Promise.all([
-      db.from('messages').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
-        .in('status', ['delivered', 'read']).gte('created_at', fromUtc).lt('created_at', toUtc),
-      db.from('messages').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
-        .eq('status', 'read').gte('created_at', fromUtc).lt('created_at', toUtc),
-    ]);
+    const { count: deliveredCount } = await db.from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId).eq('direction', 'outbound')
+      .in('status', ['delivered', 'read']).gte('created_at', fromUtc).lt('created_at', toUtc);
     const delivered = deliveredCount ?? 0; // 'delivered' + 'read' (read implies delivered)
-    const read = readCount ?? 0; // not currently exposed in the response shape; kept for clarity
     const sentTotal = totalOutbound || 1;
     const deliveryRate = Math.round((delivered / sentTotal) * 100);
 
@@ -191,7 +186,9 @@ export async function GET(request: NextRequest) {
         .range(offset, offset + pageSize - 1),
     )) {
       for (const c of page) {
-        const key = c.created_at.slice(0, 10);
+        // Bucket by IST calendar day (matches the IST skeleton above + the
+        // now-IST analytics_message_daily RPC), not the UTC created_at date.
+        const key = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(c.created_at));
         if (dailyMap[key]) dailyMap[key]!.newContacts++;
       }
     }

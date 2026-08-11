@@ -3,22 +3,13 @@
 -- p_from inclusive, p_to EXCLUSIVE (matches lib/date-range.ts fromUtc/toUtc).
 
 CREATE OR REPLACE FUNCTION public.analytics_message_daily(
-  p_workspace uuid, p_from timestamptz, p_to timestamptz)
+  p_workspace uuid, p_from timestamptz, p_to timestamptz, p_tz text)
 RETURNS TABLE(day date, direction text, cnt bigint)
 LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
-  SELECT (created_at)::date AS day, direction, count(*)::bigint
+  SELECT (created_at AT TIME ZONE p_tz)::date AS day, direction, count(*)::bigint
   FROM public.messages
   WHERE workspace_id = p_workspace AND created_at >= p_from AND created_at < p_to
   GROUP BY 1, 2 ORDER BY 1;
-$$;
-
-CREATE OR REPLACE FUNCTION public.analytics_message_status(
-  p_workspace uuid, p_from timestamptz, p_to timestamptz)
-RETURNS TABLE(status text, cnt bigint)
-LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
-  SELECT status, count(*)::bigint FROM public.messages
-  WHERE workspace_id = p_workspace AND created_at >= p_from AND created_at < p_to
-  GROUP BY 1;
 $$;
 
 CREATE OR REPLACE FUNCTION public.analytics_message_heatmap(
@@ -30,6 +21,7 @@ LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
          count(*)::bigint
   FROM public.messages
   WHERE workspace_id = p_workspace AND created_at >= p_from AND created_at < p_to
+    AND direction = 'inbound'
   GROUP BY 1, 2;
 $$;
 
@@ -56,8 +48,7 @@ DO $$
 DECLARE fn text;
 BEGIN
   FOR fn IN SELECT unnest(ARRAY[
-    'analytics_message_daily(uuid,timestamptz,timestamptz)',
-    'analytics_message_status(uuid,timestamptz,timestamptz)',
+    'analytics_message_daily(uuid,timestamptz,timestamptz,text)',
     'analytics_message_heatmap(uuid,timestamptz,timestamptz,text)',
     'analytics_conversation_status(uuid,timestamptz,timestamptz)',
     'analytics_lead_breakdown(uuid,timestamptz,timestamptz)'])

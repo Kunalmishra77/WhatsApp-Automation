@@ -48,7 +48,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     // 064), uncapped: replaces the old bare `.select('direction, created_at')` that
     // PostgREST silently truncated at 1000 rows once a workspace passed ~33
     // messages/day over the window.
-    db.rpc('analytics_message_daily', { p_workspace: workspaceId, p_from: trendFromUtc, p_to: trendToUtc }),
+    db.rpc('analytics_message_daily', { p_workspace: workspaceId, p_from: trendFromUtc, p_to: trendToUtc, p_tz: 'Asia/Kolkata' }),
   ]);
 
   const contactsTotal      = contactsCountRes.count ?? 0;
