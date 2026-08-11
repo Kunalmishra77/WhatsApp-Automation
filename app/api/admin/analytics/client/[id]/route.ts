@@ -27,9 +27,18 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const trendFromUtc = new Date(Date.now() - 30 * 86400000).toISOString();
   const trendToUtc   = now.toISOString();
 
-  const [contactsRes, convsRes, campsRes, msgCountRes, trendRes] = await Promise.all([
-    db.from('contacts').select('id, created_at').eq('workspace_id', workspaceId),
-    db.from('conversations').select('id, status, created_at, last_message_at').eq('workspace_id', workspaceId),
+  // 7 calendar-month boundaries (index 6 = exclusive upper bound for trend-month 5)
+  // — shared by `contact_growth` below, mirroring the `monthBoundaries` pattern in
+  // admin/analytics/dashboard/route.ts.
+  const monthBoundaries = Array.from({ length: 7 }, (_, i) =>
+    new Date(now.getFullYear(), now.getMonth() - 5 + i, 1));
+
+  const [contactsCountRes, convsCountRes, campsRes, msgCountRes, trendRes] = await Promise.all([
+    // Exact, uncapped — replaces the old bare `.select('id, created_at')` + `.length`
+    // that PostgREST silently truncated at 1000 rows.
+    db.from('contacts').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId),
+    // Exact, uncapped — replaces the old bare `.select('id, status, created_at, last_message_at')` + `.length`.
+    db.from('conversations').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId),
     // ALL campaigns — with all count fields
     db.from('campaigns').select('id, name, status, sent_count, delivered_count, read_count, replied_count, failed_count, created_at')
       .eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(20),
@@ -42,10 +51,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     db.rpc('analytics_message_daily', { p_workspace: workspaceId, p_from: trendFromUtc, p_to: trendToUtc }),
   ]);
 
-  const contacts: any[] = contactsRes.data ?? [];
-  const convs: any[]    = convsRes.data ?? [];
-  const campsRaw: any[] = campsRes.data ?? [];
-  const totalMsgCount   = (msgCountRes as any)?.count ?? 0;
+  const contactsTotal      = contactsCountRes.count ?? 0;
+  const conversationsTotal = convsCountRes.count ?? 0;
+  const campsRaw: any[]    = campsRes.data ?? [];
+  const totalMsgCount      = (msgCountRes as any)?.count ?? 0;
 
   type TrendRow = { day: string; direction: string; cnt: number | string };
   const trendRows = (trendRes.data ?? []) as TrendRow[];
@@ -96,13 +105,22 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const msgThisMonth = totalMsgCount;
   const health_score = Math.max(20, Math.min(100, msgThisMonth > 500 ? 95 : msgThisMonth > 100 ? 85 : msgThisMonth > 10 ? 65 : 40));
 
-  // Contact growth by month
-  const contact_growth = Array.from({ length: 6 }, (_, i) => {
-    const d    = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
-    const mStr = d.toISOString().slice(0, 7);
-    const label = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
-    return { month: label, count: contacts.filter((c: any) => c.created_at.slice(0, 7) <= mStr).length };
-  });
+  // Contact growth by month — cumulative "total contacts by end of month", as 6
+  // parallel exact counts instead of the old bare `.select('id, created_at')` +
+  // JS `.filter().length` per bucket (same capped select `contacts_total` used to
+  // share, now removed entirely). `.lt(nextMonthStart)` reproduces the original's
+  // `created_at.slice(0,7) <= mStr` cumulative-through-end-of-month comparison.
+  const contact_growth = await Promise.all(
+    monthBoundaries.slice(0, 6).map(async (d, i) => {
+      const nextMonthStart = monthBoundaries[i + 1]!;
+      const label = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+      const { count } = await db.from('contacts')
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId)
+        .lt('created_at', nextMonthStart.toISOString());
+      return { month: label, count: count ?? 0 };
+    }),
+  );
 
   // Campaign stats — show all fetched campaigns (up to 20) with real counts
   const campaign_stats = camps.map((c: any) => ({
@@ -124,8 +142,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   return NextResponse.json({
     kpis: {
       messages_this_month: msgThisMonth,   // all-time conversation messages
-      contacts_total:      contacts.length,
-      conversations_total: convs.length,
+      contacts_total:      contactsTotal,
+      conversations_total: conversationsTotal,
       campaigns_total:     camps.length,
       campaign_sent_total: totalSent,      // total campaign messages sent
       campaign_delivered:  totalDelivered,
