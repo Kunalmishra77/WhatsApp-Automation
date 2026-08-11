@@ -75,3 +75,37 @@ describe('resolveRange (IST)', () => {
     expect(QUICK_RANGES.length).toBeGreaterThanOrEqual(17);
   });
 });
+
+describe('resolveRange (IST) — year rollover', () => {
+  // 2027-01-15T06:00Z == 2027-01-15 11:30 IST (a Friday)
+  const now = new Date('2027-01-15T06:00:00Z');
+
+  it('last_month crosses into prior December of prior year', () => {
+    const r = resolveRange('last_month', { tz: IST, now });
+    expect(r.from).toBe('2026-12-01'); expect(r.to).toBe('2026-12-31');
+  });
+  it('last_quarter crosses into Q4 of prior year', () => {
+    const r = resolveRange('last_quarter', { tz: IST, now });
+    expect(r.from).toBe('2026-10-01'); expect(r.to).toBe('2026-12-31');
+  });
+  it('last_half_year crosses into H2 of prior year', () => {
+    const r = resolveRange('last_half_year', { tz: IST, now });
+    expect(r.from).toBe('2026-07-01'); expect(r.to).toBe('2026-12-31');
+  });
+  it('last_year is the prior calendar year', () => {
+    const r = resolveRange('last_year', { tz: IST, now });
+    expect(r.from).toBe('2026-01-01'); expect(r.to).toBe('2026-12-31');
+  });
+  it('this_quarter in January is Q1', () => {
+    const r = resolveRange('this_quarter', { tz: IST, now });
+    expect(r.from).toBe('2027-01-01'); expect(r.to).toBe('2027-01-15');
+  });
+  it('this_half_year in January is H1', () => {
+    const r = resolveRange('this_half_year', { tz: IST, now });
+    expect(r.from).toBe('2027-01-01'); expect(r.to).toBe('2027-01-15');
+  });
+  it('last_30_days spans the December/January boundary', () => {
+    const r = resolveRange('last_30_days', { tz: IST, now });
+    expect(r.from).toBe('2026-12-17'); expect(r.to).toBe('2027-01-15');
+  });
+});
