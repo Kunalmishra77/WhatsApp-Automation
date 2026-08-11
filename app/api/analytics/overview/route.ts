@@ -17,20 +17,20 @@ export async function GET(request: NextRequest) {
 
     const db = createAdminClient() as any;
 
-    // ── 0. Resolve the reporting date range — accepts ?quick=<preset> or
-    //      ?quick=custom&from=&to=; defaults to last_30_days when unset. ────────
-    const quick = (searchParams.get('quick') || 'last_30_days') as QuickRange;
-    const { from, to, fromUtc, toUtc } = resolveRange(quick, {
-      from: searchParams.get('from') || undefined,
-      to: searchParams.get('to') || undefined,
-    });
+    // ── 0. Resolve the reporting date range — accepts ?quick=<preset>,
+    //      ?quick=custom&from=&to=, or bare ?from=&to= (no quick) which is
+    //      treated as an implicit custom range so the date selector is never
+    //      silently ignored. Defaults to last_30_days only when nothing is given. ─
+    const rawFrom = searchParams.get('from') || undefined;
+    const rawTo   = searchParams.get('to') || undefined;
+    const quick = (searchParams.get('quick') || (rawFrom && rawTo ? 'custom' : 'last_30_days')) as QuickRange;
+    const { from, to, fromUtc, toUtc } = resolveRange(quick, { from: rawFrom, to: rawTo });
 
-    // ── 1. Messages — daily/status/heatmap + conversation status via SQL
-    //      aggregation RPCs (migration 064). Uncapped: aggregated server-side
-    //      instead of the old bare `.select()` that silently truncated at 1000 rows. ─
-    const [{ data: daily }, { data: statuses }, { data: heat }, { data: convStatus }] = await Promise.all([
+    // ── 1. Messages — daily/heatmap + conversation status via SQL aggregation
+    //      RPCs (migration 064). Uncapped: aggregated server-side instead of the
+    //      old bare `.select()` that silently truncated at 1000 rows. ─────────────
+    const [{ data: daily }, { data: heat }, { data: convStatus }] = await Promise.all([
       db.rpc('analytics_message_daily', { p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc }),
-      db.rpc('analytics_message_status', { p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc }),
       db.rpc('analytics_message_heatmap', { p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc, p_tz: 'Asia/Kolkata' }),
       db.rpc('analytics_conversation_status', { p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc }),
     ]);
@@ -72,9 +72,20 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // ── 4. Delivery rate — from analytics_message_status (uncapped, exact counts) ──
-    const byStatus = Object.fromEntries((statuses ?? []).map((r: StatusRow) => [r.status, Number(r.cnt)]));
-    const delivered = (byStatus.delivered ?? 0) + (byStatus.read ?? 0); // read implies delivered
+    // ── 4. Delivery rate — OUTBOUND-only counts, scoped to range. Deliberately NOT
+    //      derived from a status tally over all messages: inbound messages are
+    //      stored with status='delivered' at ingestion (see whatsapp/instagram/meta
+    //      webhooks), so an undirected status count would inflate this past 100%.
+    const [{ count: deliveredCount }, { count: readCount }] = await Promise.all([
+      db.from('messages').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
+        .in('status', ['delivered', 'read']).gte('created_at', fromUtc).lt('created_at', toUtc),
+      db.from('messages').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
+        .eq('status', 'read').gte('created_at', fromUtc).lt('created_at', toUtc),
+    ]);
+    const delivered = deliveredCount ?? 0; // 'delivered' + 'read' (read implies delivered)
+    const read = readCount ?? 0; // not currently exposed in the response shape; kept for clarity
     const sentTotal = totalOutbound || 1;
     const deliveryRate = Math.round((delivered / sentTotal) * 100);
 
@@ -176,6 +187,7 @@ export async function GET(request: NextRequest) {
         .gte('created_at', fromUtc)
         .lt('created_at', toUtc)
         .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
         .range(offset, offset + pageSize - 1),
     )) {
       for (const c of page) {
@@ -197,6 +209,8 @@ export async function GET(request: NextRequest) {
       db.from('contacts')
         .select('tags')
         .eq('workspace_id', workspaceId)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
         .range(offset, offset + pageSize - 1),
     )) {
       for (const row of page) {
