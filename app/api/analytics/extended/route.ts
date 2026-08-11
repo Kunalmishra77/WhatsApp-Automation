@@ -1,25 +1,34 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { resolveRange, type QuickRange } from '@/lib/date-range';
+import { paginateAll } from '@/lib/export-stream';
 
-// GET /api/analytics/extended?workspaceId=&from=&to=
+// GET /api/analytics/extended?workspaceId=&quick=<preset>|&from=&to=
 // Returns: campaign perf, lead funnel, sentiment, flow stats, contact temperature
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const workspaceId = searchParams.get('workspaceId');
-    const from        = searchParams.get('from');
-    const to          = searchParams.get('to');
 
-    if (!workspaceId || !from || !to) {
-      return NextResponse.json({ error: 'workspaceId, from, to required' }, { status: 400 });
+    if (!workspaceId) {
+      return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
     }
 
     await requireWorkspacePermission(workspaceId, 'view_analytics');
 
     const db = createAdminClient() as any;
 
-    // ── 1. Campaign Performance ──────────────────────────────────────────────
+    // ── 0. Resolve the reporting date range — same parsing as /api/analytics/overview:
+    //      ?quick=<preset>, ?quick=custom&from=&to=, or bare ?from=&to= (implicit custom).
+    //      Defaults to last_30_days only when nothing is given. ────────────────────────
+    const rawFrom = searchParams.get('from') || undefined;
+    const rawTo   = searchParams.get('to') || undefined;
+    const quick = (searchParams.get('quick') || (rawFrom && rawTo ? 'custom' : 'last_30_days')) as QuickRange;
+    const { fromUtc, toUtc } = resolveRange(quick, { from: rawFrom, to: rawTo });
+
+    // ── 1. Campaign Performance (unchanged — already bounded by .limit(10), not
+    //      part of this fix; not date-ranged by design, shows most-recent campaigns) ──
     const { data: campaigns } = await db
       .from('campaigns')
       .select('id, name, status, total_recipients, sent_count, delivered_count, read_count, failed_count, ab_test_group, created_at, templates(name)')
@@ -66,28 +75,31 @@ export async function GET(request: NextRequest) {
       totalSent: allCampaigns.reduce((s: number, c: CampaignRow) => s + (c.sent_count ?? 0), 0),
     };
 
-    // ── 2. Lead Funnel (by stage) ────────────────────────────────────────────
-    const { data: leadsRaw } = await db
-      .from('leads')
-      .select('stage, temperature, priority, ai_score, created_at')
-      .eq('workspace_id', workspaceId)
-      .gte('created_at', `${from}T00:00:00.000Z`)
-      .lte('created_at', `${to}T23:59:59.999Z`);
+    // ── 2. Lead Funnel (by stage/temperature) — via the analytics_lead_breakdown SQL
+    //      aggregation RPC (migration 064), uncapped: replaces the old bare `.select()`
+    //      that silently truncated at 1000 rows. The RPC doesn't cover ai_score (no
+    //      aggregate for it), so the average is computed via a light, ranged, uncapped
+    //      column-only scan below instead. ────────────────────────────────────────────
+    const { data: leadBreakdownRaw } = await db.rpc('analytics_lead_breakdown', {
+      p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc,
+    });
 
-    type LeadRow = { stage: string; temperature: string; priority: string; ai_score: number | null; created_at: string };
-    const leads = (leadsRaw ?? []) as LeadRow[];
+    type LeadBreakdownRow = { stage: string; temperature: string | null; cnt: number | string };
+    const leadBreakdown = (leadBreakdownRaw ?? []) as LeadBreakdownRow[];
 
     const stageOrder = ['new', 'contacted', 'follow_up', 'interested', 'converted', 'lost'];
     const stageMap: Record<string, number> = {};
     const tempMap:  Record<string, number> = { hot: 0, warm: 0, cold: 0 };
-    const prioMap:  Record<string, number> = { low: 0, medium: 0, high: 0 };
-    let aiScoreSum = 0, aiScoreCount = 0;
+    let totalLeads = 0;
 
-    for (const l of leads) {
-      stageMap[l.stage] = (stageMap[l.stage] ?? 0) + 1;
-      if (l.temperature in tempMap) tempMap[l.temperature as 'hot'|'warm'|'cold'] = (tempMap[l.temperature as 'hot'|'warm'|'cold'] ?? 0) + 1;
-      if (l.priority in prioMap)   prioMap[l.priority as 'low'|'medium'|'high'] = (prioMap[l.priority as 'low'|'medium'|'high'] ?? 0) + 1;
-      if (l.ai_score != null) { aiScoreSum += l.ai_score; aiScoreCount++; }
+    for (const row of leadBreakdown) {
+      const cnt = Number(row.cnt);
+      totalLeads += cnt;
+      stageMap[row.stage] = (stageMap[row.stage] ?? 0) + cnt;
+      if (row.temperature && row.temperature in tempMap) {
+        const t = row.temperature as 'hot' | 'warm' | 'cold';
+        tempMap[t] = (tempMap[t] ?? 0) + cnt;
+      }
     }
 
     const leadFunnel = stageOrder.map((s) => ({ stage: s, count: stageMap[s] ?? 0 }));
@@ -96,60 +108,92 @@ export async function GET(request: NextRequest) {
       { label: 'Warm 🌡️', value: tempMap.warm ?? 0, color: '#f59e0b' },
       { label: 'Cold ❄️', value: tempMap.cold ?? 0, color: '#3b82f6' },
     ];
+
+    // avgAiScore — no SUM/AVG RPC exists for ai_score, so page through *only* that
+    // column, ranged + uncapped (replaces what used to be part of the same capped select).
+    let aiScoreSum = 0, aiScoreCount = 0;
+    type AiScoreRow = { ai_score: number | null };
+    for await (const page of paginateAll<AiScoreRow>((offset, pageSize) =>
+      db.from('leads')
+        .select('ai_score')
+        .eq('workspace_id', workspaceId)
+        .gte('created_at', fromUtc)
+        .lt('created_at', toUtc)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(offset, offset + pageSize - 1),
+    )) {
+      for (const l of page) {
+        if (l.ai_score != null) { aiScoreSum += l.ai_score; aiScoreCount++; }
+      }
+    }
     const avgAiScore = aiScoreCount > 0 ? Math.round(aiScoreSum / aiScoreCount) : null;
 
-    // ── 3. Sentiment Breakdown ───────────────────────────────────────────────
-    const { data: convRaw } = await db
-      .from('conversations')
-      .select('sentiment, created_at')
-      .eq('workspace_id', workspaceId)
-      .gte('created_at', `${from}T00:00:00.000Z`)
-      .lte('created_at', `${to}T23:59:59.999Z`);
-
-    type ConvRow = { sentiment: string | null; created_at: string };
-    const convSentiments = (convRaw ?? []) as ConvRow[];
-
-    const sentMap: Record<string, number> = { positive: 0, neutral: 0, negative: 0 };
-    const sentimentByDay: Record<string, { positive: number; neutral: number; negative: number }> = {};
-
-    for (const c of convSentiments) {
-      const s = (c.sentiment ?? 'neutral') as 'positive'|'neutral'|'negative';
-      sentMap[s] = (sentMap[s] ?? 0) + 1;
-      const day = c.created_at.slice(0, 10);
-      if (!sentimentByDay[day]) sentimentByDay[day] = { positive: 0, neutral: 0, negative: 0 };
-      const dayEntry = sentimentByDay[day]!;
-      dayEntry[s] = (dayEntry[s] ?? 0) + 1;
-    }
+    // ── 3. Sentiment Breakdown — ranged, exact bucket counts (uncapped) for the pie
+    //      chart. The day-by-day trend needs row-level (day, sentiment) pairs with no
+    //      RPC covering that shape, so it's a single paginated, ranged, uncapped scan. ─
+    const [{ count: totalConvCount }, { count: positiveCount }, { count: negativeCount }] = await Promise.all([
+      db.from('conversations').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).gte('created_at', fromUtc).lt('created_at', toUtc),
+      db.from('conversations').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).eq('sentiment', 'positive').gte('created_at', fromUtc).lt('created_at', toUtc),
+      db.from('conversations').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).eq('sentiment', 'negative').gte('created_at', fromUtc).lt('created_at', toUtc),
+    ]);
+    // 'neutral' == everything that's neither positive nor negative, including NULL
+    // (matches the original in-JS fallback: `(c.sentiment ?? 'neutral')`).
+    const neutralCount = Math.max(0, (totalConvCount ?? 0) - (positiveCount ?? 0) - (negativeCount ?? 0));
 
     const sentimentBreakdown = [
-      { label: 'Positive', value: sentMap.positive ?? 0, color: '#10b981' },
-      { label: 'Neutral',  value: sentMap.neutral  ?? 0, color: '#6b7280' },
-      { label: 'Negative', value: sentMap.negative ?? 0, color: '#ef4444' },
+      { label: 'Positive', value: positiveCount ?? 0, color: '#10b981' },
+      { label: 'Neutral',  value: neutralCount,        color: '#6b7280' },
+      { label: 'Negative', value: negativeCount ?? 0,  color: '#ef4444' },
     ];
+
+    const sentimentByDay: Record<string, { positive: number; neutral: number; negative: number }> = {};
+    type ConvSentimentRow = { sentiment: string | null; created_at: string };
+    for await (const page of paginateAll<ConvSentimentRow>((offset, pageSize) =>
+      db.from('conversations')
+        .select('sentiment, created_at')
+        .eq('workspace_id', workspaceId)
+        .gte('created_at', fromUtc)
+        .lt('created_at', toUtc)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(offset, offset + pageSize - 1),
+    )) {
+      for (const c of page) {
+        const s = (c.sentiment ?? 'neutral') as 'positive' | 'neutral' | 'negative';
+        const day = c.created_at.slice(0, 10);
+        if (!sentimentByDay[day]) sentimentByDay[day] = { positive: 0, neutral: 0, negative: 0 };
+        const dayEntry = sentimentByDay[day]!;
+        dayEntry[s] = (dayEntry[s] ?? 0) + 1;
+      }
+    }
 
     const sentimentTrend = Object.entries(sentimentByDay)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, v]) => ({ date: date.slice(5), ...v }));  // MM-DD format
 
-    // ── 4. Contact Temperature Distribution ─────────────────────────────────
-    const { data: contactTemps } = await db
-      .from('contacts')
-      .select('temperature')
-      .eq('workspace_id', workspaceId);
-
-    type ContactTempRow = { temperature: string | null };
-    const ctMap: Record<string, number> = { hot: 0, warm: 0, cold: 0 };
-    for (const c of (contactTemps ?? []) as ContactTempRow[]) {
-      const t = (c.temperature ?? 'warm') as 'hot'|'warm'|'cold';
-      ctMap[t] = (ctMap[t] ?? 0) + 1;
-    }
+    // ── 4. Contact Temperature Distribution — snapshot metric, intentionally
+    //      all-time (matches the original, which had no date filter at all); now via
+    //      exact counts instead of a bare capped `.select()`. ─────────────────────────
+    const [{ count: totalContactsCount }, { count: hotCount }, { count: coldCount }] = await Promise.all([
+      db.from('contacts').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId),
+      db.from('contacts').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId).eq('temperature', 'hot'),
+      db.from('contacts').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId).eq('temperature', 'cold'),
+    ]);
+    // 'warm' == everything that's neither hot nor cold, including NULL (matches the
+    // original in-JS fallback: `(c.temperature ?? 'warm')`).
+    const warmCount = Math.max(0, (totalContactsCount ?? 0) - (hotCount ?? 0) - (coldCount ?? 0));
     const contactTemperatureBreakdown = [
-      { label: 'Hot',  value: ctMap.hot,  color: '#ef4444' },
-      { label: 'Warm', value: ctMap.warm, color: '#f59e0b' },
-      { label: 'Cold', value: ctMap.cold, color: '#3b82f6' },
+      { label: 'Hot',  value: hotCount ?? 0, color: '#ef4444' },
+      { label: 'Warm', value: warmCount,      color: '#f59e0b' },
+      { label: 'Cold', value: coldCount ?? 0, color: '#3b82f6' },
     ];
 
-    // ── 5. Flow Performance ──────────────────────────────────────────────────
+    // ── 5. Flow Performance (unchanged — session count already bounded by
+    //      .limit(5000) pre-existing, not part of this fix's audit scope) ─────────────
     const { data: flowsRaw } = await db
       .from('chatbot_flows')
       .select('id, name, is_active, nodes')
@@ -163,8 +207,8 @@ export async function GET(request: NextRequest) {
       .from('flow_sessions')
       .select('flow_id, status')
       .eq('workspace_id', workspaceId)
-      .gte('created_at', `${from}T00:00:00.000Z`)
-      .lte('created_at', `${to}T23:59:59.999Z`)
+      .gte('created_at', fromUtc)
+      .lt('created_at', toUtc)
       .limit(5000);
 
     type SessionRow = { flow_id: string; status: string };
@@ -189,34 +233,35 @@ export async function GET(request: NextRequest) {
         : 0,
     }));
 
-    // ── 6. Message delivery funnel (for campaigns vs organic) ───────────────
-    const { data: msgFunnelRaw } = await db
-      .from('messages')
-      .select('status, direction')
-      .eq('workspace_id', workspaceId)
-      .eq('direction', 'outbound')
-      .gte('created_at', `${from}T00:00:00.000Z`)
-      .lte('created_at', `${to}T23:59:59.999Z`);
-
-    type MsgFunnelRow = { status: string };
-    const msgFunnel = (msgFunnelRaw ?? []) as MsgFunnelRow[];
-    const funnelMap: Record<string, number> = { sent: 0, delivered: 0, read: 0, failed: 0 };
-    for (const m of msgFunnel) {
-      const s = m.status as 'sent'|'delivered'|'read'|'failed';
-      if (s in funnelMap) funnelMap[s] = (funnelMap[s] ?? 0) + 1;
-      if (s === 'read') {
-        funnelMap.delivered = (funnelMap.delivered ?? 0) + 1;
-        funnelMap.sent      = (funnelMap.sent ?? 0) + 1;
-      } else if (s === 'delivered') {
-        funnelMap.sent = (funnelMap.sent ?? 0) + 1;
-      }
-    }
+    // ── 6. Message delivery funnel (outbound campaign traffic only) — 4 ranged,
+    //      exact counts instead of a bare capped `.select()`. Deliberately NOT using
+    //      the undirected analytics_message_status RPC: inbound messages are stored
+    //      with status='delivered' at ingestion (see /api/analytics/overview + the
+    //      whatsapp/instagram/meta webhooks), so an undirected status tally would
+    //      inflate 'delivered' with inbound rows. This mirrors the outbound-only
+    //      counting pattern already established in the overview route for the same
+    //      reason. Cumulative-funnel semantics (read implies delivered implies sent)
+    //      match the original JS reduction exactly. ──────────────────────────────────
+    const [{ count: sentCount }, { count: deliveredCnt }, { count: readCnt }, { count: failedCnt }] = await Promise.all([
+      db.from('messages').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
+        .in('status', ['sent', 'delivered', 'read']).gte('created_at', fromUtc).lt('created_at', toUtc),
+      db.from('messages').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
+        .in('status', ['delivered', 'read']).gte('created_at', fromUtc).lt('created_at', toUtc),
+      db.from('messages').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
+        .eq('status', 'read').gte('created_at', fromUtc).lt('created_at', toUtc),
+      db.from('messages').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
+        .eq('status', 'failed').gte('created_at', fromUtc).lt('created_at', toUtc),
+    ]);
 
     const deliveryFunnel = [
-      { stage: 'Sent',      count: funnelMap.sent,      color: '#6366f1' },
-      { stage: 'Delivered', count: funnelMap.delivered, color: '#10b981' },
-      { stage: 'Read',      count: funnelMap.read,      color: '#f59e0b' },
-      { stage: 'Failed',    count: funnelMap.failed,    color: '#ef4444' },
+      { stage: 'Sent',      count: sentCount ?? 0,    color: '#6366f1' },
+      { stage: 'Delivered', count: deliveredCnt ?? 0, color: '#10b981' },
+      { stage: 'Read',      count: readCnt ?? 0,      color: '#f59e0b' },
+      { stage: 'Failed',    count: failedCnt ?? 0,    color: '#ef4444' },
     ];
 
     return NextResponse.json({
@@ -225,7 +270,7 @@ export async function GET(request: NextRequest) {
       leadFunnel,
       leadTemperature,
       avgAiScore,
-      totalLeads: leads.length,
+      totalLeads,
       sentimentBreakdown,
       sentimentTrend,
       contactTemperatureBreakdown,

@@ -20,7 +20,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const now   = new Date();
   const month = now.toISOString().slice(0, 7);
 
-  const [contactsRes, convsRes, campsRes, msgCountRes, messagesRes] = await Promise.all([
+  // Last-30-days window for the message trend chart. p_to is exclusive (matches
+  // lib/date-range.ts convention); using "now" as the exclusive upper bound is
+  // equivalent to the original's unbounded `.gte()` since no message can have a
+  // future created_at.
+  const trendFromUtc = new Date(Date.now() - 30 * 86400000).toISOString();
+  const trendToUtc   = now.toISOString();
+
+  const [contactsRes, convsRes, campsRes, msgCountRes, trendRes] = await Promise.all([
     db.from('contacts').select('id, created_at').eq('workspace_id', workspaceId),
     db.from('conversations').select('id, status, created_at, last_message_at').eq('workspace_id', workspaceId),
     // ALL campaigns — with all count fields
@@ -28,16 +35,20 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
       .eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(20),
     // All-time message count using COUNT (avoids 1000-row limit)
     db.from('messages').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId),
-    // Last 30 days messages for trend chart
-    db.from('messages').select('direction, created_at').eq('workspace_id', workspaceId)
-      .gte('created_at', new Date(Date.now() - 30 * 86400000).toISOString()),
+    // Last 30 days messages for trend chart — via analytics_message_daily (migration
+    // 064), uncapped: replaces the old bare `.select('direction, created_at')` that
+    // PostgREST silently truncated at 1000 rows once a workspace passed ~33
+    // messages/day over the window.
+    db.rpc('analytics_message_daily', { p_workspace: workspaceId, p_from: trendFromUtc, p_to: trendToUtc }),
   ]);
 
   const contacts: any[] = contactsRes.data ?? [];
   const convs: any[]    = convsRes.data ?? [];
   const campsRaw: any[] = campsRes.data ?? [];
   const totalMsgCount   = (msgCountRes as any)?.count ?? 0;
-  const msgs: any[]     = messagesRes.data ?? [];
+
+  type TrendRow = { day: string; direction: string; cnt: number | string };
+  const trendRows = (trendRes.data ?? []) as TrendRow[];
 
   // Get LIVE replied counts from campaign_recipients (more accurate than campaigns.replied_count)
   // campaigns.replied_count can be stale for recently-completed campaigns
@@ -60,13 +71,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     replied_count: repliedMap.get(c.id) ?? c.replied_count ?? 0,
   }));
 
-  // Monthly message volume (30 days)
+  // Monthly message volume (30 days) — built from the uncapped RPC rows, plus bot
+  // response rate derived from the same single pass (previously a separate
+  // outbound/inbound `.filter().length` over the same, now-removed capped select).
   const msgByDay: Record<string, { sent: number; received: number }> = {};
-  for (const m of msgs) {
-    const day = m.created_at.slice(0, 10);
+  let outbound = 0, inbound = 0;
+  for (const row of trendRows) {
+    const cnt = Number(row.cnt);
+    const day = row.day.slice(0, 10);
     if (!msgByDay[day]) msgByDay[day] = { sent: 0, received: 0 };
-    if (m.direction === 'outbound') msgByDay[day].sent++;
-    else msgByDay[day].received++;
+    if (row.direction === 'outbound') { msgByDay[day].sent += cnt; outbound += cnt; }
+    else { msgByDay[day].received += cnt; inbound += cnt; }
   }
   const message_trend = Array.from({ length: 30 }, (_, i) => {
     const d   = new Date(Date.now() - (29 - i) * 86400000);
@@ -75,8 +90,6 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   });
 
   // Bot response rate
-  const outbound = msgs.filter((m: any) => m.direction === 'outbound').length;
-  const inbound  = msgs.filter((m: any) => m.direction === 'inbound').length;
   const bot_response_rate = inbound > 0 ? Math.round((outbound / inbound) * 100) : 0;
 
   // Health score — based on actual all-time message count
