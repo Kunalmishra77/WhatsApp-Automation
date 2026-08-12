@@ -192,17 +192,24 @@ export async function POST(request: NextRequest) {
         }
         graced++;
       } else if (result.action === 'suspend') {
-        const { error: subUpdErr } = await db
-          .from('subscriptions')
-          .update({ status: 'suspended' })
-          .eq('id', sub.id);
-        if (subUpdErr) throw subUpdErr;
-
+        // Write workspaces FIRST, subscriptions LAST: subscriptions.status='suspended' is
+        // the sentinel nextBillingAction checks to decide whether to act again. If the
+        // workspaces write fails after subscriptions is already flipped, the next sweep
+        // would see status='suspended' and return action:'none' forever — is_active would
+        // stay true with no retry. Doing workspaces first means any failure leaves the
+        // subscription 'past_due', so nextBillingAction returns 'suspend' again next sweep
+        // and this self-heals.
         const { error: wsUpdErr } = await db
           .from('workspaces')
           .update({ is_active: false, subscription_status: 'suspended' })
           .eq('id', sub.workspace_id);
         if (wsUpdErr) throw wsUpdErr;
+
+        const { error: subUpdErr } = await db
+          .from('subscriptions')
+          .update({ status: 'suspended' })
+          .eq('id', sub.id);
+        if (subUpdErr) throw subUpdErr;
 
         if (admins.length > 0) {
           await db.from('notifications').insert(
