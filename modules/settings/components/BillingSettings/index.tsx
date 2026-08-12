@@ -1,231 +1,246 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useWorkspaceStore } from '@/store/workspace.store';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
-import { CheckCircle2, Zap, Building2, CreditCard } from 'lucide-react';
+import { Camera, CalendarClock, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-import { RAZORPAY_PLANS as STRIPE_PLANS } from '@/lib/razorpay-billing';
+import { rupees } from '@/lib/billing';
 import { cn } from '@/lib/utils';
+import { CheckoutButton } from './CheckoutButton';
+import { BillingHistory } from './BillingHistory';
 
-interface PlanLimits { agents: number; messages_per_month: number; campaigns_per_month: number; kb_entries: number }
-interface WorkspaceData { plan: string; plan_limits: PlanLimits; stripe_customer_id: string | null }
-interface UsageMetric { used: number; limit: number; pct: number }
-interface UsageResponse {
-  plan: string;
-  month: string;
-  usage: { messages: UsageMetric; contacts: UsageMetric; campaigns: UsageMetric };
+type SubStatus = 'pending' | 'active' | 'past_due' | 'suspended' | 'cancelled';
+
+interface StatusSubscription {
+  plan_key: string;
+  status: SubStatus;
+  mode: 'auto' | 'manual';
+  has_instagram: boolean;
+  current_period_start: string | null;
+  current_period_end: string | null;
+}
+interface StatusPlan {
+  key: string;
+  name: string;
+  base_paise: number;
+  gst_paise: number;
+  total_paise: number;
+}
+interface StatusPayment {
+  invoice_no: string | null;
+  total_paise: number;
+  status: string;
+  paid_at: string | null;
+  period_start: string | null;
+  period_end: string | null;
+}
+interface StatusResponse {
+  subscription: StatusSubscription | null;
+  plan: StatusPlan;
+  plans: StatusPlan[];
+  payments: StatusPayment[];
+}
+
+const STATUS_BADGE: Record<SubStatus, { label: string; className: string }> = {
+  active: { label: 'Active', className: 'bg-emerald-100 text-emerald-700 border-0' },
+  past_due: { label: 'Past Due', className: 'bg-amber-100 text-amber-700 border-0' },
+  suspended: { label: 'Suspended', className: 'bg-red-100 text-red-700 border-0' },
+  cancelled: { label: 'Cancelled', className: 'bg-gray-100 text-gray-600 border-0' },
+  pending: { label: 'Pending', className: 'bg-blue-100 text-blue-700 border-0' },
+};
+
+function formatDate(v: string | null): string {
+  if (!v) return '—';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 export function BillingSettings() {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
-  const [loading, setLoading] = useState<string | null>(null);
 
-  const { data: ws, isLoading } = useQuery({
-    queryKey: ['workspace-billing', workspaceId],
-    queryFn:  () =>
-      fetch(`/api/settings/workspace?workspaceId=${workspaceId}`)
-        .then((r) => r.json() as Promise<{ workspace?: WorkspaceData }>),
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: ['billing-status', workspaceId],
+    queryFn: async () => {
+      const res = await fetch(`/api/billing/status?workspaceId=${workspaceId}`);
+      if (!res.ok) throw new Error('Failed to load billing status');
+      return res.json() as Promise<StatusResponse>;
+    },
     enabled: !!workspaceId,
   });
 
-  const { data: usageData } = useQuery({
-    queryKey: ['workspace-usage', workspaceId],
-    queryFn: () =>
-      fetch(`/api/billing/usage?workspaceId=${workspaceId}`)
-        .then((r) => r.json() as Promise<UsageResponse>),
-    enabled: !!workspaceId,
-    refetchInterval: 60_000,
-  });
-
-  const currentPlan = (ws?.workspace?.plan ?? 'free') as string;
-
-  const handleUpgrade = async (plan: 'pro' | 'enterprise') => {
-    setLoading(plan);
-    try {
-      const res = await fetch('/api/billing/razorpay-checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId, plan }),
-      });
-      const data = await res.json() as { checkoutUrl?: string; error?: string };
-      if (data.error) { toast.error(data.error); return; }
-      if (data.checkoutUrl) window.location.href = data.checkoutUrl;
-    } catch {
-      toast.error('Failed to start checkout');
-    } finally {
-      setLoading(null);
+  // Local toggle for the Instagram add-on. Seeded once from the subscription's
+  // current has_instagram (false if there's no subscription yet). Toggling it only
+  // changes what the *next* checkout charges for — it isn't applied on its own.
+  const [hasInstagram, setHasInstagram] = useState(false);
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (data && !seededRef.current) {
+      setHasInstagram(data.subscription?.has_instagram ?? false);
+      seededRef.current = true;
     }
-  };
+  }, [data]);
 
-  if (isLoading) return <div className="space-y-3"><Skeleton className="h-8 w-48" /><Skeleton className="h-40 w-full" /></div>;
+  function handleRefreshAfterPayment() {
+    seededRef.current = false; // re-seed the toggle from the freshly-paid subscription
+    void refetch();
+    // The auto-pay webhook can land a beat after Checkout's handler fires, so poll
+    // a couple more times to pick up the status flip without a manual refresh.
+    setTimeout(() => void refetch(), 3000);
+    setTimeout(() => void refetch(), 8000);
+  }
 
-  const fmt = (v: number) => v === -1 ? 'Unlimited' : v.toLocaleString();
+  if (!workspaceId) {
+    return <p className="text-sm text-muted-foreground">Select a workspace to view billing.</p>;
+  }
 
-  // Starter plan data (not in RAZORPAY_PLANS, defined inline)
-  const STARTER_PLAN = { name: 'Starter', price: 1499 };
+  if (isLoading) {
+    return (
+      <div className="space-y-3 max-w-2xl">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-36 w-full" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-40 w-full" />
+      </div>
+    );
+  }
 
-  const plans = [
-    {
-      key: 'starter' as const,
-      displayKey: ['free', 'starter'] as string[],
-      icon: Zap,
-      color: 'border-gray-200',
-      badge: 'bg-gray-100 text-gray-600',
-      name: STARTER_PLAN.name,
-      price: STARTER_PLAN.price,
-      features: ['3 agents', '1,000 messages/mo', '5 campaigns/mo', '50 KB entries', 'All core features'],
-    },
-    {
-      key: 'pro' as const,
-      displayKey: ['pro'] as string[],
-      icon: CreditCard,
-      color: 'border-brand-300 ring-1 ring-brand-200',
-      badge: 'bg-brand-100 text-brand-700',
-      name: STRIPE_PLANS.pro.name,
-      price: STRIPE_PLANS.pro.price,
-      features: ['10 agents', '25,000 messages/mo', '50 campaigns/mo', '500 KB entries', 'Priority support', 'A/B Testing', 'AI features'],
-      recommended: true,
-    },
-    {
-      key: 'enterprise' as const,
-      displayKey: ['enterprise'] as string[],
-      icon: Building2,
-      color: 'border-purple-200',
-      badge: 'bg-purple-100 text-purple-700',
-      name: STRIPE_PLANS.enterprise.name,
-      price: STRIPE_PLANS.enterprise.price,
-      features: ['Unlimited agents', 'Unlimited messages', 'Unlimited campaigns', 'Unlimited KB entries', 'White label', 'Custom domain', 'SLA support'],
-    },
-  ];
+  if (isError || !data) {
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex items-center justify-between">
+        <span>Could not load billing information.</span>
+        <button type="button" onClick={() => void refetch()} className="underline font-medium">
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  const { subscription, plans, payments } = data;
+  const selectedPlan = plans.find((p) => p.key === (hasInstagram ? 'whatsapp_instagram' : 'whatsapp')) ?? data.plan;
+  const status: SubStatus = subscription?.status ?? 'pending';
+  const badge = subscription ? STATUS_BADGE[status] : { label: 'No active plan', className: 'bg-gray-100 text-gray-600 border-0' };
+  const igAddOnPlan = plans.find((p) => p.key === 'whatsapp_instagram');
+  const baseOnlyPlan = plans.find((p) => p.key === 'whatsapp');
+  const igAddOnPaise = igAddOnPlan && baseOnlyPlan ? igAddOnPlan.base_paise - baseOnlyPlan.base_paise : null;
+  const isAutoPay = subscription?.mode === 'auto';
 
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h2 className="text-base font-semibold text-foreground">Billing & Plans</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Current plan: <span className="font-medium capitalize">{currentPlan}</span>
-        </p>
+        <h2 className="text-base font-semibold text-foreground">Billing</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">Manage your subscription and payment method.</p>
       </div>
 
-      {/* Usage this month */}
+      {/* Plan, status, GST breakdown, next billing date */}
       <div className="rounded-xl border border-border p-4 space-y-4">
         <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-foreground">Usage this month</p>
-          <span className="text-xs text-muted-foreground">{usageData?.month ?? '...'}</span>
+          <div>
+            <p className="text-sm font-medium text-foreground">{selectedPlan.name}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{isAutoPay ? 'Auto-pay' : 'Manual billing'}</p>
+          </div>
+          <Badge className={cn('text-xs', badge.className)}>{badge.label}</Badge>
         </div>
 
-        {/* Messages */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Messages</span>
-            <span className={cn('font-medium', (usageData?.usage.messages.pct ?? 0) >= 90 ? 'text-red-600' : (usageData?.usage.messages.pct ?? 0) >= 70 ? 'text-amber-600' : 'text-foreground')}>
-              {(usageData?.usage.messages.used ?? 0).toLocaleString()} / {(usageData?.usage.messages.limit ?? 0).toLocaleString()}
-            </span>
+        <div className="rounded-lg bg-muted/40 p-3 space-y-1 text-sm">
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span>Base amount</span>
+            <span>₹{rupees(selectedPlan.base_paise)}</span>
           </div>
-          <div className="h-2 rounded-full bg-muted overflow-hidden">
-            <div
-              className={cn('h-full rounded-full transition-all', (usageData?.usage.messages.pct ?? 0) >= 90 ? 'bg-red-500' : (usageData?.usage.messages.pct ?? 0) >= 70 ? 'bg-amber-500' : 'bg-brand-500')}
-              style={{ width: `${Math.min(usageData?.usage.messages.pct ?? 0, 100)}%` }}
-            />
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span>GST (18%)</span>
+            <span>₹{rupees(selectedPlan.gst_paise)}</span>
           </div>
-        </div>
-
-        {/* Contacts */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Contacts</span>
-            <span className={cn('font-medium', (usageData?.usage.contacts.pct ?? 0) >= 90 ? 'text-red-600' : (usageData?.usage.contacts.pct ?? 0) >= 70 ? 'text-amber-600' : 'text-foreground')}>
-              {(usageData?.usage.contacts.used ?? 0).toLocaleString()} / {(usageData?.usage.contacts.limit ?? 0).toLocaleString()}
-            </span>
-          </div>
-          <div className="h-2 rounded-full bg-muted overflow-hidden">
-            <div
-              className={cn('h-full rounded-full transition-all', (usageData?.usage.contacts.pct ?? 0) >= 90 ? 'bg-red-500' : (usageData?.usage.contacts.pct ?? 0) >= 70 ? 'bg-amber-500' : 'bg-brand-500')}
-              style={{ width: `${Math.min(usageData?.usage.contacts.pct ?? 0, 100)}%` }}
-            />
+          <div className="flex items-center justify-between font-semibold text-foreground border-t border-border pt-1 mt-1">
+            <span>Total / month</span>
+            <span>₹{rupees(selectedPlan.total_paise)}</span>
           </div>
         </div>
 
-        {/* Campaigns */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Campaigns</span>
-            <span className={cn('font-medium', (usageData?.usage.campaigns.pct ?? 0) >= 90 ? 'text-red-600' : (usageData?.usage.campaigns.pct ?? 0) >= 70 ? 'text-amber-600' : 'text-foreground')}>
-              {(usageData?.usage.campaigns.used ?? 0).toLocaleString()} / {(usageData?.usage.campaigns.limit ?? 0).toLocaleString()}
-            </span>
-          </div>
-          <div className="h-2 rounded-full bg-muted overflow-hidden">
-            <div
-              className={cn('h-full rounded-full transition-all', (usageData?.usage.campaigns.pct ?? 0) >= 90 ? 'bg-red-500' : (usageData?.usage.campaigns.pct ?? 0) >= 70 ? 'bg-amber-500' : 'bg-brand-500')}
-              style={{ width: `${Math.min(usageData?.usage.campaigns.pct ?? 0, 100)}%` }}
-            />
-          </div>
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <CalendarClock className="h-3.5 w-3.5" />
+          Next billing date:
+          <span className="font-medium text-foreground">{formatDate(subscription?.current_period_end ?? null)}</span>
         </div>
-
-        {((usageData?.usage.messages.pct ?? 0) >= 80 ||
-          (usageData?.usage.contacts.pct ?? 0) >= 80 ||
-          (usageData?.usage.campaigns.pct ?? 0) >= 80) && (
-          <p className="text-xs text-amber-600 font-medium">
-            ⚠️ You&apos;re approaching your monthly limit. Consider upgrading your plan.
-          </p>
-        )}
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        {plans.map((p) => {
-          const isActive = p.displayKey.includes(currentPlan);
-          return (
-            <div key={p.key} className={cn('rounded-xl border p-4 space-y-3 relative', p.color, isActive && 'bg-brand-50/50')}>
-              {p.recommended && (
-                <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand-500 text-white">
-                  RECOMMENDED
-                </span>
-              )}
-              <div className="flex items-center justify-between">
-                <p className="font-semibold text-sm">{p.name}</p>
-                {isActive && <Badge className="text-[10px] bg-emerald-100 text-emerald-700 border-0">Active</Badge>}
-              </div>
-              <div>
-                <span className="text-2xl font-bold">
-                  {p.price === 0 ? 'Free' : `₹${p.price.toLocaleString()}`}
-                </span>
-                {p.price > 0 && <span className="text-xs text-muted-foreground">/month</span>}
-              </div>
-              <ul className="space-y-1.5">
-                {p.features.map((f) => (
-                  <li key={f} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />{f}
-                  </li>
-                ))}
-              </ul>
-              {!isActive && p.key !== 'starter' && (
-                <Button
-                  size="sm"
-                  className="w-full text-xs gap-1.5"
-                  onClick={() => void handleUpgrade(p.key as 'pro' | 'enterprise')}
-                  disabled={loading === p.key}
-                >
-                  {loading === p.key ? 'Redirecting…' : `Upgrade to ${p.name}`}
-                </Button>
-              )}
-              {isActive && (
-                <p className="text-[11px] text-center text-muted-foreground">Your current plan</p>
-              )}
-            </div>
-          );
-        })}
+      {/* Instagram add-on */}
+      <div className="rounded-xl border border-border p-4 flex items-center justify-between">
+        <div className="flex items-start gap-3">
+          <Camera className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-foreground">Instagram add-on</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {igAddOnPaise != null ? `+₹${rupees(igAddOnPaise)}/month for Instagram automation` : 'Add Instagram automation to your plan'}
+            </p>
+          </div>
+        </div>
+        <Switch checked={hasInstagram} onCheckedChange={setHasInstagram} />
       </div>
 
-      <div className="rounded-xl border border-border p-4 bg-muted/30 text-xs text-muted-foreground space-y-1.5">
-        <p className="font-medium text-foreground text-sm">How to activate paid plans (Razorpay):</p>
-        <p>1. Razorpay dashboard → Subscriptions → Plans → Create <strong>Pro</strong> (₹2999/mo) &amp; <strong>Enterprise</strong> (₹9999/mo) plans.</p>
-        <p>2. Add to Vercel env vars: <code className="bg-muted px-1 rounded">RAZORPAY_KEY_ID</code>, <code className="bg-muted px-1 rounded">RAZORPAY_KEY_SECRET</code>, <code className="bg-muted px-1 rounded">RAZORPAY_PRO_PLAN_ID</code>, <code className="bg-muted px-1 rounded">RAZORPAY_ENTERPRISE_PLAN_ID</code>, <code className="bg-muted px-1 rounded">RAZORPAY_WEBHOOK_SECRET</code></p>
-        <p>3. Razorpay → Settings → Webhooks → Add: <code className="bg-muted px-1 rounded">/api/billing/razorpay-webhook</code></p>
-        <p>4. Click Upgrade → Razorpay hosted page → pay → plan activates.</p>
+      {/* Payment mode + actions */}
+      <div className="rounded-xl border border-border p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-foreground">Auto-pay</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {isAutoPay
+                ? 'Your card is charged automatically each billing cycle.'
+                : 'Currently on manual billing — pay each cycle yourself, or switch to auto-pay.'}
+            </p>
+          </div>
+          <Switch
+            checked={isAutoPay}
+            disabled={isAutoPay}
+            onCheckedChange={(checked) => {
+              if (!checked) {
+                toast.info('To switch back to manual billing, contact support.');
+              }
+              // Turning it on is handled by the "Enable auto-pay" button below — it
+              // needs a Razorpay Checkout round-trip, which a bare switch can't do.
+            }}
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <CheckoutButton
+            workspaceId={workspaceId}
+            hasInstagram={hasInstagram}
+            mode="manual"
+            label={`Pay Now — ₹${rupees(selectedPlan.total_paise)}`}
+            busyLabel="Opening payment…"
+            onSuccess={handleRefreshAfterPayment}
+          />
+          {!isAutoPay && (
+            <CheckoutButton
+              workspaceId={workspaceId}
+              hasInstagram={hasInstagram}
+              mode="auto"
+              label="Enable auto-pay"
+              busyLabel="Opening payment…"
+              variant="outline"
+              onSuccess={handleRefreshAfterPayment}
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-2 disabled:opacity-50"
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
+            Refresh status
+          </button>
+        </div>
+      </div>
+
+      {/* Billing history */}
+      <div className="rounded-xl border border-border p-4 space-y-3">
+        <p className="text-sm font-medium text-foreground">Billing history</p>
+        <BillingHistory payments={payments} />
       </div>
     </div>
   );
