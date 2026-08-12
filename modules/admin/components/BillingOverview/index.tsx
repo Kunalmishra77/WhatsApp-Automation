@@ -46,7 +46,7 @@ interface BillingOverviewResponse {
   status_counts: Record<string, number>;
   instagram_addon: { active_count: number; addon_paise: number; revenue_paise: number };
   comped_active_count: number;
-  total_captured_paise: number;
+  total_captured: { INR: number };
   payment_history: PaymentHistoryRow[];
   overdue: OverdueRow[];
   failed_payments: FailedPaymentRow[];
@@ -132,7 +132,7 @@ export function BillingOverview() {
   const kpiCards = [
     { label: 'MRR (Active Subs)', value: `₹${rupees(mrr)}`, sub: `${sc.active ?? 0} active subscriptions`, icon: IndianRupee, color: 'bg-[#F97316]' },
     { label: 'Instagram Add-on Revenue', value: `₹${rupees(data?.instagram_addon.revenue_paise ?? 0)}`, sub: `${data?.instagram_addon.active_count ?? 0} clients on the bundle`, icon: Camera, color: 'bg-violet-500' },
-    { label: 'Lifetime Captured Revenue', value: `₹${rupees(data?.total_captured_paise ?? 0)}`, sub: 'All-time captured payments', icon: CheckCircle2, color: 'bg-emerald-500' },
+    { label: 'Lifetime Captured Revenue', value: `₹${rupees(data?.total_captured.INR ?? 0)}`, sub: 'All-time captured payments', icon: CheckCircle2, color: 'bg-emerald-500' },
     { label: 'Past Due', value: String(sc.past_due ?? 0), sub: `${sc.suspended ?? 0} suspended`, icon: AlertTriangle, color: (sc.past_due ?? 0) > 0 ? 'bg-amber-500' : 'bg-gray-400' },
     { label: 'Comped Accounts', value: String(data?.comped_active_count ?? 0), sub: 'Active, not billed', icon: Users, color: 'bg-blue-500' },
     { label: 'Reconciliation', value: String(data?.reconciliation_mismatches ?? 0), sub: (data?.reconciliation_mismatches ?? 0) > 0 ? 'Status drift vs webhooks' : 'All in sync', icon: ShieldAlert, color: (data?.reconciliation_mismatches ?? 0) > 0 ? 'bg-red-500' : 'bg-emerald-500' },

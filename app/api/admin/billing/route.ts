@@ -23,6 +23,7 @@ const FAILED_PAYMENTS_LIMIT = 50;
 const RECONCILE_EVENT_WINDOW = 3000; // recent webhook events scanned for the reconciliation check
 
 interface ActiveSubRow {
+  id: string;
   plan_key: string;
   has_instagram: boolean;
   is_comped: boolean;
@@ -119,30 +120,39 @@ export async function GET() {
     let compedActiveCount = 0;
     for await (const page of paginateAll<ActiveSubRow>((offset, pageSize) =>
       db.from('subscriptions')
-        .select('plan_key, has_instagram, is_comped')
+        .select('id, plan_key, has_instagram, is_comped')
         .eq('status', 'active')
         .order('id', { ascending: true })
         .range(offset, offset + pageSize - 1),
     )) {
       for (const row of page) {
         const plan = planByKey.get(row.plan_key);
-        if (plan) mrrPaise += plan.total_paise; // INR only for now — grouped explicitly below, not summed cross-currency
+        if (plan) {
+          mrrPaise += plan.total_paise; // INR only for now — grouped explicitly below, not summed cross-currency
+        } else {
+          // A subscription referencing a plan_key that no longer exists in billing_plans
+          // (renamed/deleted) would silently undercount MRR with no signal — log it.
+          console.error(`[AdminBilling] MRR: no plan row for plan_key "${row.plan_key}" (subscription ${row.id}) — skipped`);
+        }
         if (row.has_instagram) igActiveCount++;
         if (row.is_comped) compedActiveCount++;
       }
     }
     const igAddOnRevenuePaise = igActiveCount * igAddOnPaise;
 
-    // ── Lifetime captured revenue: paginated aggregate — a financial total, never capped ──
-    let totalCapturedPaise = 0;
+    // ── Lifetime captured revenue: paginated aggregate — a financial total, never capped.
+    // Grouped by currency like MRR (INR only today) — filtered here rather than summed
+    // across currencies; multi-currency grouping is a future extension.
+    let totalCapturedPaiseInr = 0;
     for await (const page of paginateAll<{ total_paise: number }>((offset, pageSize) =>
       db.from('payments')
         .select('total_paise')
         .eq('status', 'captured')
+        .eq('currency', 'INR')
         .order('id', { ascending: true })
         .range(offset, offset + pageSize - 1),
     )) {
-      for (const row of page) totalCapturedPaise += row.total_paise ?? 0;
+      for (const row of page) totalCapturedPaiseInr += row.total_paise ?? 0;
     }
 
     // ── Payment history — recent window, bounded by design (not a financial total) ──
@@ -248,7 +258,7 @@ export async function GET() {
         revenue_paise: igAddOnRevenuePaise,
       },
       comped_active_count: compedActiveCount,
-      total_captured_paise: totalCapturedPaise,
+      total_captured: { INR: totalCapturedPaiseInr }, // grouped by currency, like MRR
       payment_history: paymentHistory,
       overdue,
       failed_payments: failedPayments,
