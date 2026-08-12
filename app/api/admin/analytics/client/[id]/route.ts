@@ -20,24 +20,44 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const now   = new Date();
   const month = now.toISOString().slice(0, 7);
 
-  const [contactsRes, convsRes, campsRes, msgCountRes, messagesRes] = await Promise.all([
-    db.from('contacts').select('id, created_at').eq('workspace_id', workspaceId),
-    db.from('conversations').select('id, status, created_at, last_message_at').eq('workspace_id', workspaceId),
+  // Last-30-days window for the message trend chart. p_to is exclusive (matches
+  // lib/date-range.ts convention); using "now" as the exclusive upper bound is
+  // equivalent to the original's unbounded `.gte()` since no message can have a
+  // future created_at.
+  const trendFromUtc = new Date(Date.now() - 30 * 86400000).toISOString();
+  const trendToUtc   = now.toISOString();
+
+  // 7 calendar-month boundaries (index 6 = exclusive upper bound for trend-month 5)
+  // — shared by `contact_growth` below, mirroring the `monthBoundaries` pattern in
+  // admin/analytics/dashboard/route.ts.
+  const monthBoundaries = Array.from({ length: 7 }, (_, i) =>
+    new Date(now.getFullYear(), now.getMonth() - 5 + i, 1));
+
+  const [contactsCountRes, convsCountRes, campsRes, msgCountRes, trendRes] = await Promise.all([
+    // Exact, uncapped — replaces the old bare `.select('id, created_at')` + `.length`
+    // that PostgREST silently truncated at 1000 rows.
+    db.from('contacts').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId),
+    // Exact, uncapped — replaces the old bare `.select('id, status, created_at, last_message_at')` + `.length`.
+    db.from('conversations').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId),
     // ALL campaigns — with all count fields
     db.from('campaigns').select('id, name, status, sent_count, delivered_count, read_count, replied_count, failed_count, created_at')
       .eq('workspace_id', workspaceId).order('created_at', { ascending: false }).limit(20),
     // All-time message count using COUNT (avoids 1000-row limit)
     db.from('messages').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId),
-    // Last 30 days messages for trend chart
-    db.from('messages').select('direction, created_at').eq('workspace_id', workspaceId)
-      .gte('created_at', new Date(Date.now() - 30 * 86400000).toISOString()),
+    // Last 30 days messages for trend chart — via analytics_message_daily (migration
+    // 064), uncapped: replaces the old bare `.select('direction, created_at')` that
+    // PostgREST silently truncated at 1000 rows once a workspace passed ~33
+    // messages/day over the window.
+    db.rpc('analytics_message_daily', { p_workspace: workspaceId, p_from: trendFromUtc, p_to: trendToUtc, p_tz: 'Asia/Kolkata' }),
   ]);
 
-  const contacts: any[] = contactsRes.data ?? [];
-  const convs: any[]    = convsRes.data ?? [];
-  const campsRaw: any[] = campsRes.data ?? [];
-  const totalMsgCount   = (msgCountRes as any)?.count ?? 0;
-  const msgs: any[]     = messagesRes.data ?? [];
+  const contactsTotal      = contactsCountRes.count ?? 0;
+  const conversationsTotal = convsCountRes.count ?? 0;
+  const campsRaw: any[]    = campsRes.data ?? [];
+  const totalMsgCount      = (msgCountRes as any)?.count ?? 0;
+
+  type TrendRow = { day: string; direction: string; cnt: number | string };
+  const trendRows = (trendRes.data ?? []) as TrendRow[];
 
   // Get LIVE replied counts from campaign_recipients (more accurate than campaigns.replied_count)
   // campaigns.replied_count can be stale for recently-completed campaigns
@@ -60,13 +80,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     replied_count: repliedMap.get(c.id) ?? c.replied_count ?? 0,
   }));
 
-  // Monthly message volume (30 days)
+  // Monthly message volume (30 days) — built from the uncapped RPC rows, plus bot
+  // response rate derived from the same single pass (previously a separate
+  // outbound/inbound `.filter().length` over the same, now-removed capped select).
   const msgByDay: Record<string, { sent: number; received: number }> = {};
-  for (const m of msgs) {
-    const day = m.created_at.slice(0, 10);
+  let outbound = 0, inbound = 0;
+  for (const row of trendRows) {
+    const cnt = Number(row.cnt);
+    const day = row.day.slice(0, 10);
     if (!msgByDay[day]) msgByDay[day] = { sent: 0, received: 0 };
-    if (m.direction === 'outbound') msgByDay[day].sent++;
-    else msgByDay[day].received++;
+    if (row.direction === 'outbound') { msgByDay[day].sent += cnt; outbound += cnt; }
+    else { msgByDay[day].received += cnt; inbound += cnt; }
   }
   const message_trend = Array.from({ length: 30 }, (_, i) => {
     const d   = new Date(Date.now() - (29 - i) * 86400000);
@@ -75,21 +99,28 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   });
 
   // Bot response rate
-  const outbound = msgs.filter((m: any) => m.direction === 'outbound').length;
-  const inbound  = msgs.filter((m: any) => m.direction === 'inbound').length;
   const bot_response_rate = inbound > 0 ? Math.round((outbound / inbound) * 100) : 0;
 
   // Health score — based on actual all-time message count
   const msgThisMonth = totalMsgCount;
   const health_score = Math.max(20, Math.min(100, msgThisMonth > 500 ? 95 : msgThisMonth > 100 ? 85 : msgThisMonth > 10 ? 65 : 40));
 
-  // Contact growth by month
-  const contact_growth = Array.from({ length: 6 }, (_, i) => {
-    const d    = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
-    const mStr = d.toISOString().slice(0, 7);
-    const label = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
-    return { month: label, count: contacts.filter((c: any) => c.created_at.slice(0, 7) <= mStr).length };
-  });
+  // Contact growth by month — cumulative "total contacts by end of month", as 6
+  // parallel exact counts instead of the old bare `.select('id, created_at')` +
+  // JS `.filter().length` per bucket (same capped select `contacts_total` used to
+  // share, now removed entirely). `.lt(nextMonthStart)` reproduces the original's
+  // `created_at.slice(0,7) <= mStr` cumulative-through-end-of-month comparison.
+  const contact_growth = await Promise.all(
+    monthBoundaries.slice(0, 6).map(async (d, i) => {
+      const nextMonthStart = monthBoundaries[i + 1]!;
+      const label = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+      const { count } = await db.from('contacts')
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId)
+        .lt('created_at', nextMonthStart.toISOString());
+      return { month: label, count: count ?? 0 };
+    }),
+  );
 
   // Campaign stats — show all fetched campaigns (up to 20) with real counts
   const campaign_stats = camps.map((c: any) => ({
@@ -111,8 +142,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   return NextResponse.json({
     kpis: {
       messages_this_month: msgThisMonth,   // all-time conversation messages
-      contacts_total:      contacts.length,
-      conversations_total: convs.length,
+      contacts_total:      contactsTotal,
+      conversations_total: conversationsTotal,
       campaigns_total:     camps.length,
       campaign_sent_total: totalSent,      // total campaign messages sent
       campaign_delivered:  totalDelivered,

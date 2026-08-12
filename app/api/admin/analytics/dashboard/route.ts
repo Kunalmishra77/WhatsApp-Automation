@@ -20,24 +20,26 @@ export async function GET(_req: NextRequest) {
   const now    = new Date();
   const localYM = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1).toISOString();
   const monthStart   = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
   const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
 
-  const [wsRes, msgMonthRes, msgTrendRes, campCountRes] = await Promise.all([
+  // 7 calendar-month boundaries (index i = 1st of month, index 6 = 1st of the month
+  // *after* the 6th trend month) — shared by the message-volume, revenue and
+  // client-growth trends below so all three line up on the same buckets.
+  const monthBoundaries = Array.from({ length: 7 }, (_, i) =>
+    new Date(now.getFullYear(), now.getMonth() - 5 + i, 1));
+
+  const [wsRes, msgMonthCountRes, campCountRes] = await Promise.all([
     db.from('workspaces')
       .select('id, name, plan, is_active, subscription_status, created_at')
       .is('deleted_at', null),
 
-    // This month: only workspace_id needed (no direction, no created_at)
+    // Platform-wide "this month" message count — exact, uncapped. Replaces the old
+    // bare `.select('workspace_id')` that PostgREST silently truncated at 1000 rows
+    // once the platform passed ~1000 messages/month.
     db.from('messages')
-      .select('workspace_id')
+      .select('id', { count: 'exact', head: true })
       .gte('created_at', monthStart),
-
-    // Last 6 months for trend chart: need direction + created_at
-    db.from('messages')
-      .select('direction, created_at')
-      .gte('created_at', sixMonthsAgo),
 
     // Campaigns count only — no rows fetched
     db.from('campaigns')
@@ -46,10 +48,42 @@ export async function GET(_req: NextRequest) {
       .gte('created_at', monthStart),
   ]);
 
-  const workspaces: any[]    = wsRes.data ?? [];
-  const msgMonthRows: any[]  = msgMonthRes.data ?? [];
-  const msgTrendRows: any[]  = msgTrendRes.data ?? [];
+  const workspaces: any[]     = wsRes.data ?? [];
+  const msgThisMonth: number  = msgMonthCountRes.count ?? 0;
   const campThisMonth: number = campCountRes.count ?? 0;
+
+  // Platform-wide message volume trend (sent vs received), 6 calendar months — 12
+  // exact counts (2 directions × 6 months, no workspace filter — admin routes
+  // aggregate across ALL workspaces), no 1000-row cap. Replaces the old bare
+  // `.select('direction, created_at')` over 6 months of platform traffic that was
+  // silently truncated at 1000 rows and then filtered/counted in JS.
+  const message_volume = await Promise.all(
+    monthBoundaries.slice(0, 6).map(async (d, i) => {
+      const next  = monthBoundaries[i + 1]!;
+      const label = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+      const [{ count: sent }, { count: received }] = await Promise.all([
+        db.from('messages').select('id', { count: 'exact', head: true })
+          .eq('direction', 'outbound').gte('created_at', d.toISOString()).lt('created_at', next.toISOString()),
+        db.from('messages').select('id', { count: 'exact', head: true })
+          .eq('direction', 'inbound').gte('created_at', d.toISOString()).lt('created_at', next.toISOString()),
+      ]);
+      return { date: label, sent: sent ?? 0, received: received ?? 0 };
+    }),
+  );
+
+  // Per-workspace message count *this month* → health scores + top clients. One
+  // exact, workspace-scoped count per workspace instead of a capped bare select +
+  // JS tally (the old code silently under-counted every workspace once platform-wide
+  // messages-this-month passed 1000, and worse, could show a workspace as having 0
+  // messages just because it lost the race for the first 1000 rows).
+  const msgCountByWs = new Map<string, number>();
+  await Promise.all(workspaces.map(async (w: any) => {
+    const { count } = await db.from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('workspace_id', w.id)
+      .gte('created_at', monthStart);
+    msgCountByWs.set(w.id, count ?? 0);
+  }));
 
   // KPIs
   const active = workspaces.filter((w: any) => w.is_active && w.subscription_status === 'active').length;
@@ -58,14 +92,7 @@ export async function GET(_req: NextRequest) {
     if (!w.is_active || w.subscription_status !== 'active') return acc;
     return acc + ((PLAN_DISPLAY as any)[w.plan?.toLowerCase()]?.price ?? 0);
   }, 0);
-  const msgThisMonth = msgMonthRows.length;
   const new7d = workspaces.filter((w: any) => w.created_at > sevenDaysAgo).length;
-
-  // Per-workspace message count this month → health scores + top clients
-  const msgCountByWs = new Map<string, number>();
-  for (const m of msgMonthRows) {
-    msgCountByWs.set(m.workspace_id, (msgCountByWs.get(m.workspace_id) ?? 0) + 1);
-  }
 
   // Health scores
   const healthScores = workspaces.map((w: any) => {
@@ -81,8 +108,7 @@ export async function GET(_req: NextRequest) {
     : 0;
 
   // Revenue trend
-  const revenue_trend = Array.from({ length: 6 }, (_, i) => {
-    const d    = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
+  const revenue_trend = monthBoundaries.slice(0, 6).map((d) => {
     const mStr = localYM(d);
     const label = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
     const activeWs = workspaces.filter((w: any) => {
@@ -94,24 +120,8 @@ export async function GET(_req: NextRequest) {
     return { month: label, mrr: mrrAtTime, clients: activeWs.length };
   });
 
-  // Message volume trend (direction breakdown for chart)
-  const message_volume = Array.from({ length: 6 }, (_, i) => {
-    const d    = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
-    const next = new Date(now.getFullYear(), now.getMonth() - 4 + i, 1);
-    const label = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
-    const inRange = msgTrendRows.filter((m: any) =>
-      m.created_at >= d.toISOString() && m.created_at < next.toISOString()
-    );
-    return {
-      date:     label,
-      sent:     inRange.filter((m: any) => m.direction === 'outbound').length,
-      received: inRange.filter((m: any) => m.direction === 'inbound').length,
-    };
-  });
-
   // Client growth
-  const client_growth = Array.from({ length: 6 }, (_, i) => {
-    const d    = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
+  const client_growth = monthBoundaries.slice(0, 6).map((d) => {
     const mStr = localYM(d);
     const label = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
     const newInMonth = workspaces.filter((w: any) =>

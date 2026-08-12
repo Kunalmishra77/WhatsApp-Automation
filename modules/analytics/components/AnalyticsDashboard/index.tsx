@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   AreaChart, Area, FunnelChart, Funnel, LabelList,
@@ -19,8 +19,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { QUICK_RANGES, resolveRange, type QuickRange } from '@/lib/date-range';
 import {
   useAnalyticsOverview, useAgentPerformance, useExtendedAnalytics,
   type AgentStat, type DrawerType,
@@ -33,12 +36,6 @@ const BRAND = '#6366f1', GREEN = '#10b981', AMBER = '#f59e0b', ROSE = '#ef4444',
 const PIE_COLORS = [BRAND, GREEN, AMBER, ROSE, SKY, VIOLET];
 const TT = { background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 };
 
-type Range = '7d' | '30d' | '90d';
-function buildDates(r: Range) {
-  const to = new Date().toISOString().split('T')[0]!;
-  const days = r === '7d' ? 7 : r === '30d' ? 30 : 90;
-  return { from: new Date(Date.now() - days * 86_400_000).toISOString().split('T')[0]!, to };
-}
 function fmtMins(m: number) {
   if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60), mm = m % 60;
@@ -161,13 +158,42 @@ const CAMP_STATUS: Record<string, string> = {
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 export function AnalyticsDashboard() {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
-  const [range, setRange]           = useState<Range>('30d');
   const [drawer, setDrawer]         = useState<DrawerType | null>(null);
-  const { from, to }                = buildDates(range);
 
-  const { data: ov,  isLoading: ovL }  = useAnalyticsOverview(from, to);
-  const { data: ext, isLoading: extL } = useExtendedAnalytics(from, to);
+  // ── Global date-range filter — quick presets resolve server-side; custom
+  //    only fires once both endpoints are picked (see rangeQs below). ──────────
+  const [quick, setQuick]           = useState<QuickRange>('last_30_days');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo]     = useState('');
+  const isCustom     = quick === 'custom';
+  const customReady  = !isCustom || (!!customFrom && !!customTo);
+
+  // Querystring for /api/analytics/overview + /api/analytics/extended — the
+  // server resolves the actual boundaries (single source of truth). `null`
+  // while a custom range is picked but not yet fully specified.
+  const rangeQs = useMemo(() => {
+    if (isCustom) return customReady ? `quick=custom&from=${customFrom}&to=${customTo}` : null;
+    return `quick=${quick}`;
+  }, [isCustom, customReady, customFrom, customTo, quick]);
+
+  // Literal from/to date strings — still required by /api/analytics/agents,
+  // /api/analytics/detail (drawer) and the export endpoint, none of which were
+  // migrated to ?quick= in Tasks 3-4. Mirrors the server's own resolveRange().
+  const resolved = useMemo(
+    () => (customReady ? resolveRange(quick, { from: customFrom, to: customTo }) : null),
+    [quick, customFrom, customTo, customReady],
+  );
+  const from = resolved?.from ?? '';
+  const to   = resolved?.to ?? '';
+
+  const { data: ov,  isLoading: ovLQ }  = useAnalyticsOverview(rangeQs);
+  const { data: ext, isLoading: extLQ } = useExtendedAnalytics(rangeQs);
   const { data: agentData, isLoading: agentL } = useAgentPerformance(from, to);
+
+  // While a custom range is incomplete, the queries are disabled (not loading) —
+  // treat that as "still waiting on input", not "loaded with no data".
+  const ovL  = ovLQ  || !customReady;
+  const extL = extLQ || !customReady;
 
   const loading  = ovL || extL;
   const s        = ov?.summary;
@@ -191,17 +217,36 @@ export function AnalyticsDashboard() {
         </div>
         <div className="flex items-center gap-2">
           {/* Date range */}
-          <div className="flex rounded-lg border border-border overflow-hidden">
-            {(['7d', '30d', '90d'] as Range[]).map((r) => (
-              <button
-                key={r}
-                onClick={() => setRange(r)}
-                className={cn('px-3 py-1 text-xs font-medium transition-colors', range === r ? 'bg-brand-500 text-white' : 'bg-card text-muted-foreground hover:text-foreground')}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
+          <Select value={quick} onValueChange={(v) => setQuick(v as QuickRange)}>
+            <SelectTrigger className="h-8 w-[150px] text-xs">
+              <SelectValue placeholder="Select range" />
+            </SelectTrigger>
+            <SelectContent>
+              {QUICK_RANGES.map((r) => (
+                <SelectItem key={r.key} value={r.key}>{r.label}</SelectItem>
+              ))}
+              <SelectItem value="custom">Custom Range</SelectItem>
+            </SelectContent>
+          </Select>
+          {isCustom && (
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="date"
+                value={customFrom}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="h-8 w-[135px] text-xs px-2"
+                aria-label="Custom range start date"
+              />
+              <span className="text-xs text-muted-foreground">to</span>
+              <Input
+                type="date"
+                value={customTo}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="h-8 w-[135px] text-xs px-2"
+                aria-label="Custom range end date"
+              />
+            </div>
+          )}
           {/* Export */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

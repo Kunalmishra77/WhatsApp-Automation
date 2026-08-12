@@ -79,17 +79,20 @@ export interface AnalyticsOverview {
   hourlyHeatmap: number[][];
 }
 
-export function useAnalyticsOverview(from: string, to: string) {
+// `rangeQs` is the resolved `quick=<key>` or `quick=custom&from=&to=` querystring
+// (see lib/date-range.ts QUICK_RANGES) — pass `null` while a custom range is
+// selected but not yet fully specified, to hold off the fetch.
+export function useAnalyticsOverview(rangeQs: string | null) {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   return useQuery<AnalyticsOverview>({
-    queryKey: ['analytics', 'overview', workspaceId, from, to],
+    queryKey: ['analytics', 'overview', workspaceId, rangeQs],
     queryFn: () =>
-      fetch(`/api/analytics/overview?workspaceId=${workspaceId}&from=${from}&to=${to}`)
+      fetch(`/api/analytics/overview?workspaceId=${workspaceId}&${rangeQs}`)
         .then((r) => {
           if (!r.ok) throw new Error('Failed to fetch analytics');
           return r.json() as Promise<AnalyticsOverview>;
         }),
-    enabled: !!workspaceId,
+    enabled: !!workspaceId && rangeQs !== null,
     staleTime: 30_000,
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
@@ -122,7 +125,9 @@ export function useAgentPerformance(from: string, to: string) {
           if (!r.ok) throw new Error('Failed to fetch agent performance');
           return r.json() as Promise<AgentPerformanceResponse>;
         }),
-    enabled: !!workspaceId,
+    // /api/analytics/agents still takes literal from/to (not migrated to ?quick=
+    // in Tasks 3-4) and 400s without both — guard until the resolved range is ready.
+    enabled: !!workspaceId && !!from && !!to,
     staleTime: 30_000,
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
@@ -145,17 +150,18 @@ export interface ExtendedAnalytics {
   deliveryFunnel:               Array<{ stage: string; count: number; color: string }>;
 }
 
-export function useExtendedAnalytics(from: string, to: string) {
+// See useAnalyticsOverview above for the `rangeQs` contract.
+export function useExtendedAnalytics(rangeQs: string | null) {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   return useQuery<ExtendedAnalytics>({
-    queryKey: ['analytics', 'extended', workspaceId, from, to],
+    queryKey: ['analytics', 'extended', workspaceId, rangeQs],
     queryFn: () =>
-      fetch(`/api/analytics/extended?workspaceId=${workspaceId}&from=${from}&to=${to}`)
+      fetch(`/api/analytics/extended?workspaceId=${workspaceId}&${rangeQs}`)
         .then((r) => {
           if (!r.ok) throw new Error('Failed to fetch extended analytics');
           return r.json() as Promise<ExtendedAnalytics>;
         }),
-    enabled: !!workspaceId,
+    enabled: !!workspaceId && rangeQs !== null,
     staleTime: 30_000,
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
