@@ -25,6 +25,19 @@ interface WorkspaceContactRow {
   name: string;
 }
 
+/**
+ * Thrown when a CRITICAL state write (subscriptions.status/period or
+ * workspaces.is_active/subscription_status) fails. Caught in POST(), which
+ * removes the idempotency row for this event_id and returns 500 so
+ * Razorpay's retry reprocesses cleanly instead of deduping to a no-op 200.
+ */
+class CriticalWriteError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CriticalWriteError';
+  }
+}
+
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get('x-razorpay-signature') ?? '';
@@ -82,8 +95,23 @@ export async function POST(request: NextRequest) {
     try {
       await dispatchEvent(db, parsed.event, parsed.payload ?? {});
     } catch (err) {
-      // Per-event failure: log and still 200 — Razorpay retrying won't fix a
-      // bug in our handler, and event_id is already recorded as processed.
+      if (err instanceof CriticalWriteError) {
+        // Compensating delete: without this, Razorpay's retry would be
+        // deduped to a 200 no-op and the transition would never apply.
+        const { error: delErr } = await db
+          .from('billing_webhook_events')
+          .delete()
+          .eq('event_id', eventId);
+        if (delErr) {
+          console.error(
+            '[RazorpayWebhook] CRITICAL: failed to remove idempotency row after failed write — retry will be a no-op',
+            delErr.message,
+          );
+        }
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+      }
+      // Non-critical per-event failure: log and still 200 — Razorpay retrying
+      // won't fix a bug in our handler, and event_id is already recorded.
       console.error(`[RazorpayWebhook] handler error for event ${parsed.event}`, err);
     }
 
@@ -192,7 +220,7 @@ async function handleSubscriptionActivatedOrCharged(
   const periodStart = epochToDate(subEntity.current_start) ?? today;
   const periodEnd = epochToDate(subEntity.current_end) ?? addOneMonth(today);
 
-  await db
+  const { error: subErr } = await db
     .from('subscriptions')
     .update({
       status: 'active',
@@ -202,11 +230,19 @@ async function handleSubscriptionActivatedOrCharged(
       reminder_sent_for: null,
     })
     .eq('id', subRow.id);
+  if (subErr) {
+    console.error(`[RazorpayWebhook] CRITICAL: failed to apply ${event} for workspace ${subRow.workspace_id}:`, subErr.message);
+    throw new CriticalWriteError(`subscriptions update failed for ${event}`);
+  }
 
-  await db
+  const { error: wsErr } = await db
     .from('workspaces')
     .update({ is_active: true, subscription_status: 'active' })
     .eq('id', subRow.workspace_id);
+  if (wsErr) {
+    console.error(`[RazorpayWebhook] CRITICAL: failed to apply ${event} for workspace ${subRow.workspace_id}:`, wsErr.message);
+    throw new CriticalWriteError(`workspaces update failed for ${event}`);
+  }
 
   if (event !== 'subscription.charged') return;
 
@@ -230,8 +266,19 @@ async function handleSubscriptionActivatedOrCharged(
     .eq('key', subRow.plan_key)
     .maybeSingle();
 
+  if (!planRow) {
+    // The charge really happened (subscription period + activation above
+    // already applied) — but with no plan row we have no trustworthy amount
+    // to ledger. Never write a ₹0 captured payment; skip the insert and
+    // surface this loudly so it gets fixed (e.g. a renamed/deleted plan key).
+    console.error(
+      `[BillingWebhook] CRITICAL: plan ${subRow.plan_key} not found for workspace ${subRow.workspace_id} — skipping payment ledger insert`,
+    );
+    return;
+  }
+
   // Amounts always come from the plan row, never trusted from the webhook payload.
-  const { basePaise, gstPaise, totalPaise } = computeAmounts(planRow?.base_paise ?? 0);
+  const { basePaise, gstPaise, totalPaise } = computeAmounts(planRow.base_paise);
   const paidAt = typeof paymentEntity?.created_at === 'number'
     ? new Date(paymentEntity.created_at * 1000).toISOString()
     : new Date().toISOString();
@@ -288,11 +335,16 @@ async function handleSubscriptionPending(db: any, payload: Record<string, any>):
   const graceDays: number = configRow?.grace_days ?? 3;
   const graceUntil = addDaysStr(todayStr(), graceDays);
 
-  await db
+  const { error: subErr } = await db
     .from('subscriptions')
     .update({ status: 'past_due', grace_until: graceUntil })
     .eq('id', subRow.id);
+  if (subErr) {
+    console.error(`[RazorpayWebhook] CRITICAL: failed to apply subscription.pending for workspace ${subRow.workspace_id}:`, subErr.message);
+    throw new CriticalWriteError('subscriptions update failed for subscription.pending');
+  }
 
+  // Email only after the state write has actually succeeded.
   const ws = await findWorkspaceContact(db, subRow.workspace_id);
   if (ws?.owner_email) {
     await sendMail({
@@ -317,13 +369,23 @@ async function handleSubscriptionHalted(db: any, payload: Record<string, any>): 
     return;
   }
 
-  await db.from('subscriptions').update({ status: 'suspended' }).eq('id', subRow.id);
+  const { error: subErr } = await db.from('subscriptions').update({ status: 'suspended' }).eq('id', subRow.id);
+  if (subErr) {
+    console.error(`[RazorpayWebhook] CRITICAL: failed to apply subscription.halted for workspace ${subRow.workspace_id}:`, subErr.message);
+    throw new CriticalWriteError('subscriptions update failed for subscription.halted');
+  }
+
   // Data is preserved — only the access flag flips. No deletes anywhere in this handler.
-  await db
+  const { error: wsErr } = await db
     .from('workspaces')
     .update({ is_active: false, subscription_status: 'suspended' })
     .eq('id', subRow.workspace_id);
+  if (wsErr) {
+    console.error(`[RazorpayWebhook] CRITICAL: failed to apply subscription.halted for workspace ${subRow.workspace_id}:`, wsErr.message);
+    throw new CriticalWriteError('workspaces update failed for subscription.halted');
+  }
 
+  // Email only after both state writes have actually succeeded.
   const ws = await findWorkspaceContact(db, subRow.workspace_id);
   if (ws?.owner_email) {
     await sendMail({
@@ -350,15 +412,23 @@ async function handleSubscriptionCancelled(db: any, payload: Record<string, any>
 
   // Access continues until current_period_end; the billing-sweep cron (Task 6)
   // is what actually suspends once the period elapses.
-  await db
+  const { error: subErr } = await db
     .from('subscriptions')
     .update({ status: 'cancelled', cancel_at_period_end: true })
     .eq('id', subRow.id);
+  if (subErr) {
+    console.error(`[RazorpayWebhook] CRITICAL: failed to apply subscription.cancelled for workspace ${subRow.workspace_id}:`, subErr.message);
+    throw new CriticalWriteError('subscriptions update failed for subscription.cancelled');
+  }
 
-  await db
+  const { error: wsErr } = await db
     .from('workspaces')
     .update({ subscription_status: 'cancelled' })
     .eq('id', subRow.workspace_id);
+  if (wsErr) {
+    console.error(`[RazorpayWebhook] CRITICAL: failed to apply subscription.cancelled for workspace ${subRow.workspace_id}:`, wsErr.message);
+    throw new CriticalWriteError('workspaces update failed for subscription.cancelled');
+  }
 }
 
 async function handlePaymentCapturedOrOrderPaid(db: any, payload: Record<string, any>): Promise<void> {
@@ -380,14 +450,20 @@ async function handlePaymentCapturedOrOrderPaid(db: any, payload: Record<string,
 
   if (paymentRow) {
     if (paymentRow.status !== 'captured') {
+      // Non-critical write: has its own status='created' guard + 23505 retry
+      // and already logs its own errors — no need to 500 on it.
       await captureExistingPayment(db, paymentRow.id, paymentEntity);
     }
     // Manual-path safety net: guarantee the workspace is active even if the
     // client-side /api/billing/verify call never completed.
-    await db
+    const { error: wsErr } = await db
       .from('workspaces')
       .update({ is_active: true, subscription_status: 'active' })
       .eq('id', paymentRow.workspace_id);
+    if (wsErr) {
+      console.error(`[RazorpayWebhook] CRITICAL: failed to apply payment.captured/order.paid for workspace ${paymentRow.workspace_id}:`, wsErr.message);
+      throw new CriticalWriteError('workspaces update failed for payment.captured/order.paid');
+    }
     return;
   }
 
@@ -395,10 +471,14 @@ async function handlePaymentCapturedOrOrderPaid(db: any, payload: Record<string,
   // handled via subscription.charged) — fall back to notes.workspace_id
   // purely as an activation safety net.
   if (notesWorkspaceId) {
-    await db
+    const { error: wsErr } = await db
       .from('workspaces')
       .update({ is_active: true, subscription_status: 'active' })
       .eq('id', notesWorkspaceId);
+    if (wsErr) {
+      console.error(`[RazorpayWebhook] CRITICAL: failed to apply payment.captured/order.paid for workspace ${notesWorkspaceId}:`, wsErr.message);
+      throw new CriticalWriteError('workspaces update failed for payment.captured/order.paid (notes fallback)');
+    }
     return;
   }
 
