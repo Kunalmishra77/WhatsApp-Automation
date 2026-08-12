@@ -130,13 +130,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 
-    // Generate the invoice number, then mark the payment captured. Small retry loop
-    // in case of a concurrent capture racing the same COUNT(*)-based sequence and
-    // colliding on the invoice_no UNIQUE constraint.
+    // Generate the invoice number, then mark the payment captured. The update is
+    // conditioned on .eq('status', 'created') and .select()-ed so it's the atomic
+    // "only the first writer wins" guard against a racing double-submit (e.g. a client
+    // retry-on-timeout for the same payment): if two requests both pass the earlier
+    // status==='created' read-check before either commits, only one UPDATE actually
+    // matches a row — the other gets 0 rows back and must NOT treat that as an error or
+    // burn another invoice-sequence number on its own attempt.
     const year = new Date().getUTCFullYear();
     let invoiceNo: string | null = null;
+    let lostCaptureRace = false;
 
-    for (let attempt = 0; attempt < 3 && !invoiceNo; attempt++) {
+    for (let attempt = 0; attempt < 3 && !invoiceNo && !lostCaptureRace; attempt++) {
       const { count } = await db
         .from('payments')
         .select('id', { count: 'exact', head: true })
@@ -145,7 +150,7 @@ export async function POST(request: NextRequest) {
       const nextSeq = (count ?? 0) + 1 + attempt;
       const candidate = formatInvoiceNo(nextSeq, year);
 
-      const { error: captureError } = await db
+      const { data: capturedRows, error: captureError } = await db
         .from('payments')
         .update({
           status: 'captured',
@@ -153,18 +158,45 @@ export async function POST(request: NextRequest) {
           paid_at: new Date().toISOString(),
           invoice_no: candidate,
         })
-        .eq('id', payment.id);
+        .eq('id', payment.id)
+        .eq('status', 'created')
+        .select('invoice_no');
 
       if (!captureError) {
-        invoiceNo = candidate;
+        if (capturedRows && capturedRows.length > 0) {
+          invoiceNo = candidate;
+        } else {
+          // 0 rows affected: someone else's request already flipped this payment to
+          // 'captured' between our read-check and this write. We lost the race — do
+          // NOT retry with a bumped sequence, that would burn an unused invoice number.
+          lostCaptureRace = true;
+        }
         break;
       }
 
-      // 23505 = unique_violation (invoice_no clash) — retry with a bumped sequence.
+      // 23505 = unique_violation (invoice_no clash against a *different* payment row
+      // racing the same COUNT(*)-based sequence) — retry with a bumped candidate.
       if (captureError.code !== '23505') {
         console.error('[Billing Verify] payments capture update failed', captureError);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
       }
+    }
+
+    if (lostCaptureRace) {
+      // Treat exactly like the idempotent "already captured" replay: fetch the winner's
+      // invoice_no and hand it back rather than erroring or minting a duplicate.
+      const { data: existing, error: refetchError } = await db
+        .from('payments')
+        .select('status, invoice_no')
+        .eq('id', payment.id)
+        .single();
+
+      if (refetchError || !existing || existing.status !== 'captured' || !existing.invoice_no) {
+        console.error('[Billing Verify] lost capture race but re-fetch did not find a captured row', payment.id, refetchError);
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+      }
+
+      return NextResponse.json({ ok: true, invoice_no: existing.invoice_no });
     }
 
     if (!invoiceNo) {
