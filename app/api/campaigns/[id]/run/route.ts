@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { authzResponse, requireWorkspacePermission, AuthzError } from '@/lib/authz';
 import { createAdminClient } from '@/services/supabase/admin';
+import { assertWorkspaceActive, suspendedResponse, SuspendedError } from '@/lib/billing-guard';
 
 // POST /api/campaigns/[id]/run
 // Instead of executing synchronously (timeout risk), enqueues to campaign_queue.
@@ -25,6 +26,17 @@ export async function POST(
     }
 
     await requireWorkspacePermission(campaign.workspace_id, 'create_campaigns');
+
+    // Suspension guard — deny running a campaign for a suspended/cancelled
+    // workspace. Fails open on any internal error (see lib/billing-guard.ts).
+    try {
+      await assertWorkspaceActive(db, campaign.workspace_id);
+    } catch (e) {
+      if (e instanceof SuspendedError) {
+        return suspendedResponse();
+      }
+      console.error('[Campaign Run] billing guard check failed unexpectedly, allowing through:', e);
+    }
 
     if (campaign.status === 'running') {
       return NextResponse.json({ error: 'Campaign already running' }, { status: 409 });
