@@ -22,6 +22,11 @@ describe('dates + invoice + display', () => {
     expect(addOneMonth('2026-08-01')).toBe('2026-09-01');
     expect(addOneMonth('2026-01-31')).toBe('2026-02-28');
   });
+  it('addOneMonth year rollover + leap day', () => {
+    expect(addOneMonth('2026-12-15')).toBe('2027-01-15');
+    expect(addOneMonth('2026-12-31')).toBe('2027-01-31');
+    expect(addOneMonth('2028-01-31')).toBe('2028-02-29');
+  });
   it('invoice number format', () => {
     expect(formatInvoiceNo(123, 2026)).toBe('INV-2026-000123');
   });
@@ -48,6 +53,10 @@ describe('state machine (grace 3, reminder 3)', () => {
   it('active mid-cycle → none', () => {
     const r = nextBillingAction({ ...base, status: 'active', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-08-15', reminderSentFor: null });
     expect(r.action).toBe('none'); expect(r.isActive).toBe(true);
+  });
+  it('pending subscription is never active and takes no action', () => {
+    const r = nextBillingAction({ ...base, status: 'pending', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-05', reminderSentFor: null });
+    expect(r.action).toBe('none'); expect(r.isActive).toBe(false);
   });
 });
 describe('signatures', () => {
