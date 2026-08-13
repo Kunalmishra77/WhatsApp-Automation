@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/services/supabase/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { authzResponse, requireWorkspacePermission } from '@/lib/authz';
+import { assertWorkspaceActive, suspendedResponse, SuspendedError } from '@/lib/billing-guard';
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,6 +32,18 @@ export async function POST(request: NextRequest) {
       conversation.workspace_id,
       'handle_conversations',
     );
+
+    // Suspension guard — blocks the outbound send for suspended/cancelled
+    // workspaces. Fails open on any internal error (see lib/billing-guard.ts).
+    try {
+      await assertWorkspaceActive(createAdminClient(), conversation.workspace_id);
+    } catch (e) {
+      if (e instanceof SuspendedError) {
+        return suspendedResponse();
+      }
+      // Any other error from the guard itself — do not block the send.
+      console.error('[Send] billing guard check failed unexpectedly, allowing through:', e);
+    }
 
     const contact = conversation.contact as unknown as { id: string; phone: string } | null;
     const channel = (conversation as any).channel as string ?? 'whatsapp';

@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { executeCampaign } from '@/lib/campaign-executor';
+import { getBillingState } from '@/lib/billing-guard';
 
 // GET /api/cron/process-campaign-queue?secret=<CRON_SECRET>
 // Call from cron-job.org every 5 minutes.
@@ -45,6 +46,17 @@ export async function GET(request: NextRequest) {
   const results: Array<Record<string, unknown>> = [];
 
   for (const job of pendingJobs) {
+    // Suspension guard — skip campaigns for suspended/cancelled workspaces.
+    // getBillingState fails open (isActive=true) on any DB error, so this
+    // `continue` only fires on a clean, confirmed suspension. Job is left
+    // 'pending' (not failed) so it resumes automatically once the workspace
+    // is reactivated.
+    const billing = await getBillingState(db, job.workspace_id);
+    if (!billing.isActive) {
+      console.log(`[CronQueue] Skipping campaign ${job.campaign_id} — workspace ${job.workspace_id} is suspended`);
+      continue;
+    }
+
     // Mark as processing
     await db.from('campaign_queue')
       .update({ status: 'processing', started_at: new Date().toISOString() })

@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Smartphone, TrendingUp,
   Ticket, Activity, Settings, ChevronRight, Brain,
-  ShieldCheck, BarChart3, Megaphone, Wallet,
+  ShieldCheck, BarChart3, Megaphone, Wallet, CreditCard,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -21,6 +21,7 @@ const NAV_SECTIONS = [
     label: 'Finance',
     items: [
       { label: 'Revenue',          href: '/admin/revenue',        icon: TrendingUp      },
+      { label: 'Billing',          href: '/admin/billing',        icon: CreditCard      },
       { label: 'Meta Billing',     href: '/admin/meta-billing',   icon: Smartphone      },
       { label: 'Meta Spend',       href: '/admin/meta-spend',     icon: Wallet          },
     ],

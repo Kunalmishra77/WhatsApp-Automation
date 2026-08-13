@@ -102,10 +102,26 @@ export const PLAN_FEATURES: Record<PlanKey, Set<string>> = {
   ]),
 };
 
-export function hasFeature(plan: string, feature: string): boolean {
-  const planKey = (plan ?? 'free') as PlanKey;
-  const features = PLAN_FEATURES[planKey] ?? PLAN_FEATURES.free;
-  return features.has(feature);
+// One-plan billing model (see lib/billing-guard.ts): every active workspace
+// gets the full feature set — CRM, Flows, KB, etc. are no longer Pro-gated.
+// The single exception is Instagram, which is a paid add-on tracked on
+// subscriptions.has_instagram rather than a plan tier — callers that need
+// that check should use hasInstagramAccess() below instead of hasFeature().
+export function hasFeature(_plan: string, feature: string): boolean {
+  if (feature === 'instagram_messenger' || feature === 'instagram') {
+    // No current call site gates on this via hasFeature (grepped — none
+    // found); kept as an explicit false-by-default so a future caller
+    // doesn't accidentally get Instagram access without checking
+    // subscriptions.has_instagram. Use hasInstagramAccess() instead.
+    return false;
+  }
+  return true;
+}
+
+// hasInstagramAccess — Instagram inbox/nav gate. Pass subscriptions.has_instagram
+// (from lib/billing-guard's getBillingState) rather than a plan tier.
+export function hasInstagramAccess(hasInstagram: boolean | null | undefined): boolean {
+  return hasInstagram === true;
 }
 
 export function getLimits(plan: string) {

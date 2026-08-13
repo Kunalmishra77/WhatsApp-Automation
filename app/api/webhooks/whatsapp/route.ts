@@ -18,6 +18,7 @@ import {
 import { getWorkspaceByPhoneNumberId, getWorkspaceById } from '@/lib/workspace-cache';
 import { webhookIdemKey, isWebhookProcessed, markWebhookProcessed } from '@/lib/webhook-idempotency';
 import { decideSpam } from '@/lib/spam';
+import { getBillingState } from '@/lib/billing-guard';
 
 // Node runtime (uses crypto + admin client); allow headroom for the inbound
 // auto-reply pipeline (AI call is internally bounded to ~25s of retries).
@@ -789,6 +790,23 @@ async function handleIncomingMessage(
   // left with no reply after a false escalation with no agent available.
   if ((conversation as any).bot_paused === true) {
     console.log(`[Webhook] Bot paused for conversation ${conversation.id} — skipping AI`);
+    return;
+  }
+
+  // ── Suspension guard — skip only the automated AI reply, never ingestion ───
+  // The inbound message + conversation were already saved above this point.
+  // This check fails open: any error here (DB error, exception) falls through
+  // to `false` and the AI reply proceeds normally.
+  let workspaceSuspended = false;
+  try {
+    const billing = await getBillingState(supabase, workspaceId);
+    workspaceSuspended = !billing.isActive;
+  } catch (e) {
+    console.error('[Webhook] billing guard check failed unexpectedly, proceeding with reply as normal:', e);
+    workspaceSuspended = false;
+  }
+  if (workspaceSuspended) {
+    console.log(`[Webhook] Workspace ${workspaceId} suspended — skipping AI reply (message already recorded)`);
     return;
   }
 

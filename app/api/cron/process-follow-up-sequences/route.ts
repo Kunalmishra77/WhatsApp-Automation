@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
+import { getBillingState } from '@/lib/billing-guard';
 
 interface SequenceStep {
   delay_hours: number;
@@ -57,6 +58,16 @@ export async function GET(request: NextRequest) {
 
   for (const cs of dueSequences) {
     try {
+      // Suspension guard — skip follow-up sends for suspended/cancelled
+      // workspaces. Fails open on any DB error. Sequence enrollment is left
+      // untouched (not advanced/cancelled) so it resumes automatically once
+      // the workspace is reactivated.
+      const billing = await getBillingState(db, cs.workspace_id as string);
+      if (!billing.isActive) {
+        console.log(`[FollowUpCron] Skipping sequence ${cs.id as string} — workspace ${cs.workspace_id as string} is suspended`);
+        continue;
+      }
+
       const seq = cs.follow_up_sequences as { name?: string; steps?: SequenceStep[]; is_active?: boolean } | null;
       if (!seq?.is_active) {
         await db

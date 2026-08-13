@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { executeCampaign } from '@/lib/campaign-executor';
+import { getBillingState } from '@/lib/billing-guard';
 
 export async function GET(request: NextRequest) {
   const url        = new URL(request.url);
@@ -41,12 +42,23 @@ export async function GET(request: NextRequest) {
   console.log(`[Cron] Found ${dueCampaigns.length} campaign(s) to run`);
 
   const results = await Promise.allSettled(
-    dueCampaigns.map((c: { id: string; name: string }) =>
-      executeCampaign(c.id).catch((err: unknown) => ({
+    dueCampaigns.map(async (c: { id: string; name: string; workspace_id: string }) => {
+      // Suspension guard — skip campaigns for suspended/cancelled workspaces.
+      // getBillingState fails open (isActive=true) on any DB error, so a
+      // skip only happens on a clean, confirmed suspension. Campaign is left
+      // 'scheduled' (untouched) so it resumes automatically once the
+      // workspace is reactivated.
+      const billing = await getBillingState(db, c.workspace_id);
+      if (!billing.isActive) {
+        console.log(`[Cron] Skipping campaign ${c.id} — workspace ${c.workspace_id} is suspended`);
+        return { campaignId: c.id, skipped: true, reason: 'workspace_suspended' };
+      }
+
+      return executeCampaign(c.id).catch((err: unknown) => ({
         campaignId: c.id,
         error: err instanceof Error ? err.message : 'Unknown error',
-      })),
-    ),
+      }));
+    }),
   );
 
   const summary = results.map((r, i) => {
@@ -77,6 +89,16 @@ export async function GET(request: NextRequest) {
         follow_up_sequences: { steps: Array<{ delay_hours: number; message: string }>; workspace_id: string; name: string } | null;
       }>) {
         try {
+          // Suspension guard — skip follow-up sends for suspended/cancelled
+          // workspaces. Fails open on any DB error. Sequence enrollment is
+          // left untouched (not advanced/failed) so it resumes automatically
+          // once the workspace is reactivated.
+          const billing = await getBillingState(db, seq.workspace_id);
+          if (!billing.isActive) {
+            console.log(`[Cron] Skipping sequence step ${seq.id} — workspace ${seq.workspace_id} is suspended`);
+            continue;
+          }
+
           const steps = seq.follow_up_sequences?.steps ?? [];
           const step = steps[seq.current_step];
           if (!step) {
