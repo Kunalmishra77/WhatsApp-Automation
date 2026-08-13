@@ -15,6 +15,7 @@ interface PaymentRow {
   total_paise: number;
   period_start: string | null;
   period_end: string | null;
+  term: string | null;
 }
 
 // POST /api/billing/verify
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
 
     const { data: paymentData, error: paymentError } = await db
       .from('payments')
-      .select('id, workspace_id, status, invoice_no, base_paise, total_paise, period_start, period_end')
+      .select('id, workspace_id, status, invoice_no, base_paise, total_paise, period_start, period_end, term')
       .eq('razorpay_order_id', razorpay_order_id)
       .single();
 
@@ -104,6 +105,7 @@ export async function POST(request: NextRequest) {
       {
         workspace_id: workspaceId,
         plan_key: plan.key,
+        term: payment.term ?? 'monthly',
         mode: 'manual',
         status: 'active',
         has_instagram: plan.includes_instagram,

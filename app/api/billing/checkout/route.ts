@@ -1,14 +1,16 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
-import { computeAmounts, planKeyFor, addOneMonth } from '@/lib/billing';
+import { computeAmounts, planKeyFor, addMonths, TERMS, type Term } from '@/lib/billing';
 import { createOrder, createSubscription, getKeyId } from '@/lib/razorpay';
 
 export const runtime = 'nodejs';
 
 interface BillingPlanRow {
   key: string;
+  term: Term;
   name: string;
+  months: number;
   base_paise: number;
   total_paise: number;
   razorpay_plan_id: string | null;
@@ -16,16 +18,17 @@ interface BillingPlanRow {
 }
 
 // POST /api/billing/checkout
-// Body: { workspaceId, has_instagram: boolean, mode: 'manual' | 'auto' }
+// Body: { workspaceId, has_instagram: boolean, mode: 'manual' | 'auto', term?: Term }
 // Manual: creates a Razorpay order + a 'created' payments row, returns Checkout.js params.
 // Auto:   creates a Razorpay subscription + a 'pending' subscriptions row, returns subscription id.
 // Amounts always come from the DB plan row — never from the request body.
 export async function POST(request: NextRequest) {
   try {
-    const { workspaceId, has_instagram, mode } = await request.json() as {
+    const { workspaceId, has_instagram, mode, term: termInput } = await request.json() as {
       workspaceId?: string;
       has_instagram?: boolean;
       mode?: 'manual' | 'auto';
+      term?: Term;
     };
 
     if (!workspaceId) {
@@ -38,6 +41,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "mode must be 'manual' or 'auto'" }, { status: 400 });
     }
 
+    const term: Term = termInput ?? 'monthly';
+    if (!(term in TERMS)) {
+      return NextResponse.json({ error: `term must be one of: ${Object.keys(TERMS).join(', ')}` }, { status: 400 });
+    }
+
     await requireWorkspacePermission(workspaceId, 'billing_management');
 
     const db = createAdminClient() as any;
@@ -45,14 +53,15 @@ export async function POST(request: NextRequest) {
     const planKey = planKeyFor(has_instagram);
     const { data: plan, error: planError } = await db
       .from('billing_plans')
-      .select('key, name, base_paise, total_paise, razorpay_plan_id, includes_instagram')
+      .select('key, term, name, months, base_paise, total_paise, razorpay_plan_id, includes_instagram')
       .eq('key', planKey)
+      .eq('term', term)
       .eq('active', true)
-      .single();
+      .maybeSingle();
 
     if (planError || !plan) {
-      console.error('[Billing Checkout] plan not found', planKey, planError);
-      return NextResponse.json({ error: 'Billing plan not found' }, { status: 500 });
+      console.error('[Billing Checkout] plan not found', planKey, term, planError);
+      return NextResponse.json({ error: 'Billing plan not found' }, { status: 404 });
     }
     const billingPlan = plan as BillingPlanRow;
 
@@ -64,7 +73,7 @@ export async function POST(request: NextRequest) {
         order = await createOrder({
           amountPaise: billingPlan.total_paise,
           receipt,
-          notes: { workspace_id: workspaceId, plan_key: billingPlan.key },
+          notes: { workspace_id: workspaceId, plan_key: billingPlan.key, term },
         });
       } catch (err) {
         console.error('[Billing Checkout] createOrder failed', err);
@@ -83,8 +92,9 @@ export async function POST(request: NextRequest) {
         total_paise: totalPaise,
         gst_rate: 18,
         currency: 'INR',
+        term,
         period_start: today,
-        period_end: addOneMonth(today),
+        period_end: addMonths(today, billingPlan.months),
       });
 
       if (insertError) {
@@ -99,6 +109,7 @@ export async function POST(request: NextRequest) {
         currency: 'INR',
         key_id: getKeyId(),
         name: billingPlan.name,
+        term,
       });
     }
 
@@ -112,7 +123,7 @@ export async function POST(request: NextRequest) {
       subscription = await createSubscription({
         planId: billingPlan.razorpay_plan_id,
         totalCount: 120,
-        notes: { workspace_id: workspaceId, plan_key: billingPlan.key },
+        notes: { workspace_id: workspaceId, plan_key: billingPlan.key, term },
       });
     } catch (err) {
       console.error('[Billing Checkout] createSubscription failed', err);
@@ -123,6 +134,7 @@ export async function POST(request: NextRequest) {
       {
         workspace_id: workspaceId,
         plan_key: billingPlan.key,
+        term,
         mode: 'auto',
         has_instagram,
         status: 'pending',
@@ -140,6 +152,7 @@ export async function POST(request: NextRequest) {
       mode: 'auto',
       subscription_id: subscription.id,
       key_id: getKeyId(),
+      term,
     });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);

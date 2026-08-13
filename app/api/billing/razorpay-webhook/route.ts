@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { getRequiredSecret } from '@/lib/supabase-env';
-import { verifyWebhookSignature, computeAmounts, addOneMonth, formatInvoiceNo } from '@/lib/billing';
+import { verifyWebhookSignature, computeAmounts, addMonths, monthsForTerm, formatInvoiceNo, type Term } from '@/lib/billing';
 import { sendMail } from '@/lib/mailer';
 
 export const runtime = 'nodejs';
@@ -18,6 +18,8 @@ interface SubscriptionRow {
   workspace_id: string;
   plan_key: string;
   status: string;
+  term: Term;
+  current_period_end: string | null;
 }
 
 interface WorkspaceContactRow {
@@ -172,7 +174,7 @@ function addDaysStr(dateStr: string, n: number): string {
 async function findSubscriptionByRzpId(db: any, rzpSubscriptionId: string): Promise<SubscriptionRow | null> {
   const { data } = await db
     .from('subscriptions')
-    .select('id, workspace_id, plan_key, status')
+    .select('id, workspace_id, plan_key, status, term, current_period_end')
     .eq('razorpay_subscription_id', rzpSubscriptionId)
     .maybeSingle();
   return (data as SubscriptionRow | null) ?? null;
@@ -217,8 +219,13 @@ async function handleSubscriptionActivatedOrCharged(
   }
 
   const today = todayStr();
-  const periodStart = epochToDate(subEntity.current_start) ?? today;
-  const periodEnd = epochToDate(subEntity.current_end) ?? addOneMonth(today);
+  const termMonths = monthsForTerm(subRow.term ?? 'monthly');
+  // 'charged' is a renewal: extend from the subscription's existing period end
+  // (fallback to today if it's somehow unset). 'activated' is the first cycle,
+  // which always starts today.
+  const baseDate = event === 'subscription.charged' ? (subRow.current_period_end ?? today) : today;
+  const periodStart = epochToDate(subEntity.current_start) ?? baseDate;
+  const periodEnd = epochToDate(subEntity.current_end) ?? addMonths(baseDate, termMonths);
 
   const { error: subErr } = await db
     .from('subscriptions')
@@ -264,15 +271,16 @@ async function handleSubscriptionActivatedOrCharged(
     .from('billing_plans')
     .select('base_paise')
     .eq('key', subRow.plan_key)
+    .eq('term', subRow.term)
     .maybeSingle();
 
   if (!planRow) {
     // The charge really happened (subscription period + activation above
     // already applied) — but with no plan row we have no trustworthy amount
     // to ledger. Never write a ₹0 captured payment; skip the insert and
-    // surface this loudly so it gets fixed (e.g. a renamed/deleted plan key).
+    // surface this loudly so it gets fixed (e.g. a renamed/deleted plan key/term).
     console.error(
-      `[BillingWebhook] CRITICAL: plan ${subRow.plan_key} not found for workspace ${subRow.workspace_id} — skipping payment ledger insert`,
+      `[BillingWebhook] CRITICAL: plan ${subRow.plan_key}/${subRow.term} not found for workspace ${subRow.workspace_id} — skipping payment ledger insert`,
     );
     return;
   }
@@ -297,6 +305,7 @@ async function handleSubscriptionActivatedOrCharged(
       total_paise: totalPaise,
       gst_rate: 18,
       currency: 'INR',
+      term: subRow.term,
       method: paymentEntity?.method ?? null,
       status: 'captured',
       period_start: periodStart,
