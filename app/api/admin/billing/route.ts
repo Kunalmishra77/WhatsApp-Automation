@@ -3,7 +3,7 @@ import { createAdminClient } from '@/services/supabase/admin';
 import { requirePlatformAdmin } from '@/lib/require-platform-admin';
 import { AuthzError, authzResponse } from '@/lib/authz';
 import { paginateAll } from '@/lib/export-stream';
-import type { SubStatus } from '@/lib/billing';
+import { monthsForTerm, type SubStatus, type Term } from '@/lib/billing';
 
 export const runtime = 'nodejs';
 
@@ -25,11 +25,13 @@ const RECONCILE_EVENT_WINDOW = 3000; // recent webhook events scanned for the re
 interface ActiveSubRow {
   id: string;
   plan_key: string;
+  term: Term;
   has_instagram: boolean;
   is_comped: boolean;
 }
 interface PlanRow {
   key: string;
+  term: Term;
   name: string;
   total_paise: number;
 }
@@ -96,15 +98,19 @@ export async function GET() {
     await requirePlatformAdmin();
     const db = createAdminClient() as any;
 
-    // ── Plans (tiny fixed table — safe to fetch whole) ──
+    // ── Plans (tiny fixed table — safe to fetch whole). billing_plans is keyed by
+    // (key, term) — 4 term rows per plan key — so lookups must be composite, not by
+    // key alone (a plain key lookup would collapse onto one of 4 rows arbitrarily). ──
     const { data: plansData, error: plansErr } = await db
       .from('billing_plans')
-      .select('key, name, total_paise');
+      .select('key, term, name, total_paise');
     if (plansErr) throw plansErr;
     const plans = (plansData ?? []) as PlanRow[];
-    const planByKey = new Map(plans.map((p) => [p.key, p]));
-    const whatsappPlan = planByKey.get('whatsapp');
-    const bundlePlan = planByKey.get('whatsapp_instagram');
+    const planByKeyTerm = new Map(plans.map((p) => [`${p.key}::${p.term}`, p]));
+    // Instagram add-on price is quoted at the monthly term, matching the historical
+    // (pre-term) behavior of this metric.
+    const whatsappPlan = planByKeyTerm.get('whatsapp::monthly');
+    const bundlePlan = planByKeyTerm.get('whatsapp_instagram::monthly');
     const igAddOnPaise = whatsappPlan && bundlePlan ? bundlePlan.total_paise - whatsappPlan.total_paise : 0;
 
     // ── Status counts — exact head-only counts, never subject to the 1000-row cap ──
@@ -114,30 +120,38 @@ export async function GET() {
       statusCounts[status] = count ?? 0;
     }));
 
-    // ── MRR + Instagram add-on revenue: page through ALL active subs, never capped ──
+    // ── MRR (monthly-equivalent) + Instagram add-on revenue: page through ALL active
+    // subs, never capped. Multi-term subs are normalized to a monthly-equivalent
+    // contribution (total_paise / monthsForTerm(term)) so a yearly ₹35,400 sub
+    // contributes ₹2,950/mo rather than inflating MRR by its full term price. ──
     let mrrPaise = 0;
     let igActiveCount = 0;
     let compedActiveCount = 0;
+    const termMix: Record<Term, number> = { monthly: 0, quarterly: 0, half_yearly: 0, yearly: 0 };
     for await (const page of paginateAll<ActiveSubRow>((offset, pageSize) =>
       db.from('subscriptions')
-        .select('id, plan_key, has_instagram, is_comped')
+        .select('id, plan_key, term, has_instagram, is_comped')
         .eq('status', 'active')
         .order('id', { ascending: true })
         .range(offset, offset + pageSize - 1),
     )) {
       for (const row of page) {
-        const plan = planByKey.get(row.plan_key);
+        const term: Term = row.term ?? 'monthly';
+        const plan = planByKeyTerm.get(`${row.plan_key}::${term}`);
         if (plan) {
-          mrrPaise += plan.total_paise; // INR only for now — grouped explicitly below, not summed cross-currency
+          mrrPaise += plan.total_paise / monthsForTerm(term); // INR only for now — grouped explicitly below, not summed cross-currency
         } else {
-          // A subscription referencing a plan_key that no longer exists in billing_plans
-          // (renamed/deleted) would silently undercount MRR with no signal — log it.
-          console.error(`[AdminBilling] MRR: no plan row for plan_key "${row.plan_key}" (subscription ${row.id}) — skipped`);
+          // A subscription referencing a (plan_key, term) that no longer exists in
+          // billing_plans (renamed/deleted) would silently undercount MRR with no
+          // signal — log it.
+          console.error(`[AdminBilling] MRR: no plan row for plan_key "${row.plan_key}" term "${term}" (subscription ${row.id}) — skipped`);
         }
+        if (term in termMix) termMix[term]++;
         if (row.has_instagram) igActiveCount++;
         if (row.is_comped) compedActiveCount++;
       }
     }
+    mrrPaise = Math.round(mrrPaise);
     const igAddOnRevenuePaise = igActiveCount * igAddOnPaise;
 
     // ── Lifetime captured revenue: paginated aggregate — a financial total, never capped.
@@ -250,7 +264,8 @@ export async function GET() {
       .maybeSingle();
 
     return NextResponse.json({
-      mrr: { INR: mrrPaise }, // grouped by currency — INR only for now, never summed cross-currency
+      mrr: { INR: mrrPaise }, // grouped by currency — INR only for now, never summed cross-currency; monthly-equivalent
+      term_mix: termMix,
       status_counts: statusCounts,
       instagram_addon: {
         active_count: igActiveCount,

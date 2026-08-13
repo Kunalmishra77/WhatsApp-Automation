@@ -41,8 +41,15 @@ interface FailedPaymentRow {
   workspace_name: string;
   created_at: string;
 }
+interface TermMix {
+  monthly: number;
+  quarterly: number;
+  half_yearly: number;
+  yearly: number;
+}
 interface BillingOverviewResponse {
   mrr: { INR: number };
+  term_mix: TermMix;
   status_counts: Record<string, number>;
   instagram_addon: { active_count: number; addon_paise: number; revenue_paise: number };
   comped_active_count: number;
@@ -128,9 +135,10 @@ export function BillingOverview() {
 
   const sc = data?.status_counts ?? {};
   const mrr = data?.mrr.INR ?? 0;
+  const termMix = data?.term_mix ?? { monthly: 0, quarterly: 0, half_yearly: 0, yearly: 0 };
 
   const kpiCards = [
-    { label: 'MRR (Active Subs)', value: `₹${rupees(mrr)}`, sub: `${sc.active ?? 0} active subscriptions`, icon: IndianRupee, color: 'bg-[#F97316]' },
+    { label: 'MRR (monthly-equivalent)', value: `₹${rupees(mrr)}`, sub: `${sc.active ?? 0} active subscriptions`, icon: IndianRupee, color: 'bg-[#F97316]' },
     { label: 'Instagram Add-on Revenue', value: `₹${rupees(data?.instagram_addon.revenue_paise ?? 0)}`, sub: `${data?.instagram_addon.active_count ?? 0} clients on the bundle`, icon: Camera, color: 'bg-violet-500' },
     { label: 'Lifetime Captured Revenue', value: `₹${rupees(data?.total_captured.INR ?? 0)}`, sub: 'All-time captured payments', icon: CheckCircle2, color: 'bg-emerald-500' },
     { label: 'Past Due', value: String(sc.past_due ?? 0), sub: `${sc.suspended ?? 0} suspended`, icon: AlertTriangle, color: (sc.past_due ?? 0) > 0 ? 'bg-amber-500' : 'bg-gray-400' },
@@ -166,6 +174,19 @@ export function BillingOverview() {
                 {status.replace('_', ' ')}
               </p>
               <p className="text-xl font-bold text-gray-900 mt-2">{isLoading ? <Skeleton className="h-6 w-10 mx-auto" /> : (sc[status] ?? 0)}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Term mix — active subscriptions by plan duration */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <h3 className="text-sm font-semibold text-gray-800 mb-3">Active Subscriptions by Term</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {([['monthly', 'Monthly'], ['quarterly', 'Quarterly'], ['half_yearly', '6 Months'], ['yearly', '1 Year']] as const).map(([key, label]) => (
+            <div key={key} className="rounded-xl border border-gray-100 p-3 text-center">
+              <p className="text-xs font-semibold text-gray-500">{label}</p>
+              <p className="text-xl font-bold text-gray-900 mt-2">{isLoading ? <Skeleton className="h-6 w-10 mx-auto" /> : (termMix[key] ?? 0)}</p>
             </div>
           ))}
         </div>
