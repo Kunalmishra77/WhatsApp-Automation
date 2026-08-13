@@ -6,7 +6,7 @@ import { useWorkspaceStore } from '@/store/workspace.store';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Camera, CalendarClock, RefreshCw } from 'lucide-react';
+import { Camera, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { rupees, TERMS, type Term } from '@/lib/billing';
 import { cn } from '@/lib/utils';
@@ -128,7 +128,6 @@ export function BillingSettings() {
   }
 
   const { subscription, plans, price_matrix, payments } = data;
-  const selectedPlan = plans.find((p) => p.key === (hasInstagram ? 'whatsapp_instagram' : 'whatsapp')) ?? data.plan;
   const status: SubStatus = subscription?.status ?? 'pending';
   const badge = subscription ? STATUS_BADGE[status] : { label: 'No active plan', className: 'bg-gray-100 text-gray-600 border-0' };
   const igAddOnPlan = plans.find((p) => p.key === 'whatsapp_instagram');
@@ -146,6 +145,12 @@ export function BillingSettings() {
       ? selectedRow.original_total_paise - selectedRow.total_paise
       : null;
 
+  // Header label tracks the live channel + selected term (not the legacy
+  // monthly-only plan name) so it doesn't still say "Monthly" after picking
+  // a different term below.
+  const channelLabel = hasInstagram ? 'WhatsApp + Instagram' : 'WhatsApp';
+  const planHeaderLabel = selectedRow ? `${channelLabel} — ${TERMS[selectedRow.term].label}` : channelLabel;
+
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
@@ -157,7 +162,7 @@ export function BillingSettings() {
       <div className="rounded-xl border border-border p-4 space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-foreground">{selectedPlan.name}</p>
+            <p className="text-sm font-medium text-foreground">{planHeaderLabel}</p>
             <p className="text-xs text-muted-foreground mt-0.5">{isAutoPay ? 'Auto-pay' : 'Manual billing'}</p>
           </div>
           <Badge className={cn('text-xs', badge.className)}>{badge.label}</Badge>
@@ -187,12 +192,6 @@ export function BillingSettings() {
             )}
           </div>
         )}
-
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <CalendarClock className="h-3.5 w-3.5" />
-          Next billing date:
-          <span className="font-medium text-foreground">{formatDate(subscription?.current_period_end ?? null)}</span>
-        </div>
 
         {subscription?.current_period_end && (
           <Countdown
