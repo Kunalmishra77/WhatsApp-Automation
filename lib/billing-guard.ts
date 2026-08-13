@@ -9,9 +9,12 @@
 //      have no row until the cutover-seeding step runs — absence of a row is
 //      NOT suspension.
 //   3. A workspace is blocked ONLY when explicitly suspended:
-//        subscriptions.status IN ('suspended', 'cancelled')
+//        subscriptions.status = 'suspended'
 //        OR workspaces.is_active = false
-//      Every other status ('pending' | 'active' | 'past_due') is allowed.
+//      Every other status ('pending' | 'active' | 'past_due' | 'cancelled') is
+//      allowed here — a 'cancelled' subscription keeps access until its
+//      current_period_end passes, at which point the billing-sweep cron flips
+//      workspaces.is_active=false (which this guard DOES block on).
 import { createAdminClient } from '@/services/supabase/admin';
 import type { SubStatus } from '@/lib/billing';
 
@@ -54,8 +57,11 @@ export async function getBillingState(db: BillingDb, workspaceId: string): Promi
     const ws = wsRes?.data as { is_active?: boolean } | null;
 
     // No subscription row yet (pre-cutover client) → active.
+    // NOTE: 'cancelled' is intentionally NOT blocking here — a cancelled sub
+    // retains access until current_period_end, when the billing-sweep cron
+    // sets workspaces.is_active=false (which IS blocking, below).
     const status = (sub?.status ?? null) as SubStatus | null;
-    const suspendedByStatus = status === 'suspended' || status === 'cancelled';
+    const suspendedByStatus = status === 'suspended';
     const suspendedByWorkspace = ws?.is_active === false;
 
     return {
