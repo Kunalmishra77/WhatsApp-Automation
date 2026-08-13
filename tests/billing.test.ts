@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import crypto from 'node:crypto';
 import { computeAmounts, planKeyFor, addOneMonth, formatInvoiceNo, rupees,
-  nextBillingAction, verifyPaymentSignature, verifyWebhookSignature } from '@/lib/billing';
+  nextBillingAction, verifyPaymentSignature, verifyWebhookSignature,
+  addMonths, monthsForTerm, timeLeft, TERMS } from '@/lib/billing';
 
 describe('GST math', () => {
   it('WhatsApp base 299900 → gst 53982, total 353882', () => {
@@ -70,6 +71,44 @@ describe('state machine (grace 3, reminder 3)', () => {
     const r = nextBillingAction({ ...base, status: 'cancelled', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-05', reminderSentFor: null });
     expect(r.action).toBe('suspend'); expect(r.status).toBe('suspended'); expect(r.isActive).toBe(false);
   });
+});
+describe('addMonths', () => {
+  it('adds N calendar months', () => {
+    expect(addMonths('2026-08-01', 3)).toBe('2026-11-01');
+    expect(addMonths('2026-08-01', 6)).toBe('2027-02-01');
+    expect(addMonths('2026-08-01', 12)).toBe('2027-08-01');
+  });
+  it('clamps month-end + year rollover', () => {
+    expect(addMonths('2026-12-31', 1)).toBe('2027-01-31');
+    expect(addMonths('2026-01-31', 1)).toBe('2026-02-28');
+    expect(addMonths('2028-01-31', 1)).toBe('2028-02-29'); // leap
+    expect(addMonths('2026-11-30', 3)).toBe('2027-02-28');
+  });
+});
+describe('monthsForTerm', () => {
+  it('maps terms', () => {
+    expect(monthsForTerm('monthly')).toBe(1);
+    expect(monthsForTerm('quarterly')).toBe(3);
+    expect(monthsForTerm('half_yearly')).toBe(6);
+    expect(monthsForTerm('yearly')).toBe(12);
+  });
+});
+describe('timeLeft (IST)', () => {
+  it('days left when > 1 day', () => {
+    // period ends 2026-09-01 (IST midnight = 2026-08-31T18:30Z). now = 2026-08-29 12:00Z.
+    const r = timeLeft('2026-09-01', new Date('2026-08-29T12:00:00Z'));
+    expect(r.expired).toBe(false); expect(r.days).toBeGreaterThanOrEqual(2); expect(r.label).toMatch(/days left/);
+  });
+  it('hours left when < 1 day', () => {
+    // period ends 2026-09-01 (IST midnight 08-31T18:30Z). now = 2026-08-31T12:00Z (~6.5h before).
+    const r = timeLeft('2026-09-01', new Date('2026-08-31T12:00:00Z'));
+    expect(r.expired).toBe(false); expect(r.days).toBe(0); expect(r.hours).toBeGreaterThan(0); expect(r.label).toMatch(/hours? left/);
+  });
+  it('expired at/after end', () => {
+    const r = timeLeft('2026-09-01', new Date('2026-09-02T00:00:00Z'));
+    expect(r.expired).toBe(true); expect(r.label).toBe('Expired');
+  });
+  it('TERMS has 4 entries', () => { expect(Object.keys(TERMS).length).toBe(4); });
 });
 describe('signatures', () => {
   const secret = 'testsecret';
