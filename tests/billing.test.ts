@@ -58,6 +58,18 @@ describe('state machine (grace 3, reminder 3)', () => {
     const r = nextBillingAction({ ...base, status: 'pending', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-05', reminderSentFor: null });
     expect(r.action).toBe('none'); expect(r.isActive).toBe(false);
   });
+  it('cancelled subscription keeps access before period end', () => {
+    const r = nextBillingAction({ ...base, status: 'cancelled', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-08-15', reminderSentFor: null });
+    expect(r.action).toBe('none'); expect(r.isActive).toBe(true);
+  });
+  it('cancelled subscription suspends at period end', () => {
+    const r = nextBillingAction({ ...base, status: 'cancelled', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-01', reminderSentFor: null });
+    expect(r.action).toBe('suspend'); expect(r.status).toBe('suspended'); expect(r.isActive).toBe(false);
+  });
+  it('cancelled subscription stays suspended after period end', () => {
+    const r = nextBillingAction({ ...base, status: 'cancelled', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-05', reminderSentFor: null });
+    expect(r.action).toBe('suspend'); expect(r.status).toBe('suspended'); expect(r.isActive).toBe(false);
+  });
 });
 describe('signatures', () => {
   const secret = 'testsecret';

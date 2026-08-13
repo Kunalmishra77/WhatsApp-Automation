@@ -61,8 +61,17 @@ export function nextBillingAction(i: NextBillingActionInput): NextBillingActionR
   const daysBetween = (a: string, b: string) =>
     Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
 
-  if (status === 'suspended' || status === 'cancelled' || status === 'pending') {
+  if (status === 'suspended' || status === 'pending') {
     return { action: 'none', status, isActive: false, graceUntil, reminderSentFor: i.reminderSentFor };
+  }
+
+  // A cancelled subscription keeps access until its current period ends —
+  // only then does the sweep suspend it (which flips workspaces.is_active=false).
+  if (status === 'cancelled') {
+    if (today >= currentPeriodEnd) {
+      return { action: 'suspend', status: 'suspended', isActive: false, graceUntil, reminderSentFor: i.reminderSentFor };
+    }
+    return { action: 'none', status, isActive: true, graceUntil, reminderSentFor: i.reminderSentFor };
   }
 
   if (status === 'active' && today >= currentPeriodEnd) {
@@ -84,7 +93,8 @@ export function nextBillingAction(i: NextBillingActionInput): NextBillingActionR
     return { action: 'send_reminder', status, isActive: true, graceUntil, reminderSentFor: currentPeriodEnd };
   }
 
-  // Only 'active' | 'past_due' can reach here (suspended/cancelled/pending returned above).
+  // Only 'active' | 'past_due' can reach here (suspended/pending returned above;
+  // cancelled returned above too, either as 'suspend' or as isActive:true 'none').
   return {
     action: 'none',
     status,
