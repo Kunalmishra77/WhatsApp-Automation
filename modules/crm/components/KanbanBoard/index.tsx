@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   DndContext,
   DragEndEvent,
@@ -30,10 +31,16 @@ const TEMP_FILTERS = [
 ] as const;
 
 export function KanbanBoard() {
+  const searchParams = useSearchParams();
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [createOpen, setCreateOpen]         = useState(false);
   const [dragging,   setDragging]           = useState<LeadWithContact | null>(null);
-  const [tempFilter, setTempFilter]         = useState('');
+  // Seed the temperature filter once from a drill-through link (?temperature=hot).
+  // Only accept known values so a stray param can't hide the whole board.
+  const [tempFilter, setTempFilter]         = useState(() => {
+    const t = searchParams.get('temperature');
+    return t && ['hot', 'warm', 'cold'].includes(t) ? t : '';
+  });
   const { data: pipeline, isLoading } = useLeads();
   const moveStage = useMoveLeadStage();
 
