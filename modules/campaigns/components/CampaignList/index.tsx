@@ -25,6 +25,10 @@ import { CampaignWizard } from '../CampaignWizard';
 import { CAMPAIGN_STATUS_COLORS } from '../../services/campaign.service';
 import { toast } from 'sonner';
 
+// Status filter vocabulary — 'all' plus the real campaign statuses, so a
+// drill-through link (/campaigns?status=running) lands on a pre-filtered list.
+const STATUS_FILTERS = ['all', 'draft', 'scheduled', 'running', 'paused', 'completed', 'failed'] as const;
+
 // ── A/B Comparison Dialog ────────────────────────────────────────────────────
 
 interface ABVariant {
@@ -223,9 +227,18 @@ export function CampaignList() {
   const [pending,         setPending]          = useState<PendingAction>(null);
   const [actionLoading,   setActionLoading]    = useState(false);
   const [broadcastPhones, setBroadcastPhones]  = useState<string | undefined>();
+  // Seed the status filter once from the URL (drill-through). Falls back to 'all'
+  // for any missing/unknown value, preserving the default unfiltered view.
+  const [statusFilter, setStatusFilter] = useState<string>(() => {
+    const s = searchParams.get('status');
+    return s && (STATUS_FILTERS as readonly string[]).includes(s) ? s : 'all';
+  });
   const { data: campaigns = [], isLoading } = useCampaigns();
   const run    = useRunCampaign();
   const remove = useDeleteCampaign();
+
+  const visibleCampaigns =
+    statusFilter === 'all' ? campaigns : campaigns.filter((c) => c.status === statusFilter);
 
   // Pre-fill the wizard's manual-audience step when arriving from a "Broadcast" /
   // "Retry Campaign" CTA (CampaignDetail) — phones travel via sessionStorage since
@@ -289,6 +302,24 @@ export function CampaignList() {
         <Button size="sm" className="gap-1.5" onClick={() => setWizardOpen(true)}>
           <Plus className="h-3.5 w-3.5" /> New Campaign
         </Button>
+
+        {/* Status filter pills */}
+        <div className="flex w-full items-center gap-1 order-last">
+          {STATUS_FILTERS.map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={cn(
+                'rounded-full border px-2.5 py-1 text-[11px] font-medium capitalize transition-colors',
+                statusFilter === s
+                  ? 'border-brand-500 bg-brand-500/10 text-brand-600'
+                  : 'border-border text-muted-foreground hover:bg-accent',
+              )}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -314,7 +345,7 @@ export function CampaignList() {
                     ))}
                   </TableRow>
                 ))
-              : campaigns.map((c) => {
+              : visibleCampaigns.map((c) => {
                   const total     = c.live_total     ?? c.total_recipients ?? 0;
                   const sent      = (c as any).live_sent ?? c.sent_count ?? total;
                   const delivered = c.live_delivered ?? c.delivered_count  ?? 0;
@@ -429,6 +460,11 @@ export function CampaignList() {
               </Button>
             }
           />
+        )}
+        {!isLoading && campaigns.length > 0 && visibleCampaigns.length === 0 && (
+          <p className="py-10 text-center text-sm text-muted-foreground capitalize">
+            No {statusFilter} campaigns.
+          </p>
         )}
       </div>
 
