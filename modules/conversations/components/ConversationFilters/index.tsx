@@ -185,7 +185,7 @@ export function ConversationFilters({ value, onChange }: ConversationFiltersProp
           <Input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search messages…"
+            placeholder="Search name, phone, or message…"
             className="h-8 pl-8 text-sm"
           />
         </div>

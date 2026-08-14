@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { resolveRange, type QuickRange } from '@/lib/date-range';
+import { paginateAll } from '@/lib/export-stream';
 
 export const runtime = 'nodejs';
 
@@ -26,10 +27,14 @@ export const runtime = 'nodejs';
 // conversation.service.ts: fetchConversations() selects `*, contacts(id,name,phone,
 // avatar_url)`; conversations has no name/phone columns). Mixing an OR across a
 // parent column (last_message) and an embedded child table's columns (contacts.name/
-// phone) in one PostgREST `or=` expression is not a reliably-documented pattern, and
-// the earlier id-set-lookup workaround had the same 1000-row cap problem as temperature/
-// stage. `q` therefore matches `last_message` only (ilike) — literal, uncapped, single
-// query. Matching contact name/phone from this box is left for a future iteration.
+// phone) in one PostgREST `or=` expression is not a reliably-documented pattern, so
+// `q` instead resolves matching contact ids up front (workspace-scoped, via
+// `paginateAll` — NOT a bare capped `.select()`, so this stays uncapped past
+// PostgREST's 1000-row default) and then filters conversations on
+// `last_message.ilike.* OR contact_id.in.(...)`, both of which are plain columns on
+// `conversations` itself. The contact-id list is capped at CONTACT_ID_MATCH_CAP as a
+// generous sanity bound on the `.in()` list size, not a silent correctness cap — see
+// resolveMatchingContactIds below.
 const CONVERSATION_FIELDS =
   'id, workspace_id, contact_id, assigned_agent_id, status, channel, subject, last_message, ' +
   'last_message_at, unread_count, labels, is_pinned, is_starred, snoozed_until, sentiment, ' +
@@ -48,6 +53,39 @@ const LEADS_EMBED = ', leads!inner(temperature,stage)';
 // filter-injection concern here — this is purely about ILIKE semantics.
 function escapeIlike(raw: string): string {
   return raw.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+// Generous sanity bound on the resulting `.in()` id-list size for a pathologically
+// broad `q` (e.g. a single common letter matching thousands of contacts) — NOT a
+// silent correctness cap. The underlying paginateAll walk below is itself uncapped
+// (pages through every matching row past PostgREST's 1000-row default); this only
+// stops accumulating once the list is already large enough that a few thousand more
+// ids couldn't plausibly change what the user is looking for, while keeping the
+// `.in()` filter string bounded.
+const CONTACT_ID_MATCH_CAP = 5000;
+
+// Resolves every contact id in this workspace whose name or phone ilike-matches `q`,
+// via `paginateAll` (uncapped — pages through all rows) rather than a bare `.select()`
+// (which would silently cap at PostgREST's default 1000-row limit and undercount/miss
+// conversations for any workspace with >1000 matching contacts). `q` must already be
+// escapeIlike()'d by the caller.
+async function resolveMatchingContactIds(db: any, workspaceId: string, q: string): Promise<string[]> {
+  const ids: string[] = [];
+  outer: for await (const page of paginateAll<{ id: string }>((offset, pageSize) =>
+    db
+      .from('contacts')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .or(`name.ilike.%${q}%,phone.ilike.%${q}%`)
+      .order('id', { ascending: true })
+      .range(offset, offset + pageSize - 1),
+  )) {
+    for (const row of page) {
+      ids.push(row.id);
+      if (ids.length >= CONTACT_ID_MATCH_CAP) break outer;
+    }
+  }
+  return ids;
 }
 
 type TempBucket = 'hot' | 'warm' | 'cold';
@@ -101,6 +139,11 @@ export async function GET(request: NextRequest) {
 
     const needsLeadsJoin = Boolean(temperature || stage);
 
+    // Resolved once (not per query) so the page query and every summary/bucket count
+    // below — all of which route through applyBase — see the exact same set of
+    // contact matches for this `q`.
+    const matchingContactIds = q ? await resolveMatchingContactIds(db, workspaceId, q) : [];
+
     // ── Base filters shared by the page query + every summary count EXCEPT the
     //     hot/warm/cold breakdown. `includeTemperature` lets the hot/warm/cold
     //     buckets reuse this with the temperature dimension stripped out (so the
@@ -131,7 +174,16 @@ export async function GET(request: NextRequest) {
       if (label) qb = qb.contains('labels', [label]);
       if (includeTemperature && temperature) qb = qb.eq('leads.temperature', temperature);
       if (stage) qb = qb.eq('leads.stage', stage);
-      if (q) qb = qb.ilike('last_message', `%${q}%`);
+      // Matches message text OR the linked contact's name/phone. Both sides are
+      // plain columns on `conversations` itself (last_message, contact_id), so a
+      // single `.or()` is safe/documented here — unlike trying to OR across an
+      // embedded child table's columns directly. contactIds was resolved uncapped
+      // via paginateAll above; falls back to message-only when q matched no contacts.
+      if (q) {
+        qb = matchingContactIds.length > 0
+          ? qb.or(`last_message.ilike.%${q}%,contact_id.in.(${matchingContactIds.join(',')})`)
+          : qb.ilike('last_message', `%${q}%`);
+      }
       return qb;
     }
 
