@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermissionAny, authzResponse, AuthzError } from '@/lib/authz';
-import { computeAmounts, planKeyFor } from '@/lib/billing';
+import { computeAmounts, planKeyFor, PLAN_KEYS, TERMS, type Term } from '@/lib/billing';
 
 export const runtime = 'nodejs';
 
@@ -10,14 +10,19 @@ interface SubscriptionRow {
   status: string;
   mode: string;
   has_instagram: boolean;
+  term: Term;
   current_period_start: string | null;
   current_period_end: string | null;
 }
 
 interface BillingPlanRow {
   key: string;
+  term: Term;
   name: string;
+  months: number;
   base_paise: number;
+  total_paise: number;
+  original_total_paise: number | null;
 }
 
 interface PaymentRow {
@@ -49,7 +54,7 @@ export async function GET(request: NextRequest) {
 
     const { data: subData, error: subError } = await db
       .from('subscriptions')
-      .select('plan_key, status, mode, has_instagram, current_period_start, current_period_end')
+      .select('plan_key, status, mode, has_instagram, term, current_period_start, current_period_end')
       .eq('workspace_id', workspaceId)
       .maybeSingle();
 
@@ -59,13 +64,15 @@ export async function GET(request: NextRequest) {
     }
     const subscription = (subData as SubscriptionRow | null) ?? null;
 
-    // No subscription yet -> default to the base WhatsApp-only plan so the UI can
-    // still show an accurate "what you'd pay" preview before the first checkout.
+    // No subscription yet -> default to the base WhatsApp-only monthly plan so the
+    // UI can still show an accurate "what you'd pay" preview before first checkout.
     const planKey = subscription?.plan_key ?? planKeyFor(false);
+    const term: Term = subscription?.term ?? 'monthly';
 
     const { data: plansData, error: plansError } = await db
       .from('billing_plans')
-      .select('key, name, base_paise')
+      .select('key, term, name, months, base_paise, total_paise, original_total_paise')
+      .in('key', [PLAN_KEYS.WHATSAPP, PLAN_KEYS.WHATSAPP_INSTAGRAM])
       .eq('active', true);
 
     if (plansError || !plansData) {
@@ -73,16 +80,43 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Billing plan not found' }, { status: 500 });
     }
     const planRows = plansData as BillingPlanRow[];
-    const plans = planRows.map((p) => {
+
+    // Full price matrix — both channels x all 4 terms — so the client can preview
+    // any (channel, term) combination, including the Instagram add-on, without a
+    // second round trip.
+    const priceMatrix = planRows.map((p) => ({
+      key: p.key,
+      term: p.term,
+      months: p.months,
+      total_paise: Number(p.total_paise),
+      original_total_paise: p.original_total_paise != null ? Number(p.original_total_paise) : null,
+      label: TERMS[p.term]?.label ?? p.term,
+    }));
+
+    // Legacy monthly-only shape, kept for the current (not-yet term-aware) client:
+    // one row per channel key, always at the monthly term.
+    const monthlyPlanRows = planRows.filter((p) => p.term === 'monthly');
+    const plans = monthlyPlanRows.map((p) => {
       const { basePaise, gstPaise, totalPaise } = computeAmounts(p.base_paise);
       return { key: p.key, name: p.name, base_paise: basePaise, gst_paise: gstPaise, total_paise: totalPaise };
     });
 
-    const currentPlan = plans.find((p) => p.key === planKey);
-    if (!currentPlan) {
-      console.error('[Billing Status] resolved plan_key not found among active plans', planKey);
+    // The plan the workspace is actually (or would be) billed on, at its real term.
+    const activePlanRow = planRows.find((p) => p.key === planKey && p.term === term);
+    if (!activePlanRow) {
+      console.error('[Billing Status] resolved (plan_key, term) not found among active plans', planKey, term);
       return NextResponse.json({ error: 'Billing plan not found' }, { status: 500 });
     }
+    const { basePaise: activeBasePaise, gstPaise: activeGstPaise, totalPaise: activeTotalPaise } =
+      computeAmounts(activePlanRow.base_paise);
+    const currentPlan = {
+      key: activePlanRow.key,
+      term: activePlanRow.term,
+      name: activePlanRow.name,
+      base_paise: activeBasePaise,
+      gst_paise: activeGstPaise,
+      total_paise: activeTotalPaise,
+    };
 
     const { data: paymentsData, error: paymentsError } = await db
       .from('payments')
@@ -104,12 +138,14 @@ export async function GET(request: NextRequest) {
             status: subscription.status,
             mode: subscription.mode,
             has_instagram: subscription.has_instagram,
+            term: subscription.term,
             current_period_start: subscription.current_period_start,
             current_period_end: subscription.current_period_end,
           }
         : null,
       plan: currentPlan,
       plans,
+      price_matrix: priceMatrix,
       payments: payments.map((p) => ({
         invoice_no: p.invoice_no,
         total_paise: p.total_paise,

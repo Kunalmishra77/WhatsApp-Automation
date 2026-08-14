@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { zonedDayStartUtc } from '@/lib/date-range';
 
 export const GST_RATE = 18;
 
@@ -16,17 +17,46 @@ export function computeAmounts(basePaise: number): { basePaise: number; gstPaise
   return { basePaise, gstPaise, totalPaise: basePaise + gstPaise };
 }
 
-export function addOneMonth(dateStr: string): string {
+export type Term = 'monthly' | 'quarterly' | 'half_yearly' | 'yearly';
+
+export const TERMS: Record<Term, { months: number; label: string }> = {
+  monthly: { months: 1, label: 'Monthly' },
+  quarterly: { months: 3, label: 'Quarterly' },
+  half_yearly: { months: 6, label: '6 Months' },
+  yearly: { months: 12, label: '1 Year' },
+};
+
+export function monthsForTerm(term: Term): number {
+  return TERMS[term].months;
+}
+
+export function addMonths(dateStr: string, n: number): string {
   const parts = dateStr.split('-').map(Number);
   const y = parts[0] ?? 0;
   const m = parts[1] ?? 1; // 1-based current month
   const d = parts[2] ?? 1;
-  // m (1-based current month) used directly as a 0-based Date.UTC month index
-  // lands on the *next* month (e.g. Aug=8 as index -> September), so no +1 needed here.
-  const firstNext = new Date(Date.UTC(y, m, 1));
-  const lastDayNext = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
-  firstNext.setUTCDate(Math.min(d, lastDayNext));
-  return firstNext.toISOString().slice(0, 10);
+  // Date.UTC(y, (m-1)+n, 1) normalizes month overflow/underflow (e.g. month index 13 -> next Jan)
+  // handling arbitrary N-month jumps and year rollovers in one step.
+  const first = new Date(Date.UTC(y, (m - 1) + n, 1));
+  const lastDay = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  first.setUTCDate(Math.min(d, lastDay));
+  return first.toISOString().slice(0, 10);
+}
+
+export const addOneMonth = (dateStr: string): string => addMonths(dateStr, 1);
+
+export function timeLeft(
+  periodEnd: string,
+  now: Date,
+  tz = 'Asia/Kolkata'
+): { expired: boolean; days: number; hours: number; label: string } {
+  const expiryMs = Date.parse(zonedDayStartUtc(periodEnd, tz)); // IST midnight of the end date
+  const remain = expiryMs - now.getTime();
+  if (remain <= 0) return { expired: true, days: 0, hours: 0, label: 'Expired' };
+  const days = Math.floor(remain / 86_400_000);
+  const hours = Math.floor(remain / 3_600_000);
+  if (days >= 1) return { expired: false, days, hours, label: `${days} day${days > 1 ? 's' : ''} left` };
+  return { expired: false, days: 0, hours, label: `${hours} hour${hours !== 1 ? 's' : ''} left` };
 }
 
 export function formatInvoiceNo(seq: number, year: number): string {

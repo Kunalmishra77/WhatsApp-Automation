@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Button, type ButtonProps } from '@/components/ui/button';
+import type { Term } from '@/lib/billing';
 import { toast } from 'sonner';
 
 // The Razorpay Checkout.js global is loaded dynamically (it's not an npm package),
@@ -68,6 +69,7 @@ interface CheckoutButtonProps {
   workspaceId: string;
   hasInstagram: boolean;
   mode: 'manual' | 'auto';
+  term: Term;
   label: string;
   busyLabel?: string;
   variant?: ButtonProps['variant'];
@@ -86,6 +88,7 @@ export function CheckoutButton({
   workspaceId,
   hasInstagram,
   mode,
+  term,
   label,
   busyLabel,
   variant,
@@ -111,7 +114,7 @@ export function CheckoutButton({
       const checkoutRes = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId, has_instagram: hasInstagram, mode }),
+        body: JSON.stringify({ workspaceId, has_instagram: hasInstagram, mode, term }),
       });
       const checkoutData = (await checkoutRes.json()) as CheckoutResponse;
 
