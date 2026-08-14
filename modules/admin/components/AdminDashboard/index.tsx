@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { StatCard } from '@/components/ui/StatCard';
 import { CreateClientModal } from '../CreateClientModal';
 import { RevenueChart } from '../charts/RevenueChart';
 import { MessageVolumeChart } from '../charts/MessageVolumeChart';
@@ -42,28 +43,19 @@ const PLAN_COLORS: Record<string, string> = {
   free:       'bg-gray-100 text-gray-500',
 };
 
-function KpiCard({ title, value, sub, icon: Icon, color, trend, loading }: {
-  title: string; value: string; sub?: string; icon: React.ElementType;
-  color: string; trend?: { value: string; up: boolean }; loading?: boolean;
-}) {
+// Sub-line for the KPI strip below: renders the plain `sub` text alongside an
+// optional trend chip (green up / red down), matching the old local KpiCard's
+// layout — passed into StatCard's generic `sub` slot.
+function KpiSub({ sub, trend }: { sub?: string; trend?: { value: string; up: boolean } }) {
+  if (!sub && !trend) return null;
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-shadow">
-      <div className={cn('inline-flex h-10 w-10 items-center justify-center rounded-xl mb-4', color)}>
-        <Icon className="h-5 w-5 text-white" />
-      </div>
-      {loading
-        ? <Skeleton className="h-8 w-24 mb-1" />
-        : <p className="text-2xl font-bold text-gray-900 tabular-nums">{value}</p>
-      }
-      <p className="text-sm font-semibold text-gray-700 mt-1">{title}</p>
-      <div className="flex items-center justify-between mt-0.5">
-        {sub && <p className="text-xs text-gray-400">{sub}</p>}
-        {trend && !loading && (
-          <span className={cn('flex items-center gap-0.5 text-xs font-semibold', trend.up ? 'text-emerald-600' : 'text-red-500')}>
-            <ArrowUp className={cn('h-3 w-3', !trend.up && 'rotate-180')} />{trend.value}
-          </span>
-        )}
-      </div>
+    <div className="flex items-center justify-between gap-2">
+      {sub && <span className="truncate">{sub}</span>}
+      {trend && (
+        <span className={cn('flex items-center gap-0.5 font-semibold shrink-0', trend.up ? 'text-emerald-600' : 'text-red-500')}>
+          <ArrowUp className={cn('h-3 w-3', !trend.up && 'rotate-180')} />{trend.value}
+        </span>
+      )}
     </div>
   );
 }
@@ -106,38 +98,36 @@ export function AdminDashboard() {
 
       {/* KPI Row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          title="Monthly Revenue"
+        <StatCard
+          label="Monthly Revenue"
           value={`₹${(kpis?.mrr ?? 0).toLocaleString('en-IN')}`}
-          sub={`ARR ₹${((kpis?.arr ?? 0) / 1000).toFixed(0)}k`}
+          sub={<KpiSub sub={`ARR ₹${((kpis?.arr ?? 0) / 1000).toFixed(0)}k`} trend={{ value: `₹${((kpis?.arr ?? 0) / 1000).toFixed(0)}k ARR`, up: true }} />}
           icon={IndianRupee}
-          color="bg-[#F97316]"
+          iconBg="bg-[#F97316]"
           loading={isLoading}
-          trend={{ value: `₹${((kpis?.arr ?? 0) / 1000).toFixed(0)}k ARR`, up: true }}
         />
-        <KpiCard
-          title="Active Clients"
+        <StatCard
+          label="Active Clients"
           value={String(kpis?.active_workspaces ?? 0)}
-          sub={`${kpis?.new_clients_7d ?? 0} new this week`}
+          sub={<KpiSub sub={`${kpis?.new_clients_7d ?? 0} new this week`} trend={{ value: `+${kpis?.new_clients_7d ?? 0} this week`, up: true }} />}
           icon={Users}
-          color="bg-emerald-500"
+          iconBg="bg-emerald-500"
           loading={isLoading}
-          trend={{ value: `+${kpis?.new_clients_7d ?? 0} this week`, up: true }}
         />
-        <KpiCard
-          title="Messages (Month)"
+        <StatCard
+          label="Messages (Month)"
           value={(kpis?.messages_this_month ?? 0).toLocaleString()}
-          sub={`${kpis?.campaigns_this_month ?? 0} campaigns`}
+          sub={<KpiSub sub={`${kpis?.campaigns_this_month ?? 0} campaigns`} />}
           icon={MessageSquare}
-          color="bg-blue-500"
+          iconBg="bg-blue-500"
           loading={isLoading}
         />
-        <KpiCard
-          title="Avg Health Score"
+        <StatCard
+          label="Avg Health Score"
           value={`${kpis?.avg_health_score ?? 0}/100`}
-          sub={`${kpis?.halted_workspaces ?? 0} halted accounts`}
+          sub={<KpiSub sub={`${kpis?.halted_workspaces ?? 0} halted accounts`} />}
           icon={Activity}
-          color={kpis?.avg_health_score && kpis.avg_health_score > 60 ? 'bg-emerald-500' : 'bg-red-500'}
+          iconBg={kpis?.avg_health_score && kpis.avg_health_score > 60 ? 'bg-emerald-500' : 'bg-red-500'}
           loading={isLoading}
         />
       </div>

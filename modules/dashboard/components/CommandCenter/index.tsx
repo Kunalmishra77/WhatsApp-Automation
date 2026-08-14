@@ -16,10 +16,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { StatCard } from '@/components/ui/StatCard';
 import { cn } from '@/lib/utils';
 import { QUICK_RANGES, type QuickRange } from '@/lib/date-range';
 import { useWorkspaceStore } from '@/store/workspace.store';
-import { KpiCard } from './KpiCard';
 import { SectionCard } from './SectionCard';
 
 // ── Chart theme — reused from modules/analytics/components/AnalyticsDashboard ──
@@ -100,18 +100,6 @@ function PieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent }: { cx:
 // ── event_type → human label, e.g. "demo_booked" → "Demo Booked" ───────────
 function formatEventType(type: string): string {
   return type.split('_').map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(' ');
-}
-
-// ── Small stat tile (sub-metrics inside message/campaign sections) ─────────
-function StatTile({ label, value, loading }: { label: string; value: number | string; loading: boolean }) {
-  return (
-    <div className="rounded-xl border border-border bg-card p-3 text-center">
-      {loading ? <Skeleton className="h-7 w-12 mx-auto mb-1" /> : (
-        <p className="text-2xl font-bold tabular-nums">{value}</p>
-      )}
-      <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
-    </div>
-  );
 }
 
 export function CommandCenter() {
@@ -217,18 +205,18 @@ export function CommandCenter() {
             <div>
               <SectionCard icon={TrendingUp} title="Overview" sub="Key metrics for the selected period" color="text-brand-600">
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                  <KpiCard title="Total Messages" value={k?.total_messages.value.toLocaleString() ?? 0}
-                    icon={MessageSquare} iconBg="bg-brand-500" loading={loading} pctChange={k?.total_messages.pct_change} />
-                  <KpiCard title="Conversations" value={k?.total_conversations.value.toLocaleString() ?? 0}
-                    icon={MessageCircleReply} iconBg="bg-sky-500" loading={loading} pctChange={k?.total_conversations.pct_change} />
-                  <KpiCard title="New Leads" value={k?.new_leads.value.toLocaleString() ?? 0}
-                    icon={Target} iconBg="bg-pink-500" loading={loading} pctChange={k?.new_leads.pct_change} />
-                  <KpiCard title="Delivery Rate" value={`${k?.delivery_rate.value ?? 0}%`}
-                    icon={CheckCircle2} iconBg="bg-green-500" loading={loading} pctChange={k?.delivery_rate.pct_change} />
-                  <KpiCard title="Reply Rate" value={`${k?.reply_rate.value ?? 0}%`}
-                    icon={Reply} iconBg="bg-violet-500" loading={loading} pctChange={k?.reply_rate.pct_change} />
-                  <KpiCard title="Conversion Rate" value={`${k?.conversion_rate.value ?? 0}%`}
-                    icon={Users} iconBg="bg-amber-500" loading={loading} pctChange={k?.conversion_rate.pct_change} />
+                  <StatCard size="md" label="Total Messages" value={k?.total_messages.value.toLocaleString() ?? 0}
+                    icon={MessageSquare} iconBg="bg-brand-500" loading={loading} change={k?.total_messages.pct_change} />
+                  <StatCard size="md" label="Conversations" value={k?.total_conversations.value.toLocaleString() ?? 0}
+                    icon={MessageCircleReply} iconBg="bg-sky-500" loading={loading} change={k?.total_conversations.pct_change} />
+                  <StatCard size="md" label="New Leads" value={k?.new_leads.value.toLocaleString() ?? 0}
+                    icon={Target} iconBg="bg-pink-500" loading={loading} change={k?.new_leads.pct_change} />
+                  <StatCard size="md" label="Delivery Rate" value={`${k?.delivery_rate.value ?? 0}%`}
+                    icon={CheckCircle2} iconBg="bg-green-500" loading={loading} change={k?.delivery_rate.pct_change} />
+                  <StatCard size="md" label="Reply Rate" value={`${k?.reply_rate.value ?? 0}%`}
+                    icon={Reply} iconBg="bg-violet-500" loading={loading} change={k?.reply_rate.pct_change} />
+                  <StatCard size="md" label="Conversion Rate" value={`${k?.conversion_rate.value ?? 0}%`}
+                    icon={Users} iconBg="bg-amber-500" loading={loading} change={k?.conversion_rate.pct_change} />
                 </div>
               </SectionCard>
             </div>
@@ -236,11 +224,11 @@ export function CommandCenter() {
             {/* ══ Message analytics ═══════════════════════════════════════════ */}
             <SectionCard icon={MessageSquare} title="Message Analytics" sub="Volume, delivery funnel and daily inbound/outbound trend" color="text-sky-600">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
-                <StatTile label="Sent" value={m?.sent ?? 0} loading={loading} />
-                <StatTile label="Delivered" value={m?.delivered ?? 0} loading={loading} />
-                <StatTile label="Read" value={m?.read ?? 0} loading={loading} />
-                <StatTile label="Failed" value={m?.failed ?? 0} loading={loading} />
-                <StatTile label="Replies" value={m?.replies ?? 0} loading={loading} />
+                <StatCard size="sm" label="Sent" value={m?.sent ?? 0} loading={loading} />
+                <StatCard size="sm" label="Delivered" value={m?.delivered ?? 0} loading={loading} />
+                <StatCard size="sm" label="Read" value={m?.read ?? 0} loading={loading} />
+                <StatCard size="sm" label="Failed" value={m?.failed ?? 0} loading={loading} />
+                <StatCard size="sm" label="Replies" value={m?.replies ?? 0} loading={loading} />
               </div>
 
               {!loading && data && (
@@ -303,11 +291,11 @@ export function CommandCenter() {
             {/* ══ Campaign performance ════════════════════════════════════════ */}
             <SectionCard icon={Megaphone} title="Campaign Performance" sub="Status breakdown and top campaigns by volume" color="text-orange-600">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
-                <StatTile label="Total" value={c?.total ?? 0} loading={loading} />
-                <StatTile label="Active" value={c?.active ?? 0} loading={loading} />
-                <StatTile label="Completed" value={c?.completed ?? 0} loading={loading} />
-                <StatTile label="Failed" value={c?.failed ?? 0} loading={loading} />
-                <StatTile label="Scheduled" value={c?.scheduled ?? 0} loading={loading} />
+                <StatCard size="sm" label="Total" value={c?.total ?? 0} loading={loading} />
+                <StatCard size="sm" label="Active" value={c?.active ?? 0} loading={loading} />
+                <StatCard size="sm" label="Completed" value={c?.completed ?? 0} loading={loading} />
+                <StatCard size="sm" label="Failed" value={c?.failed ?? 0} loading={loading} />
+                <StatCard size="sm" label="Scheduled" value={c?.scheduled ?? 0} loading={loading} />
               </div>
 
               <Card>
@@ -335,11 +323,11 @@ export function CommandCenter() {
             {/* ══ Leads funnel ═════════════════════════════════════════════════ */}
             <SectionCard icon={Target} title="Leads Funnel" sub="Stage breakdown, temperature and conversion for the period" color="text-pink-600">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-2">
-                <StatTile label="Total" value={l?.total ?? 0} loading={loading} />
-                <StatTile label="Hot" value={l?.hot ?? 0} loading={loading} />
-                <StatTile label="Warm" value={l?.warm ?? 0} loading={loading} />
-                <StatTile label="Cold" value={l?.cold ?? 0} loading={loading} />
-                <StatTile label="Converted" value={l?.converted ?? 0} loading={loading} />
+                <StatCard size="sm" label="Total" value={l?.total ?? 0} loading={loading} />
+                <StatCard size="sm" label="Hot" value={l?.hot ?? 0} loading={loading} />
+                <StatCard size="sm" label="Warm" value={l?.warm ?? 0} loading={loading} />
+                <StatCard size="sm" label="Cold" value={l?.cold ?? 0} loading={loading} />
+                <StatCard size="sm" label="Converted" value={l?.converted ?? 0} loading={loading} />
               </div>
               <p className="text-[11px] text-muted-foreground mb-4">
                 Temperature is activity-based (derived from recent message volume) — not AI-scored.
@@ -387,10 +375,10 @@ export function CommandCenter() {
             {/* ══ Conversations ════════════════════════════════════════════════ */}
             <SectionCard icon={MessageCircle} title="Conversations" sub="Status breakdown and response time for the period" color="text-indigo-600">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                <StatTile label="Total" value={conv?.total ?? 0} loading={loading} />
-                <StatTile label="Open" value={conv?.open ?? 0} loading={loading} />
-                <StatTile label="Resolved" value={conv?.resolved ?? 0} loading={loading} />
-                <StatTile label="Unresolved" value={conv?.unresolved ?? 0} loading={loading} />
+                <StatCard size="sm" label="Total" value={conv?.total ?? 0} loading={loading} />
+                <StatCard size="sm" label="Open" value={conv?.open ?? 0} loading={loading} />
+                <StatCard size="sm" label="Resolved" value={conv?.resolved ?? 0} loading={loading} />
+                <StatCard size="sm" label="Unresolved" value={conv?.unresolved ?? 0} loading={loading} />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

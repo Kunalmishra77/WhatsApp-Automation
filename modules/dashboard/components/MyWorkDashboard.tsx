@@ -8,9 +8,11 @@ import {
   MessageSquare, Clock, CheckCircle2, ArrowRight, RefreshCw,
   TrendingUp, UserCheck, Sparkles, Inbox,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/button';
+import { StatCard } from '@/components/ui/StatCard';
 import { cn } from '@/lib/utils';
 
 interface MyWorkStats {
@@ -30,36 +32,26 @@ const fadeUp = {
 };
 const stagger = { hidden: {}, show: { transition: { staggerChildren: 0.07 } } };
 
+// Thin wrapper: forwards to the shared StatCard, keeping the entrance/hover
+// motion (fadeUp + stagger, driven by the parent motion.section) and the
+// animated CountUp value that made this card distinct from a plain StatCard.
 function MetricCard({
   label, value, sub, icon: Icon, iconBg, onClick,
 }: {
-  label: string; value: number; sub?: string; icon: React.ElementType;
+  label: string; value: number; sub?: string; icon: LucideIcon;
   iconBg: string; onClick?: () => void;
 }) {
   return (
-    <motion.div
-      variants={fadeUp}
-      onClick={onClick}
-      whileHover={onClick ? { y: -2, transition: { duration: 0.15 } } : undefined}
-      className={cn(
-        'group relative rounded-2xl border border-border bg-card p-5 flex flex-col gap-3',
-        'shadow-[0_1px_3px_0_rgb(0_0_0/0.06),0_1px_2px_-1px_rgb(0_0_0/0.06)]',
-        onClick && 'cursor-pointer hover:shadow-[0_4px_12px_0_rgb(0_0_0/0.09)] hover:border-brand-200/70',
-      )}
-    >
-      <div className={cn('h-10 w-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm', iconBg)}>
-        <Icon className="h-5 w-5 text-white" />
-      </div>
-      <div>
-        <p className="text-[28px] font-bold text-foreground tabular-nums leading-none tracking-tight">
-          <CountUp end={value} duration={1.2} preserveValue useEasing />
-        </p>
-        <p className="text-xs font-medium text-muted-foreground mt-1.5">{label}</p>
-        {sub && <p className="text-[11px] text-muted-foreground/60 mt-0.5">{sub}</p>}
-      </div>
-      {onClick && (
-        <ArrowRight className="absolute right-4 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/20 group-hover:text-brand-400 group-hover:translate-x-0.5 transition-all" />
-      )}
+    <motion.div variants={fadeUp} whileHover={onClick ? { y: -2, transition: { duration: 0.15 } } : undefined}>
+      <StatCard
+        size="md"
+        label={label}
+        value={<CountUp end={value} duration={1.2} preserveValue useEasing />}
+        sub={sub}
+        icon={Icon}
+        iconBg={iconBg}
+        onClick={onClick}
+      />
     </motion.div>
   );
 }
