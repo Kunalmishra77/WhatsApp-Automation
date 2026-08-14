@@ -108,6 +108,12 @@ export async function GET(request: NextRequest) {
     //     selected bucket) while still respecting an active `stage` filter. ────────
     function applyBase(qb: any, { includeTemperature = true }: { includeTemperature?: boolean } = {}) {
       qb = qb.eq('workspace_id', workspaceId);
+      // Spam is excluded by default everywhere (page + every summary bucket), matching
+      // the old client-side fetchConversations() behavior where every non-spam status
+      // tab filtered `is_spam=false`. `flag=spam` is the only way to see spam rows —
+      // it opts back in here so the page query (not the summary counts, which stay
+      // spam-free KPIs) can list them.
+      if (flag !== 'spam') qb = qb.eq('is_spam', false);
       if (dateRange) qb = qb.gte('created_at', dateRange.fromUtc).lt('created_at', dateRange.toUtc);
       if (channel) qb = qb.eq('channel', channel);
       if (status) qb = qb.eq('status', status);

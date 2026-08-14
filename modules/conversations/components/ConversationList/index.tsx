@@ -1,14 +1,17 @@
 'use client';
 
-import { useState, useRef, useMemo } from 'react';
+import { useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Search, Camera, MessageSquare, Download, X } from 'lucide-react';
+import { Camera, MessageSquare, Download, X, AlertCircle } from 'lucide-react';
 import { EmptyIllustration } from '@/components/ui/empty-illustration';
 import { cn } from '@/lib/utils';
 import { ConversationItem } from '../ConversationItem';
+import { ConversationFilters, DEFAULT_ADVANCED_FILTERS } from '../ConversationFilters';
+import type { ConversationAdvancedFilters } from '../ConversationFilters';
+import { ConversationSummaryBar } from '../ConversationSummaryBar';
 import { useConversations } from '../../hooks/useConversations';
 import { useConversationStore } from '@/store/conversation.store';
 import { useWorkspaceStore } from '@/store/workspace.store';
@@ -121,29 +124,35 @@ function ExportDialog({
 export function ConversationList() {
   const [status, setStatus]     = useState<string>('all');
   const [channel, setChannel]   = useState<string>('all');
-  const [search, setSearch]     = useState('');
+  const [advFilters, setAdvFilters] = useState<ConversationAdvancedFilters>(DEFAULT_ADVANCED_FILTERS);
   const [showExport, setShowExport] = useState(false);
   const activeId  = useConversationStore((s) => s.activeConversationId);
   const setActive = useConversationStore((s) => s.setActiveConversation);
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id ?? '');
 
-  const { data: conversations = [], isLoading } = useConversations(status, channel);
+  const {
+    conversations,
+    total,
+    summary,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useConversations({
+    status,
+    channel,
+    ...advFilters,
+  });
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return conversations;
-    const q = search.toLowerCase();
-    return conversations.filter((c) => {
-      const contact = c.contacts;
-      const name = (contact?.name ?? '').toLowerCase();
-      const phone = (contact?.phone ?? '').toLowerCase();
-      const msg = (c.last_message ?? '').toLowerCase();
-      return name.includes(q) || phone.includes(q) || msg.includes(q);
-    });
-  }, [search, conversations]);
+  const hasActiveFilters =
+    status !== 'all' || channel !== 'all' || Object.values(advFilters).some((v) => v !== undefined && v !== '');
 
   const parentRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
-    count: filtered.length,
+    count: conversations.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 76,
     overscan: 5,
@@ -157,7 +166,7 @@ export function ConversationList() {
 
       {/* Header */}
       <div className="shrink-0 border-b border-border px-4 py-3">
-        <div className="mb-2 flex items-center justify-between">
+        <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-foreground">Conversations</h2>
           <div className="flex items-center gap-0.5">
             <LeadExportMenu compact />
@@ -171,16 +180,13 @@ export function ConversationList() {
             </button>
           </div>
         </div>
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search…"
-            className="h-8 pl-8 text-sm"
-          />
-        </div>
       </div>
+
+      {/* Filter bar: search + date/campaign/temperature/stage/flag/agent/label/sentiment */}
+      <ConversationFilters value={advFilters} onChange={setAdvFilters} />
+
+      {/* Reporting summary strip — reflects the filters currently applied above */}
+      <ConversationSummaryBar summary={summary} isLoading={isLoading} />
 
       {/* Channel filter */}
       <div className="shrink-0 border-b border-border px-3 py-1.5 flex items-center gap-1">
@@ -231,19 +237,26 @@ export function ConversationList() {
             </div>
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : isError ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
+          <AlertCircle className="h-6 w-6 text-destructive" />
+          <p className="text-sm font-medium text-foreground">Couldn&apos;t load conversations</p>
+          <p className="text-xs text-muted-foreground">{error instanceof Error ? error.message : 'Something went wrong.'}</p>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>Retry</Button>
+        </div>
+      ) : conversations.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center">
           <EmptyIllustration
-            type={search.trim() ? 'search' : 'chat'}
+            type={hasActiveFilters ? 'search' : 'chat'}
             title="No conversations found"
-            description={search.trim() ? 'Try a different search term.' : 'Conversations will appear here once customers message you.'}
+            description={hasActiveFilters ? 'No conversations match these filters.' : 'Conversations will appear here once customers message you.'}
           />
         </div>
       ) : (
         <div ref={parentRef} className="flex-1 overflow-y-auto">
           <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
             {virtualizer.getVirtualItems().map((row) => {
-              const conv = filtered[row.index] as ConversationWithContact;
+              const conv = conversations[row.index] as ConversationWithContact;
               return (
                 <div
                   key={row.key}
@@ -264,6 +277,20 @@ export function ConversationList() {
               );
             })}
           </div>
+
+          {hasNextPage && (
+            <div className="flex justify-center p-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                disabled={isFetchingNextPage}
+                onClick={() => fetchNextPage()}
+              >
+                {isFetchingNextPage ? 'Loading…' : `Load more (${total - conversations.length} of ${total})`}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>

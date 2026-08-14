@@ -11,37 +11,98 @@ export type ConversationWithContact = ConversationRow & {
   };
 };
 
-export async function fetchConversations(
-  workspaceId: string,
-  status?: string,
-  channel?: string,
-): Promise<ConversationWithContact[]> {
-  const supabase = createClient();
-  let query = supabase
-    .from('conversations')
-    .select(`*, contacts(id, name, phone, avatar_url)`)
-    .eq('workspace_id', workspaceId)
-    .order('last_message_at', { ascending: false, nullsFirst: false });
+// ── Server-side search (GET /api/conversations/search) ─────────────────────────
+// Replaces the old direct-browser-supabase fetchConversations(): filtering,
+// pagination and the reporting summary now live server-side so counts stay
+// exact past PostgREST's 1000-row default cap. `status: 'mine'` is resolved
+// client-side to the current user's id before hitting the API, since the API
+// has no concept of "the calling user" beyond auth/workspace membership.
+export interface ConversationSearchFilters {
+  workspaceId: string;
+  quick?: string;
+  from?: string;
+  to?: string;
+  channel?: string;
+  status?: string;
+  campaign_id?: string;
+  temperature?: string;
+  stage?: string;
+  flag?: string;
+  assigned_agent_id?: string;
+  label?: string;
+  sentiment?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
 
-  if (status === 'spam') {
-    query = (query as any).eq('is_spam', true);
-  } else {
-    query = (query as any).eq('is_spam', false);
-    if (status === 'mine') {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) query = (query as any).eq('assigned_agent_id', user.id);
-    } else if (status && status !== 'all') {
-      query = query.eq('status', status);
-    }
+export interface ConversationSearchSummary {
+  new_today: number;
+  new_week: number;
+  new_month: number;
+  hot: number;
+  warm: number;
+  cold: number;
+  unanswered: number;
+  unread: number;
+  total: number;
+}
+
+export interface ConversationSearchResponse {
+  conversations: ConversationWithContact[];
+  total: number;
+  summary: ConversationSearchSummary;
+}
+
+export async function searchConversations(
+  filters: ConversationSearchFilters,
+): Promise<ConversationSearchResponse> {
+  const { workspaceId, status, ...rest } = filters;
+
+  let resolvedStatus = status;
+  if (status === 'mine') {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    resolvedStatus = undefined;
+    if (user) (rest as Record<string, unknown>).assigned_agent_id = filters.assigned_agent_id ?? user.id;
+  }
+  // 'all' means "no status filter" — the API treats an absent `status` param that way.
+  if (resolvedStatus === 'all') resolvedStatus = undefined;
+  // 'spam' is expressed via the `flag=spam` param server-side (is_spam=true), not `status`.
+  let flag = rest.flag;
+  if (resolvedStatus === 'spam') {
+    resolvedStatus = undefined;
+    flag = flag ?? 'spam';
   }
 
-  if (channel && channel !== 'all') {
-    query = (query as any).eq('channel', channel);
+  const params = new URLSearchParams({ workspaceId });
+  const entries: Array<[string, string | number | undefined]> = [
+    ['status', resolvedStatus],
+    ['quick', rest.quick],
+    ['from', rest.from],
+    ['to', rest.to],
+    ['channel', rest.channel],
+    ['campaign_id', rest.campaign_id],
+    ['temperature', rest.temperature],
+    ['stage', rest.stage],
+    ['flag', flag],
+    ['assigned_agent_id', rest.assigned_agent_id],
+    ['label', rest.label],
+    ['sentiment', rest.sentiment],
+    ['q', rest.q],
+    ['limit', rest.limit],
+    ['offset', rest.offset],
+  ];
+  for (const [key, value] of entries) {
+    if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as ConversationWithContact[];
+  const res = await fetch(`/api/conversations/search?${params.toString()}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? `Failed to load conversations (${res.status})`);
+  }
+  return res.json() as Promise<ConversationSearchResponse>;
 }
 
 export async function fetchConversation(id: string): Promise<ConversationWithContact | null> {
