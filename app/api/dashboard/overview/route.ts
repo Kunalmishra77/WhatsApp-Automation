@@ -210,11 +210,12 @@ export async function GET(request: NextRequest) {
     const conversionRatePrev = leadsPrev.total > 0 ? Math.round((leadsPrev.converted / leadsPrev.total) * 100) : 0;
 
     // ── 6. Conversations — status breakdown (current, ranged RPC) + total/resolved/
-    //      avg-first-response (migration-067 RPC, both windows). "unanswered" = every
-    //      conversation in range that hasn't been resolved yet (no separate RPC covers
-    //      this; total - resolved is exact from the same RPC's own columns). "new" and
-    //      "total" coincide here because both RPCs are already range-scoped to
-    //      created_at — there is no all-time conversation count in this payload. ────────
+    //      avg-first-response (migration-067 RPC, both windows). "unresolved" = every
+    //      conversation in range not yet marked resolved (total - resolved, exact from
+    //      the same RPC's own columns). Deliberately NOT the platform's distinct
+    //      "unanswered" concept (customer's latest message has no reply — see
+    //      get_unanswered_conversations / the reply-sweep), which is a different metric
+    //      this route doesn't compute. ─────────────────────────────────────────────────
     const convStatusMap: Record<string, number> = {};
     for (const row of (convStatusCur ?? []) as ConvStatusRow[]) {
       convStatusMap[row.status] = Number(row.cnt);
@@ -226,7 +227,7 @@ export async function GET(request: NextRequest) {
 
     const convTotalCur = Number(convMetricsCurRow.total);
     const convResolvedCur = Number(convMetricsCurRow.resolved);
-    const convUnansweredCur = Math.max(0, convTotalCur - convResolvedCur);
+    const convUnresolvedCur = Math.max(0, convTotalCur - convResolvedCur);
     const avgFirstResponseMins = convMetricsCurRow.avg_first_response_secs != null
       ? Math.round(Number(convMetricsCurRow.avg_first_response_secs) / 60)
       : 0;
@@ -284,7 +285,6 @@ export async function GET(request: NextRequest) {
       },
       leads: {
         total: leadsCur.total,
-        new: leadsCur.total,
         hot: leadsCur.tempMap.hot ?? 0,
         warm: leadsCur.tempMap.warm ?? 0,
         cold: leadsCur.tempMap.cold ?? 0,
@@ -293,10 +293,9 @@ export async function GET(request: NextRequest) {
       },
       conversations: {
         total: convTotalCur,
-        new: convTotalCur,
         open: convStatusMap['open'] ?? 0,
         resolved: convResolvedCur,
-        unanswered: convUnansweredCur,
+        unresolved: convUnresolvedCur,
         avg_first_response_mins: avgFirstResponseMins,
         by_status: convByStatus,
       },
