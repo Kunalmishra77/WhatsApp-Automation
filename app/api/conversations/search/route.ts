@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
     // Same permission every other /api/conversations/* mutation route requires
     // (grep-confirmed: handle_conversations — there is no separate read-only
     // "view_conversations" permission in this codebase).
-    await requireWorkspacePermission(workspaceId, 'handle_conversations');
+    const ctx = await requireWorkspacePermission(workspaceId, 'handle_conversations');
 
     const db = createAdminClient() as any;
 
@@ -111,6 +111,12 @@ export async function GET(request: NextRequest) {
       { includeTemperature = true, excludeSpam = true }: { includeTemperature?: boolean; excludeSpam?: boolean } = {},
     ) {
       qb = qb.eq('workspace_id', workspaceId);
+      // Agent-role members bypass RLS here (admin client), so this route must
+      // replicate the same assignment-isolation restriction migration 049 enforces
+      // at the DB layer — mirrors app/api/conversations/export/route.ts and
+      // app/api/contacts/bulk/route.ts. Applied in applyBase so the page query,
+      // `total`, and every summary/bucket count are scoped identically.
+      if (ctx.role === 'agent') qb = qb.eq('assigned_agent_id', ctx.userId);
       // Spam exclusion is caller-controlled (not derived from `flag` in here), so the
       // summary/bucket counts below can always stay spam-free KPIs regardless of the
       // active flag, while the page query is the only place that ever opts back in
@@ -144,7 +150,8 @@ export async function GET(request: NextRequest) {
     const pageQuery = applyFlag(
       applyBase(db.from('conversations').select(pageSelect, { count: 'exact' }), { excludeSpam: flag !== 'spam' }),
     )
-      .order('last_message_at', { ascending: false })
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: true })
       .range(offset, offset + limit - 1);
 
     // ── Summary (parallel, uncapped count:'exact' head queries) ────────────────
