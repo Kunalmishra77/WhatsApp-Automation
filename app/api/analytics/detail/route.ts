@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { resolveRange } from '@/lib/date-range';
 
 // GET /api/analytics/detail?workspaceId=&type=open|resolved|new-contacts|csat|inbound|outbound|delivery&from=&to=
 export async function GET(request: NextRequest) {
@@ -20,6 +21,14 @@ export async function GET(request: NextRequest) {
 
     // ── Conversations by status ─────────────────────────────────────────────
     if (type === 'open' || type === 'resolved' || type === 'pending' || type === 'assigned') {
+      // IST-correct, half-open range, filtered on created_at to match the
+      // analytics_conversation_status RPC (migration 064) that produces the
+      // openConversations/resolvedConversations summary counts this drawer
+      // is opened from — was previously unfiltered by date entirely.
+      const { fromUtc, toUtc } = resolveRange('custom', { from, to });
+
+      // Bounded "recent N for display" list (drawer table, not an aggregate) —
+      // .limit(150) intentionally kept; no count/total is derived from these rows.
       const { data } = await db
         .from('conversations')
         .select(`
@@ -29,6 +38,8 @@ export async function GET(request: NextRequest) {
         `)
         .eq('workspace_id', workspaceId)
         .eq('status', type)
+        .gte('created_at', fromUtc)
+        .lt('created_at', toUtc)
         .order('updated_at', { ascending: false })
         .limit(150);
 

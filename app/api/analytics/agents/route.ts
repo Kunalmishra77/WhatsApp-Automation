@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { resolveRange } from '@/lib/date-range';
 
 export interface AgentPerformanceStat {
   agentId: string;
@@ -48,8 +49,9 @@ export async function GET(request: NextRequest) {
       profiles: { full_name: string | null; email: string | null; avatar_url: string | null } | null;
     }>;
 
-    const fromTs = `${from}T00:00:00.000Z`;
-    const toTs = `${to}T23:59:59.999Z`;
+    // IST-correct, half-open boundaries — matches the Project-0 analytics pattern
+    // (fromUtc inclusive, toUtc exclusive) instead of naive UTC-midnight strings.
+    const { fromUtc, toUtc } = resolveRange('custom', { from, to });
 
     const agents: AgentPerformanceStat[] = await Promise.all(
       members.map(async (member) => {
@@ -62,8 +64,8 @@ export async function GET(request: NextRequest) {
           .select('*', { count: 'exact', head: true })
           .eq('workspace_id', workspaceId)
           .eq('assigned_agent_id', agentId)
-          .gte('updated_at', fromTs)
-          .lte('updated_at', toTs);
+          .gte('updated_at', fromUtc)
+          .lt('updated_at', toUtc);
 
         // resolved: conversations resolved by this agent in period
         const { count: resolved } = await (supabase as any)
@@ -72,8 +74,8 @@ export async function GET(request: NextRequest) {
           .eq('workspace_id', workspaceId)
           .eq('assigned_agent_id', agentId)
           .eq('status', 'resolved')
-          .gte('resolved_at', fromTs)
-          .lte('resolved_at', toTs);
+          .gte('resolved_at', fromUtc)
+          .lt('resolved_at', toUtc);
 
         // messagesSent: outbound messages sent by this agent in period
         const { count: messagesSent } = await (supabase as any)
@@ -82,8 +84,8 @@ export async function GET(request: NextRequest) {
           .eq('workspace_id', workspaceId)
           .eq('sender_id', agentId)
           .eq('sender_type', 'agent')
-          .gte('created_at', fromTs)
-          .lte('created_at', toTs);
+          .gte('created_at', fromUtc)
+          .lt('created_at', toUtc);
 
         // avgFirstResponseMin: avg minutes from assignment to first outbound message
         // Approximate: get conversations assigned to agent, find first agent message per conversation
@@ -92,8 +94,8 @@ export async function GET(request: NextRequest) {
           .select('id, assigned_at')
           .eq('workspace_id', workspaceId)
           .eq('assigned_agent_id', agentId)
-          .gte('updated_at', fromTs)
-          .lte('updated_at', toTs)
+          .gte('updated_at', fromUtc)
+          .lt('updated_at', toUtc)
           .not('assigned_at', 'is', null)
           .limit(100);
 
@@ -137,8 +139,8 @@ export async function GET(request: NextRequest) {
           .select('score')
           .eq('agent_id', agentId)
           .not('score', 'is', null)
-          .gte('responded_at', fromTs)
-          .lte('responded_at', toTs);
+          .gte('responded_at', fromUtc)
+          .lt('responded_at', toUtc);
 
         const csatRows = (csatRaw ?? []) as Array<{ score: number }>;
         const csatAvgScore: number | null =
