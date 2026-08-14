@@ -28,6 +28,8 @@ export async function GET(request: NextRequest) {
     const workspaceId = sp.get('workspaceId');
     const listId      = sp.get('listId') ?? '';
     const search      = sp.get('search') ?? '';
+    const idsParam    = sp.get('ids');
+    const ids         = idsParam ? idsParam.split(',').map((s) => s.trim()).filter(Boolean) : null;
     if (!workspaceId && !listId) return NextResponse.json({ error: 'workspaceId or listId required' }, { status: 400 });
 
     const db = createAdminClient() as any;
@@ -81,6 +83,7 @@ export async function GET(request: NextRequest) {
         .range(offset, offset + CHUNK - 1);
       if (listId) q = q.eq('contact_list_members.list_id', listId);
       if (search.trim()) q = q.or(`name.ilike.%${search}%,phone.ilike.%${search}%`);
+      if (ids && ids.length) q = q.in('id', ids);
       // Agent scope: restrict to assigned contacts only
       if (agentContactIds) q = q.in('id', agentContactIds);
       const { data: chunk } = await q;

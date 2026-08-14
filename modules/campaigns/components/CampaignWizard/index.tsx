@@ -83,8 +83,9 @@ interface MediaLibraryItem {
 }
 
 interface CampaignWizardProps {
-  open:    boolean;
-  onClose: () => void;
+  open:          boolean;
+  onClose:       () => void;
+  initialPhones?: string;
 }
 
 const MEDIA_TYPE_MAP: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
@@ -379,7 +380,7 @@ function parseCsvForPhones(text: string): string[] {
 
 // ── Main Wizard ───────────────────────────────────────────────────────────────
 
-export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
+export function CampaignWizard({ open, onClose, initialPhones }: CampaignWizardProps) {
   const [step, setStep]  = useState(0);
   const [state, setState] = useState<WizardState>({
     name: '', templateId: '', templateIdB: '', abTest: false,
@@ -459,6 +460,14 @@ export function CampaignWizard({ open, onClose }: CampaignWizardProps) {
       .finally(() => setContactLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.audienceType, workspaceId, contactSearch]);
+
+  // Pre-fill the manual-audience step when opened from a "Broadcast" / "Retry
+  // Campaign" CTA elsewhere (e.g. CampaignDetail) with a phone list to seed.
+  useEffect(() => {
+    if (open && initialPhones) {
+      setState((s) => ({ ...s, audienceType: 'manual', manualPhones: initialPhones }));
+    }
+  }, [open, initialPhones]);
   const selectedTemplate    = templates.find((t) => t.id === state.templateId);
   const selectedTemplateAny = selectedTemplate as any;
   const reqMediaType        = getMediaHeaderType(selectedTemplate) ?? (manualMediaType ?? null);

@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Camera, RefreshCw } from 'lucide-react';
-import { toast } from 'sonner';
 import { rupees, TERMS, type Term } from '@/lib/billing';
 import { cn } from '@/lib/utils';
 import { CheckoutButton } from './CheckoutButton';
@@ -226,17 +225,14 @@ export function BillingSettings() {
                 : 'Currently on manual billing — pay each cycle yourself, or switch to auto-pay.'}
             </p>
           </div>
-          <Switch
-            checked={isAutoPay}
-            disabled={isAutoPay}
-            onCheckedChange={(checked) => {
-              if (!checked) {
-                toast.info('To switch back to manual billing, contact support.');
-              }
-              // Turning it on is handled by the "Enable auto-pay" button below — it
-              // needs a Razorpay Checkout round-trip, which a bare switch can't do.
-            }}
-          />
+          <Badge
+            className={cn(
+              'text-xs border-0',
+              isAutoPay ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600',
+            )}
+          >
+            {isAutoPay ? 'On' : 'Off'}
+          </Badge>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <CheckoutButton

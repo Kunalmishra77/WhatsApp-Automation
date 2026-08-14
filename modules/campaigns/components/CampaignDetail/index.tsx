@@ -651,7 +651,7 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
             onClick={async () => {
               setSyncing(true);
               try {
-                await fetch(`/api/cron/sync-campaign-replies?admin=1`, { headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_CRON_SECRET ?? ''}` } });
+                await fetch(`/api/cron/sync-campaign-replies?workspaceId=${workspaceId}`);
                 toast.success('Replies synced');
                 router.refresh();
               } catch { toast.error('Sync failed'); }
@@ -823,7 +823,8 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
               uniqueReplyTexts={uniqueReplyTexts}
               onBroadcast={() => {
                 const phones = recipients.map((r) => r.phone).join(',');
-                router.push(`/campaigns?broadcast_to=${encodeURIComponent(phones)}`);
+                try { sessionStorage.setItem('agentix:broadcast_to', phones); } catch {}
+                router.push('/campaigns?broadcast=1');
               }}
               onDownload={() => downloadTab(campaignId, workspaceId, 'replied', repliedWithin || undefined, replyFilter || undefined, replyTypeFilter || undefined)}
             />
@@ -860,7 +861,8 @@ export function CampaignDetail({ campaignId }: CampaignDetailProps) {
                 <Button size="sm" className="h-8 gap-1.5 text-xs bg-amber-500 hover:bg-amber-600 text-white"
                   onClick={() => {
                     const phones = recipients.map((r) => r.phone).join(',');
-                    router.push(`/campaigns?broadcast_to=${encodeURIComponent(phones)}`);
+                    try { sessionStorage.setItem('agentix:broadcast_to', phones); } catch {}
+                    router.push('/campaigns?broadcast=1');
                   }}>
                   <Send className="h-3.5 w-3.5" /> Retry Campaign
                 </Button>

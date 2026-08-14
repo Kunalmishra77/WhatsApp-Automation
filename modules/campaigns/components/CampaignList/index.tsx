@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
@@ -217,13 +217,33 @@ type PendingAction = { type: 'run' | 'delete'; id: string; name: string } | null
 
 export function CampaignList() {
   const router = useRouter();
-  const [wizardOpen,    setWizardOpen]    = useState(false);
-  const [abCampaignId,  setAbCampaignId]  = useState<string | null>(null);
-  const [pending,       setPending]        = useState<PendingAction>(null);
-  const [actionLoading, setActionLoading]  = useState(false);
+  const searchParams = useSearchParams();
+  const [wizardOpen,      setWizardOpen]      = useState(false);
+  const [abCampaignId,    setAbCampaignId]    = useState<string | null>(null);
+  const [pending,         setPending]          = useState<PendingAction>(null);
+  const [actionLoading,   setActionLoading]    = useState(false);
+  const [broadcastPhones, setBroadcastPhones]  = useState<string | undefined>();
   const { data: campaigns = [], isLoading } = useCampaigns();
   const run    = useRunCampaign();
   const remove = useDeleteCampaign();
+
+  // Pre-fill the wizard's manual-audience step when arriving from a "Broadcast" /
+  // "Retry Campaign" CTA (CampaignDetail) — phones travel via sessionStorage since
+  // a retry list can be large enough to blow the URL length limit.
+  useEffect(() => {
+    if (searchParams.get('broadcast') !== '1') return;
+    if (typeof window === 'undefined') return;
+    try {
+      const stored = sessionStorage.getItem('agentix:broadcast_to');
+      if (stored) {
+        setBroadcastPhones(stored);
+        setWizardOpen(true);
+        sessionStorage.removeItem('agentix:broadcast_to');
+      }
+    } catch { /* sessionStorage unavailable */ }
+    router.replace('/campaigns');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const handleRun = (e: React.MouseEvent, id: string, name: string) => {
     e.stopPropagation();
@@ -412,7 +432,11 @@ export function CampaignList() {
         )}
       </div>
 
-      <CampaignWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
+      <CampaignWizard
+        open={wizardOpen}
+        onClose={() => { setWizardOpen(false); setBroadcastPhones(undefined); }}
+        initialPhones={broadcastPhones}
+      />
 
       {abCampaignId && (
         <ABComparisonDialog

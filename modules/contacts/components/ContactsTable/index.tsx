@@ -118,6 +118,7 @@ export function ContactsTable({ selectedId, onSelect, listId, defaultImportOpen,
     try {
       const p = new URLSearchParams({ workspaceId });
       if (search.trim()) p.set('search', search);
+      if (selectedIds.size > 0) p.set('ids', [...selectedIds].join(','));
       window.open(`/api/contacts/bulk?${p}`, '_blank');
     } finally { setDownloading(false); }
   };
