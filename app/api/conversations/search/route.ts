@@ -31,10 +31,12 @@ export const runtime = 'nodejs';
 // `q` instead resolves matching contact ids up front (workspace-scoped, via
 // `paginateAll` — NOT a bare capped `.select()`, so this stays uncapped past
 // PostgREST's 1000-row default) and then filters conversations on
-// `last_message.ilike.* OR contact_id.in.(...)`, both of which are plain columns on
-// `conversations` itself. The contact-id list is capped at CONTACT_ID_MATCH_CAP as a
-// generous sanity bound on the `.in()` list size, not a silent correctness cap — see
-// resolveMatchingContactIds below.
+// `last_message.ilike.<value> OR contact_id.in.(...)`, both of which are plain
+// columns on `conversations` itself. The ilike value is passed through
+// quoteOrValue() before being embedded (see below) — hand-built `.or()` strings go
+// through PostgREST's own DSL grammar, where `,` `(` `)` `"` are structural/quoting
+// characters, not just ILIKE wildcards. The contact-id list is capped at
+// CONTACT_ID_MATCH_CAP — see resolveMatchingContactIds below.
 const CONVERSATION_FIELDS =
   'id, workspace_id, contact_id, assigned_agent_id, status, channel, subject, last_message, ' +
   'last_message_at, unread_count, labels, is_pinned, is_starred, snoozed_until, sentiment, ' +
@@ -55,28 +57,53 @@ function escapeIlike(raw: string): string {
   return raw.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
-// Generous sanity bound on the resulting `.in()` id-list size for a pathologically
-// broad `q` (e.g. a single common letter matching thousands of contacts) — NOT a
-// silent correctness cap. The underlying paginateAll walk below is itself uncapped
-// (pages through every matching row past PostgREST's 1000-row default); this only
-// stops accumulating once the list is already large enough that a few thousand more
-// ids couldn't plausibly change what the user is looking for, while keeping the
-// `.in()` filter string bounded.
-const CONTACT_ID_MATCH_CAP = 5000;
+// Hand-built `.or(...)` filter strings go through PostgREST's own DSL grammar, where
+// `,` `(` `)` are structural delimiters (they separate/close individual conditions)
+// and `"`/`\` are the DSL's own quoting/escape characters. `escapeIlike` above only
+// escapes ILIKE's wildcard characters (`%` `_` `\`) — it says nothing about the outer
+// DSL, so a value containing e.g. `,` or `(`/`)` (an ordinary parenthesized phone
+// number like "(555) 123-4567") would silently split into extra bogus filter clauses
+// or unbalance the expression (PostgREST 500), and a value containing `,is_spam.eq.
+// false,` etc. could graft on attacker-controlled filter clauses.
+//
+// Per PostgREST's documented quoting rule, a value containing reserved characters is
+// wrapped in double quotes, and within that quoted value a literal backslash is
+// written `\\` and a literal double quote is written `\"`. Applying this AFTER the
+// ILIKE-escaped value is built (so it doubles/escapes whatever backslashes
+// `escapeIlike` already introduced) makes the whole thing round-trip correctly:
+// PostgREST's quote-parser recovers exactly the ILIKE-escaped string, which Postgres'
+// ILIKE then interprets as intended. Only used for the two `.or()` call sites below —
+// `contact_id.in.(...)` is a separate, uuid-only list and needs no quoting.
+function quoteOrValue(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+// Sanity bound on the resulting `.in()` id-list size for a broad `q` (e.g. a single
+// common letter matching thousands of contacts) — NOT a silent correctness cap. The
+// underlying paginateAll walk below is itself uncapped (pages through every matching
+// row past PostgREST's 1000-row default); this only stops accumulating ids once the
+// list is already large. Kept modest (not merely "generous") because every id here
+// ends up in the `contact_id.in.(...)` URL query string, and a very long `.in()` list
+// risks tripping proxy/header-size limits (e.g. nginx's default ~8K buffer) — 1000
+// uuids is a ~37K list, comfortably under that; 5000 (~180K) would not be. Message-
+// text matching is unaffected by this cap; it only bounds the contact-id half of `q`.
+const CONTACT_ID_MATCH_CAP = 1000;
 
 // Resolves every contact id in this workspace whose name or phone ilike-matches `q`,
 // via `paginateAll` (uncapped — pages through all rows) rather than a bare `.select()`
 // (which would silently cap at PostgREST's default 1000-row limit and undercount/miss
 // conversations for any workspace with >1000 matching contacts). `q` must already be
-// escapeIlike()'d by the caller.
+// escapeIlike()'d by the caller; this function applies quoteOrValue() itself before
+// embedding it in the `.or(...)` string.
 async function resolveMatchingContactIds(db: any, workspaceId: string, q: string): Promise<string[]> {
+  const pattern = quoteOrValue(`%${q}%`);
   const ids: string[] = [];
   outer: for await (const page of paginateAll<{ id: string }>((offset, pageSize) =>
     db
       .from('contacts')
       .select('id')
       .eq('workspace_id', workspaceId)
-      .or(`name.ilike.%${q}%,phone.ilike.%${q}%`)
+      .or(`name.ilike.${pattern},phone.ilike.${pattern}`)
       .order('id', { ascending: true })
       .range(offset, offset + pageSize - 1),
   )) {
@@ -179,9 +206,11 @@ export async function GET(request: NextRequest) {
       // single `.or()` is safe/documented here — unlike trying to OR across an
       // embedded child table's columns directly. contactIds was resolved uncapped
       // via paginateAll above; falls back to message-only when q matched no contacts.
+      // last_message's value goes through quoteOrValue() — contact_id.in.(...) is a
+      // uuid-only list and needs no quoting.
       if (q) {
         qb = matchingContactIds.length > 0
-          ? qb.or(`last_message.ilike.%${q}%,contact_id.in.(${matchingContactIds.join(',')})`)
+          ? qb.or(`last_message.ilike.${quoteOrValue(`%${q}%`)},contact_id.in.(${matchingContactIds.join(',')})`)
           : qb.ilike('last_message', `%${q}%`);
       }
       return qb;
