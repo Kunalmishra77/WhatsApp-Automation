@@ -14,35 +14,48 @@ export const runtime = 'nodejs';
 // `total` + a `summary` of KPI-style bucket counts (each computed under the same
 // non-flag filter context, per bucket). Workspace-scoped, auth-gated with the same
 // permission every other /api/conversations/* mutation route uses.
+//
+// temperature/stage are filtered via an embedded `leads!inner(...)` join, NOT an
+// id-set roundtrip — a bare `.select()` id lookup caps at PostgREST's default row
+// limit (1000), which would silently miss conversations/undercount buckets for any
+// workspace with >1000 leads of a given temperature. The embedded-join filter is a
+// single query and is uncapped.
 
+// Contact name/phone are NOT denormalized on `conversations` — they live only on the
+// joined `contacts` table (confirmed via modules/conversations/services/
+// conversation.service.ts: fetchConversations() selects `*, contacts(id,name,phone,
+// avatar_url)`; conversations has no name/phone columns). Mixing an OR across a
+// parent column (last_message) and an embedded child table's columns (contacts.name/
+// phone) in one PostgREST `or=` expression is not a reliably-documented pattern, and
+// the earlier id-set-lookup workaround had the same 1000-row cap problem as temperature/
+// stage. `q` therefore matches `last_message` only (ilike) — literal, uncapped, single
+// query. Matching contact name/phone from this box is left for a future iteration.
 const CONVERSATION_FIELDS =
   'id, workspace_id, contact_id, assigned_agent_id, status, channel, subject, last_message, ' +
   'last_message_at, unread_count, labels, is_pinned, is_starred, snoozed_until, sentiment, ' +
   'is_spam, bot_paused, first_replied_at, source_campaign_id, created_at, updated_at, ' +
   'contacts(id, name, phone, avatar_url)';
 
-// Strip characters that are structural in the raw PostgREST filter strings we build
-// by hand below (`,` separates or() conditions, `()` groups/wraps in-lists) so user
-// input can never break out of the .or() clause. %/_/\ are ILIKE wildcards/escapes —
-// stripped too so the search behaves as a plain, literal substring match.
-function sanitizeSearchTerm(raw: string): string {
-  return raw.replace(/[,()%_\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100);
+// leads has ~1 row per conversation (the temperature trigger updates the single linked
+// lead), so `leads!inner(...)` does not fan out conversation rows in practice. The page
+// result is defensively deduped by conversation id below anyway; counts are exact under
+// the 1:1 assumption.
+const LEADS_EMBED = ', leads!inner(temperature,stage)';
+
+// Escapes ILIKE's own wildcard/escape characters so user input behaves as a literal
+// substring match rather than an accidental wildcard pattern. `.ilike()` is a
+// parameterized supabase-js call (not a hand-built filter string), so there is no
+// filter-injection concern here — this is purely about ILIKE semantics.
+function escapeIlike(raw: string): string {
+  return raw.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 type TempBucket = 'hot' | 'warm' | 'cold';
-function isTempBucket(v: unknown): v is TempBucket {
-  return v === 'hot' || v === 'warm' || v === 'cold';
-}
 
-type ZeroSummary = {
+type Summary = {
   new_today: number; new_week: number; new_month: number;
   hot: number; warm: number; cold: number;
   unanswered: number; unread: number; total: number;
-};
-const ZERO_SUMMARY: ZeroSummary = {
-  new_today: 0, new_week: 0, new_month: 0,
-  hot: 0, warm: 0, cold: 0,
-  unanswered: 0, unread: 0, total: 0,
 };
 
 export async function GET(request: NextRequest) {
@@ -82,76 +95,18 @@ export async function GET(request: NextRequest) {
     const temperature = sp.get('temperature') || undefined; // hot | warm | cold
     const stage = sp.get('stage') || undefined;
     const qRaw = (sp.get('q') || '').trim();
-    const q = qRaw ? sanitizeSearchTerm(qRaw) : undefined;
+    const q = qRaw ? escapeIlike(qRaw).slice(0, 100) : undefined;
     const limit = Math.min(Math.max(Number(sp.get('limit')) || 30, 1), 200);
     const offset = Math.max(Number(sp.get('offset')) || 0, 0);
 
-    // ── q: resolve matching contact ids (name/phone) up front — folded into the
-    //      main .or() filter below as `contact_id.in.(...)` alongside a direct
-    //      last_message ilike. Bounded by contacts-in-workspace matching the term;
-    //      same acceptable-bound reasoning as the leads id-set lookups below. ─────
-    let qContactIds: string[] = [];
-    if (q) {
-      const { data: contactRows, error: contactErr } = await db
-        .from('contacts')
-        .select('id')
-        .eq('workspace_id', workspaceId)
-        .or(`name.ilike.%${q}%,phone.ilike.%${q}%`);
-      if (contactErr) {
-        console.error('[Conversations Search] contact lookup error:', contactErr.message);
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-      }
-      qContactIds = (contactRows ?? []).map((r: any) => r.id as string);
-    }
+    const needsLeadsJoin = Boolean(temperature || stage);
 
-    // ── temperature/stage filter: resolve matching conversation ids from leads.
-    //      Empty result short-circuits to an empty page (no point querying further). ─
-    let leadFilterIds: string[] | null = null;
-    if (temperature || stage) {
-      let lq = db
-        .from('leads')
-        .select('conversation_id')
-        .eq('workspace_id', workspaceId)
-        .not('conversation_id', 'is', null);
-      if (temperature) lq = lq.eq('temperature', temperature);
-      if (stage) lq = lq.eq('stage', stage);
-      const { data: leadRows, error: leadErr } = await lq;
-      if (leadErr) {
-        console.error('[Conversations Search] lead filter error:', leadErr.message);
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-      }
-      const rawLeadConvIds: string[] = ((leadRows ?? []) as Array<{ conversation_id: string }>).map(
-        (r) => r.conversation_id,
-      );
-      leadFilterIds = Array.from(new Set(rawLeadConvIds));
-      if (leadFilterIds.length === 0) {
-        return NextResponse.json({ conversations: [], total: 0, summary: ZERO_SUMMARY });
-      }
-    }
-
-    // ── hot/warm/cold id-sets for the summary breakdown — always computed (the
-    //      summary shows the full temperature split regardless of whether the
-    //      caller is currently filtering by `temperature`). ─────────────────────
-    const { data: tempRows, error: tempErr } = await db
-      .from('leads')
-      .select('conversation_id, temperature')
-      .eq('workspace_id', workspaceId)
-      .in('temperature', ['hot', 'warm', 'cold'])
-      .not('conversation_id', 'is', null);
-    if (tempErr) {
-      console.error('[Conversations Search] temperature bucket error:', tempErr.message);
-      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-    }
-    const tempIdSets: Record<TempBucket, string[]> = { hot: [], warm: [], cold: [] };
-    for (const row of (tempRows ?? []) as Array<{ conversation_id: string; temperature: string | null }>) {
-      if (isTempBucket(row.temperature)) tempIdSets[row.temperature].push(row.conversation_id);
-    }
-
-    // ── Base filters shared by the page query + every summary count. Deliberately
-    //     excludes `flag` and the temperature/stage id-set so the summary can show
-    //     each bucket's count under the SAME other filters (date/channel/status/
-    //     agent/sentiment/campaign/label/q) minus the one dimension being counted. ──
-    function applyBase(qb: any) {
+    // ── Base filters shared by the page query + every summary count EXCEPT the
+    //     hot/warm/cold breakdown. `includeTemperature` lets the hot/warm/cold
+    //     buckets reuse this with the temperature dimension stripped out (so the
+    //     3-way split always reflects the full breakdown, not just the currently
+    //     selected bucket) while still respecting an active `stage` filter. ────────
+    function applyBase(qb: any, { includeTemperature = true }: { includeTemperature?: boolean } = {}) {
       qb = qb.eq('workspace_id', workspaceId);
       if (dateRange) qb = qb.gte('created_at', dateRange.fromUtc).lt('created_at', dateRange.toUtc);
       if (channel) qb = qb.eq('channel', channel);
@@ -160,10 +115,9 @@ export async function GET(request: NextRequest) {
       if (sentiment) qb = qb.eq('sentiment', sentiment);
       if (campaignId) qb = qb.eq('source_campaign_id', campaignId);
       if (label) qb = qb.contains('labels', [label]);
-      if (q) {
-        const idList = qContactIds.length > 0 ? `,contact_id.in.(${qContactIds.join(',')})` : '';
-        qb = qb.or(`last_message.ilike.%${q}%${idList}`);
-      }
+      if (includeTemperature && temperature) qb = qb.eq('leads.temperature', temperature);
+      if (stage) qb = qb.eq('leads.stage', stage);
+      if (q) qb = qb.ilike('last_message', `%${q}%`);
       return qb;
     }
 
@@ -175,31 +129,26 @@ export async function GET(request: NextRequest) {
       return qb;
     }
 
-    // Full filter set for the page + the summary's own `total`.
-    function applyFilters(qb: any) {
-      qb = applyBase(qb);
-      qb = applyFlag(qb);
-      if (leadFilterIds) qb = qb.in('id', leadFilterIds);
-      return qb;
-    }
-
-    const pageQuery = applyFilters(
-      db.from('conversations').select(CONVERSATION_FIELDS, { count: 'exact' }),
+    // ── Page + total ─────────────────────────────────────────────────────────
+    const pageSelect = CONVERSATION_FIELDS + (needsLeadsJoin ? LEADS_EMBED : '');
+    const pageQuery = applyFlag(
+      applyBase(db.from('conversations').select(pageSelect, { count: 'exact' })),
     )
       .order('last_message_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
+    // ── Summary (parallel, uncapped count:'exact' head queries) ────────────────
     const todayRange = resolveRange('today');
     const weekRange = resolveRange('this_week');
     const monthRange = resolveRange('this_month');
-    const countCol = () => db.from('conversations').select('id', { count: 'exact', head: true });
-    const inBucket = (ids: string[]) =>
-      ids.length > 0
-        ? applyBase(countCol()).in('id', ids)
-        : Promise.resolve({ count: 0, error: null });
+    const countSelect = 'id' + (needsLeadsJoin ? LEADS_EMBED : '');
+    const countCol = () => db.from('conversations').select(countSelect, { count: 'exact', head: true });
+    // hot/warm/cold always need the leads join, regardless of whether temperature/
+    // stage is currently being filtered on.
+    const bucketCol = () => db.from('conversations').select('id' + LEADS_EMBED, { count: 'exact', head: true });
+    const bucketCount = (bucket: TempBucket) =>
+      applyBase(bucketCol(), { includeTemperature: false }).eq('leads.temperature', bucket);
 
-    // ── Page + summary, fanned out in parallel. Every summary count is a bare
-    //     count:'exact', head:true query — uncapped, never `.select().length`. ──────
     const [
       pageResult,
       newTodayResult, newWeekResult, newMonthResult,
@@ -210,14 +159,14 @@ export async function GET(request: NextRequest) {
       applyBase(countCol()).gte('created_at', todayRange.fromUtc),
       applyBase(countCol()).gte('created_at', weekRange.fromUtc),
       applyBase(countCol()).gte('created_at', monthRange.fromUtc),
-      inBucket(tempIdSets.hot),
-      inBucket(tempIdSets.warm),
-      inBucket(tempIdSets.cold),
+      bucketCount('hot'),
+      bucketCount('warm'),
+      bucketCount('cold'),
       applyBase(countCol()).is('first_replied_at', null),
       applyBase(countCol()).gt('unread_count', 0),
     ]);
 
-    const { data: conversations, error: pageErr, count: total } = pageResult;
+    const { data: pageRows, error: pageErr, count: total } = pageResult;
     if (pageErr) {
       console.error('[Conversations Search] page query error:', pageErr.message);
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -232,22 +181,30 @@ export async function GET(request: NextRequest) {
       if (err) console.error(`[Conversations Search] summary(${name}) error:`, err.message);
     }
 
-    const totalNum = Number(total ?? 0);
-    return NextResponse.json({
-      conversations: conversations ?? [],
-      total: totalNum,
-      summary: {
-        new_today: Number(newTodayResult.count ?? 0),
-        new_week: Number(newWeekResult.count ?? 0),
-        new_month: Number(newMonthResult.count ?? 0),
-        hot: Number((hotResult as { count: number | null }).count ?? 0),
-        warm: Number((warmResult as { count: number | null }).count ?? 0),
-        cold: Number((coldResult as { count: number | null }).count ?? 0),
-        unanswered: Number(unansweredResult.count ?? 0),
-        unread: Number(unreadResult.count ?? 0),
-        total: totalNum,
-      },
+    // Defensive dedup by conversation id — protects the page (small, bounded by
+    // `limit`) against the unlikely case of a conversation having >1 linked lead
+    // when the leads!inner join is active; counts stay exact under the normal 1:1 case.
+    const seen = new Set<string>();
+    const conversations = ((pageRows ?? []) as Array<{ id: string }>).filter((row) => {
+      if (seen.has(row.id)) return false;
+      seen.add(row.id);
+      return true;
     });
+
+    const totalNum = Number(total ?? 0);
+    const summary: Summary = {
+      new_today: Number(newTodayResult.count ?? 0),
+      new_week: Number(newWeekResult.count ?? 0),
+      new_month: Number(newMonthResult.count ?? 0),
+      hot: Number((hotResult as { count: number | null }).count ?? 0),
+      warm: Number((warmResult as { count: number | null }).count ?? 0),
+      cold: Number((coldResult as { count: number | null }).count ?? 0),
+      unanswered: Number(unansweredResult.count ?? 0),
+      unread: Number(unreadResult.count ?? 0),
+      total: totalNum,
+    };
+
+    return NextResponse.json({ conversations, total: totalNum, summary });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);
     console.error('[Conversations Search]', error);
