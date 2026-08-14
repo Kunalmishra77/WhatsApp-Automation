@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
-import { resolveRange, type QuickRange } from '@/lib/date-range';
+import { resolveRange, addDays, type QuickRange } from '@/lib/date-range';
 import { paginateAll } from '@/lib/export-stream';
 
 export const runtime = 'nodejs';
@@ -160,12 +160,44 @@ export async function GET(request: NextRequest) {
     const { inbound: inboundCur, outbound: outboundCur } = sumDirections((dailyCur ?? []) as DailyRow[]);
     const { inbound: inboundPrev, outbound: outboundPrev } = sumDirections((dailyPrev ?? []) as DailyRow[]);
 
+    // Bucket granularity adapts to the range span so `all_time` (fromUtc = epoch) doesn't
+    // build a ~20,000-point daily skeleton and freeze the chart. `label` stays a
+    // 'YYYY-MM-DD' bucket-start date regardless of granularity — the UI's tickFormatter
+    // slices `label`, so the field name/format can't change.
+    const fromMs = new Date(`${from}T00:00:00.000Z`).getTime();
+    const toMs = new Date(`${to}T00:00:00.000Z`).getTime();
+    const spanDays = (toMs - fromMs) / 86_400_000;
+    const granularity: 'day' | 'week' | 'month' = spanDays <= 92 ? 'day' : spanDays <= 400 ? 'week' : 'month';
+
+    // Maps an RPC row's 'YYYY-MM-DD' day to its bucket-start label. Week buckets step by
+    // 7 days from the range start (no calendar-Monday snap needed); month buckets snap to
+    // the 1st of the row's month.
+    function bucketLabelFor(day: string): string {
+      if (granularity === 'day') return day;
+      if (granularity === 'month') return `${day.slice(0, 7)}-01`;
+      const diffDays = Math.floor((new Date(`${day}T00:00:00.000Z`).getTime() - fromMs) / 86_400_000);
+      return addDays(from, Math.floor(diffDays / 7) * 7);
+    }
+
     const dailyMap: Record<string, { inbound: number; outbound: number }> = {};
-    for (let d = new Date(`${from}T00:00:00.000Z`).getTime(); d <= new Date(`${to}T00:00:00.000Z`).getTime(); d += 86_400_000) {
-      dailyMap[new Date(d).toISOString().slice(0, 10)] = { inbound: 0, outbound: 0 };
+    if (granularity === 'day') {
+      for (let d = fromMs; d <= toMs; d += 86_400_000) {
+        dailyMap[new Date(d).toISOString().slice(0, 10)] = { inbound: 0, outbound: 0 };
+      }
+    } else if (granularity === 'week') {
+      for (let d = fromMs; d <= toMs; d += 7 * 86_400_000) {
+        dailyMap[new Date(d).toISOString().slice(0, 10)] = { inbound: 0, outbound: 0 };
+      }
+    } else {
+      const cursor = new Date(fromMs);
+      cursor.setUTCDate(1);
+      while (cursor.getTime() <= toMs) {
+        dailyMap[cursor.toISOString().slice(0, 10)] = { inbound: 0, outbound: 0 };
+        cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+      }
     }
     for (const row of (dailyCur ?? []) as DailyRow[]) {
-      const key = row.day.slice(0, 10);
+      const key = bucketLabelFor(row.day.slice(0, 10));
       if (!dailyMap[key]) dailyMap[key] = { inbound: 0, outbound: 0 };
       const bucket = dailyMap[key]!;
       const cnt = Number(row.cnt);
@@ -230,7 +262,7 @@ export async function GET(request: NextRequest) {
     const convUnresolvedCur = Math.max(0, convTotalCur - convResolvedCur);
     const avgFirstResponseMins = convMetricsCurRow.avg_first_response_secs != null
       ? Math.round(Number(convMetricsCurRow.avg_first_response_secs) / 60)
-      : 0;
+      : null;
 
     const convTotalPrev = Number(convMetricsPrevRow.total);
 

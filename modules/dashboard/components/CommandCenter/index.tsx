@@ -81,7 +81,10 @@ function useDashboardOverview(rangeQs: string | null) {
 
 // ── Skeletons / Empty ───────────────────────────────────────────────────────
 function ChartSkeleton({ h = 56 }: { h?: number }) {
-  return <div className={`h-${h}`}><Skeleton className="w-full h-full rounded-lg" /></div>;
+  // Inline style (not a dynamically-built `h-${h}` Tailwind class, which the JIT compiler
+  // can't see and so emits no rule — the skeleton collapses to 0 height). `h` is expressed
+  // in Tailwind's spacing scale (n * 0.25rem), matching the previous h-56 == 14rem sizing.
+  return <div style={{ height: `${h * 0.25}rem` }}><Skeleton className="w-full h-full rounded-lg" /></div>;
 }
 function Empty({ msg = 'No data for this period' }: { msg?: string }) {
   return <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">{msg}</div>;
