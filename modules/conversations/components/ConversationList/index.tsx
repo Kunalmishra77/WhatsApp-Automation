@@ -1,6 +1,8 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import type { ReadonlyURLSearchParams } from 'next/navigation';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -25,6 +27,31 @@ const CHANNEL_TABS = [
   { key: 'whatsapp',  label: 'WhatsApp',  icon: MessageSquare },
   { key: 'instagram', label: 'Instagram', icon: Camera },
 ] as const;
+
+// Seed the advanced-filter object from URL query params so a drill-through link
+// (e.g. /conversations?temperature=hot&flag=unread) lands pre-filtered. Reads
+// once on mount; keys map to the exact ConversationAdvancedFilters shape.
+function initAdvFiltersFromUrl(sp: ReadonlyURLSearchParams): ConversationAdvancedFilters {
+  const adv: ConversationAdvancedFilters = { ...DEFAULT_ADVANCED_FILTERS };
+  const simple = ['flag', 'temperature', 'stage', 'campaign_id', 'sentiment', 'assigned_agent_id', 'label', 'q'] as const;
+  for (const key of simple) {
+    const v = sp.get(key);
+    if (v) adv[key] = v;
+  }
+  const quick = sp.get('quick');
+  const from  = sp.get('from');
+  const to    = sp.get('to');
+  if (quick) {
+    adv.quick = quick as ConversationAdvancedFilters['quick'];
+    if (from) adv.from = from;
+    if (to)   adv.to   = to;
+  } else if (from || to) {
+    adv.quick = 'custom';
+    if (from) adv.from = from;
+    if (to)   adv.to   = to;
+  }
+  return adv;
+}
 
 // ── Export dialog ─────────────────────────────────────────────────────────────
 function ExportDialog({
@@ -122,9 +149,10 @@ function ExportDialog({
 }
 
 export function ConversationList() {
-  const [status, setStatus]     = useState<string>('all');
-  const [channel, setChannel]   = useState<string>('all');
-  const [advFilters, setAdvFilters] = useState<ConversationAdvancedFilters>(DEFAULT_ADVANCED_FILTERS);
+  const searchParams = useSearchParams();
+  const [status, setStatus]     = useState<string>(() => searchParams.get('status') ?? 'all');
+  const [channel, setChannel]   = useState<string>(() => searchParams.get('channel') ?? 'all');
+  const [advFilters, setAdvFilters] = useState<ConversationAdvancedFilters>(() => initAdvFiltersFromUrl(searchParams));
   const [showExport, setShowExport] = useState(false);
   const activeId  = useConversationStore((s) => s.activeConversationId);
   const setActive = useConversationStore((s) => s.setActiveConversation);
