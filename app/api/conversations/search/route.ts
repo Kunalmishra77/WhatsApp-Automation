@@ -82,11 +82,13 @@ function quoteOrValue(value: string): string {
 // common letter matching thousands of contacts) — NOT a silent correctness cap. The
 // underlying paginateAll walk below is itself uncapped (pages through every matching
 // row past PostgREST's 1000-row default); this only stops accumulating ids once the
-// list is already large. Kept modest (not merely "generous") because every id here
-// ends up in the `contact_id.in.(...)` URL query string, and a very long `.in()` list
-// risks tripping proxy/header-size limits (e.g. nginx's default ~8K buffer) — 1000
-// uuids is a ~37K list, comfortably under that; 5000 (~180K) would not be. Message-
-// text matching is unaffected by this cap; it only bounds the contact-id half of `q`.
+// list is already large. Kept modest because every id here ends up in the
+// `contact_id.in.(...)` URL query string, and a very long `.in()` list risks tripping
+// proxy/header-size limits: 1000 uuids is a ~37K URL, 5000 (~180K) far worse. That
+// already exceeds a strict nginx-style ~8K header buffer, but Supabase's gateway
+// permits much longer URLs (this works in production today) — 1000 is the pragmatic
+// ceiling; lower it if a fronting proxy ever rejects the request. Message-text
+// matching is unaffected by this cap; it only bounds the contact-id half of `q`.
 const CONTACT_ID_MATCH_CAP = 1000;
 
 // Resolves every contact id in this workspace whose name or phone ilike-matches `q`,
