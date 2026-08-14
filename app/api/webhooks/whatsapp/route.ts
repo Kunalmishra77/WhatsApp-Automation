@@ -509,6 +509,10 @@ async function handleIncomingMessage(
         })
         .eq('id', pendingCr.id);
 
+      // Fire-and-forget, fail-open: stamp the conversation's originating campaign for
+      // filtering (only if not already set). Never awaited — must not delay the reply.
+      void (supabase as any).from('conversations').update({ source_campaign_id: pendingCr.campaign_id }).eq('id', conversation.id).is('source_campaign_id', null).then(()=>{},()=>{});
+
       if (crUpdateErr) {
         console.error('[Webhook] Campaign reply update error:', crUpdateErr.message, 'cr_id:', pendingCr.id);
       } else {

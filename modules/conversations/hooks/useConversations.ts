@@ -1,19 +1,44 @@
 'use client';
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo } from 'react';
 import { createClient } from '@/services/supabase/client';
-import { fetchConversations } from '../services/conversation.service';
-import type { ConversationWithContact } from '../services/conversation.service';
+import { searchConversations } from '../services/conversation.service';
+import type {
+  ConversationSearchFilters,
+  ConversationSearchSummary,
+  ConversationWithContact,
+} from '../services/conversation.service';
 import { useWorkspaceStore } from '@/store/workspace.store';
 
-export function useConversations(status = 'all', channel = 'all') {
+const PAGE_SIZE = 30;
+
+// Filters the caller controls — workspaceId/limit/offset are injected by this hook.
+export type ConversationQueryFilters = Omit<ConversationSearchFilters, 'workspaceId' | 'limit' | 'offset'>;
+
+// Server-side conversation search, paginated via limit/offset + `total` ("Load more").
+// Replaces the old direct-browser-supabase fetchConversations() query — filtering
+// (status/channel tabs + the full filter bar) now happens in /api/conversations/search
+// so counts stay exact past PostgREST's 1000-row default cap. Realtime subscriptions
+// still invalidate the query on any conversation/message change for this workspace.
+export function useConversations(filters: ConversationQueryFilters) {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   const queryClient = useQueryClient();
 
-  const query = useQuery<ConversationWithContact[]>({
-    queryKey: ['conversations', workspaceId, status, channel],
-    queryFn: () => fetchConversations(workspaceId!, status, channel),
+  const query = useInfiniteQuery({
+    queryKey: ['conversations', workspaceId, filters],
+    queryFn: ({ pageParam }) =>
+      searchConversations({
+        ...filters,
+        workspaceId: workspaceId!,
+        limit: PAGE_SIZE,
+        offset: pageParam,
+      }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      const loaded = allPages.reduce((sum, page) => sum + page.conversations.length, 0);
+      return loaded < lastPage.total ? loaded : undefined;
+    },
     enabled: !!workspaceId,
     staleTime: 30_000,            // 30s — realtime subscriptions handle live updates
     refetchInterval: 60_000,      // 60s fallback only (realtime is primary)
@@ -50,5 +75,17 @@ export function useConversations(status = 'all', channel = 'all') {
     return () => { supabase.removeChannel(channel); };
   }, [workspaceId, queryClient]);
 
-  return query;
+  const conversations = useMemo<ConversationWithContact[]>(
+    () => query.data?.pages.flatMap((page) => page.conversations) ?? [],
+    [query.data],
+  );
+  const total: number = query.data?.pages[0]?.total ?? 0;
+  const summary: ConversationSearchSummary | undefined = query.data?.pages[0]?.summary;
+
+  return {
+    ...query,
+    conversations,
+    total,
+    summary,
+  };
 }
