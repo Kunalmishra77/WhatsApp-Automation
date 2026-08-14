@@ -106,14 +106,16 @@ export async function GET(request: NextRequest) {
     //     buckets reuse this with the temperature dimension stripped out (so the
     //     3-way split always reflects the full breakdown, not just the currently
     //     selected bucket) while still respecting an active `stage` filter. ────────
-    function applyBase(qb: any, { includeTemperature = true }: { includeTemperature?: boolean } = {}) {
+    function applyBase(
+      qb: any,
+      { includeTemperature = true, excludeSpam = true }: { includeTemperature?: boolean; excludeSpam?: boolean } = {},
+    ) {
       qb = qb.eq('workspace_id', workspaceId);
-      // Spam is excluded by default everywhere (page + every summary bucket), matching
-      // the old client-side fetchConversations() behavior where every non-spam status
-      // tab filtered `is_spam=false`. `flag=spam` is the only way to see spam rows —
-      // it opts back in here so the page query (not the summary counts, which stay
-      // spam-free KPIs) can list them.
-      if (flag !== 'spam') qb = qb.eq('is_spam', false);
+      // Spam exclusion is caller-controlled (not derived from `flag` in here), so the
+      // summary/bucket counts below can always stay spam-free KPIs regardless of the
+      // active flag, while the page query is the only place that ever opts back in
+      // (via flag=spam, applied by applyFlag after this).
+      if (excludeSpam) qb = qb.eq('is_spam', false);
       if (dateRange) qb = qb.gte('created_at', dateRange.fromUtc).lt('created_at', dateRange.toUtc);
       if (channel) qb = qb.eq('channel', channel);
       if (status) qb = qb.eq('status', status);
@@ -136,14 +138,20 @@ export async function GET(request: NextRequest) {
     }
 
     // ── Page + total ─────────────────────────────────────────────────────────
+    // Page respects the active flag: flag=spam shows spam-only (excludeSpam:false,
+    // then applyFlag adds is_spam=true below); any other/no flag excludes spam.
     const pageSelect = CONVERSATION_FIELDS + (needsLeadsJoin ? LEADS_EMBED : '');
     const pageQuery = applyFlag(
-      applyBase(db.from('conversations').select(pageSelect, { count: 'exact' })),
+      applyBase(db.from('conversations').select(pageSelect, { count: 'exact' }), { excludeSpam: flag !== 'spam' }),
     )
       .order('last_message_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
     // ── Summary (parallel, uncapped count:'exact' head queries) ────────────────
+    // Always spam-free KPIs, regardless of the active flag — summary counts never
+    // call applyFlag(), so leaving excludeSpam at its default (true) here would be
+    // equally correct, but it's spelled out explicitly since this is the one place
+    // that must never vary with `flag`.
     const todayRange = resolveRange('today');
     const weekRange = resolveRange('this_week');
     const monthRange = resolveRange('this_month');
@@ -153,7 +161,7 @@ export async function GET(request: NextRequest) {
     // stage is currently being filtered on.
     const bucketCol = () => db.from('conversations').select('id' + LEADS_EMBED, { count: 'exact', head: true });
     const bucketCount = (bucket: TempBucket) =>
-      applyBase(bucketCol(), { includeTemperature: false }).eq('leads.temperature', bucket);
+      applyBase(bucketCol(), { includeTemperature: false, excludeSpam: true }).eq('leads.temperature', bucket);
 
     const [
       pageResult,
@@ -162,14 +170,14 @@ export async function GET(request: NextRequest) {
       unansweredResult, unreadResult,
     ] = await Promise.all([
       pageQuery,
-      applyBase(countCol()).gte('created_at', todayRange.fromUtc),
-      applyBase(countCol()).gte('created_at', weekRange.fromUtc),
-      applyBase(countCol()).gte('created_at', monthRange.fromUtc),
+      applyBase(countCol(), { excludeSpam: true }).gte('created_at', todayRange.fromUtc),
+      applyBase(countCol(), { excludeSpam: true }).gte('created_at', weekRange.fromUtc),
+      applyBase(countCol(), { excludeSpam: true }).gte('created_at', monthRange.fromUtc),
       bucketCount('hot'),
       bucketCount('warm'),
       bucketCount('cold'),
-      applyBase(countCol()).is('first_replied_at', null),
-      applyBase(countCol()).gt('unread_count', 0),
+      applyBase(countCol(), { excludeSpam: true }).is('first_replied_at', null),
+      applyBase(countCol(), { excludeSpam: true }).gt('unread_count', 0),
     ]);
 
     const { data: pageRows, error: pageErr, count: total } = pageResult;
