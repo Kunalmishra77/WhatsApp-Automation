@@ -51,7 +51,9 @@ export interface ConversationSearchSummary {
 export interface ConversationSearchResponse {
   conversations: ConversationWithContact[];
   total: number;
-  summary: ConversationSearchSummary;
+  // Only computed on the first page (offset 0) — "load more" requests (offset > 0)
+  // return null since the UI only ever reads pages[0].summary (see useConversations).
+  summary: ConversationSearchSummary | null;
 }
 
 export async function searchConversations(

@@ -240,47 +240,74 @@ export async function GET(request: NextRequest) {
     // call applyFlag(), so leaving excludeSpam at its default (true) here would be
     // equally correct, but it's spelled out explicitly since this is the one place
     // that must never vary with `flag`.
-    const todayRange = resolveRange('today');
-    const weekRange = resolveRange('this_week');
-    const monthRange = resolveRange('this_month');
-    const countSelect = 'id' + (needsLeadsJoin ? LEADS_EMBED : '');
-    const countCol = () => db.from('conversations').select(countSelect, { count: 'exact', head: true });
-    // hot/warm/cold always need the leads join, regardless of whether temperature/
-    // stage is currently being filtered on.
-    const bucketCol = () => db.from('conversations').select('id' + LEADS_EMBED, { count: 'exact', head: true });
-    const bucketCount = (bucket: TempBucket) =>
-      applyBase(bucketCol(), { includeTemperature: false, excludeSpam: true }).eq('leads.temperature', bucket);
+    //
+    // Only computed on the first page (offset === 0) — "load more" requests re-send
+    // the exact same filters with a higher offset, so the summary counts would be
+    // identical to what page 0 already returned. The UI (useConversations) only ever
+    // reads pages[0].summary, so skipping this on later pages is a pure perf win
+    // (8 fewer count:'exact' queries per load-more) with no behavior change.
+    let summary: Summary | null = null;
+    let pageResult: any;
+    if (offset === 0) {
+      const todayRange = resolveRange('today');
+      const weekRange = resolveRange('this_week');
+      const monthRange = resolveRange('this_month');
+      const countSelect = 'id' + (needsLeadsJoin ? LEADS_EMBED : '');
+      const countCol = () => db.from('conversations').select(countSelect, { count: 'exact', head: true });
+      // hot/warm/cold always need the leads join, regardless of whether temperature/
+      // stage is currently being filtered on.
+      const bucketCol = () => db.from('conversations').select('id' + LEADS_EMBED, { count: 'exact', head: true });
+      const bucketCount = (bucket: TempBucket) =>
+        applyBase(bucketCol(), { includeTemperature: false, excludeSpam: true }).eq('leads.temperature', bucket);
 
-    const [
-      pageResult,
-      newTodayResult, newWeekResult, newMonthResult,
-      hotResult, warmResult, coldResult,
-      unansweredResult, unreadResult,
-    ] = await Promise.all([
-      pageQuery,
-      applyBase(countCol(), { excludeSpam: true }).gte('created_at', todayRange.fromUtc),
-      applyBase(countCol(), { excludeSpam: true }).gte('created_at', weekRange.fromUtc),
-      applyBase(countCol(), { excludeSpam: true }).gte('created_at', monthRange.fromUtc),
-      bucketCount('hot'),
-      bucketCount('warm'),
-      bucketCount('cold'),
-      applyBase(countCol(), { excludeSpam: true }).is('first_replied_at', null),
-      applyBase(countCol(), { excludeSpam: true }).gt('unread_count', 0),
-    ]);
+      let newTodayResult, newWeekResult, newMonthResult,
+        hotResult, warmResult, coldResult,
+        unansweredResult, unreadResult;
+      [
+        pageResult,
+        newTodayResult, newWeekResult, newMonthResult,
+        hotResult, warmResult, coldResult,
+        unansweredResult, unreadResult,
+      ] = await Promise.all([
+        pageQuery,
+        applyBase(countCol(), { excludeSpam: true }).gte('created_at', todayRange.fromUtc),
+        applyBase(countCol(), { excludeSpam: true }).gte('created_at', weekRange.fromUtc),
+        applyBase(countCol(), { excludeSpam: true }).gte('created_at', monthRange.fromUtc),
+        bucketCount('hot'),
+        bucketCount('warm'),
+        bucketCount('cold'),
+        applyBase(countCol(), { excludeSpam: true }).is('first_replied_at', null),
+        applyBase(countCol(), { excludeSpam: true }).gt('unread_count', 0),
+      ]);
+
+      for (const [name, r] of [
+        ['new_today', newTodayResult], ['new_week', newWeekResult], ['new_month', newMonthResult],
+        ['hot', hotResult], ['warm', warmResult], ['cold', coldResult],
+        ['unanswered', unansweredResult], ['unread', unreadResult],
+      ] as const) {
+        const err = (r as { error: { message: string } | null }).error;
+        if (err) console.error(`[Conversations Search] summary(${name}) error:`, err.message);
+      }
+
+      summary = {
+        new_today: Number(newTodayResult.count ?? 0),
+        new_week: Number(newWeekResult.count ?? 0),
+        new_month: Number(newMonthResult.count ?? 0),
+        hot: Number((hotResult as { count: number | null }).count ?? 0),
+        warm: Number((warmResult as { count: number | null }).count ?? 0),
+        cold: Number((coldResult as { count: number | null }).count ?? 0),
+        unanswered: Number(unansweredResult.count ?? 0),
+        unread: Number(unreadResult.count ?? 0),
+        total: 0, // filled in below once `total` is known
+      };
+    } else {
+      pageResult = await pageQuery;
+    }
 
     const { data: pageRows, error: pageErr, count: total } = pageResult;
     if (pageErr) {
       console.error('[Conversations Search] page query error:', pageErr.message);
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-    }
-
-    for (const [name, r] of [
-      ['new_today', newTodayResult], ['new_week', newWeekResult], ['new_month', newMonthResult],
-      ['hot', hotResult], ['warm', warmResult], ['cold', coldResult],
-      ['unanswered', unansweredResult], ['unread', unreadResult],
-    ] as const) {
-      const err = (r as { error: { message: string } | null }).error;
-      if (err) console.error(`[Conversations Search] summary(${name}) error:`, err.message);
     }
 
     // Defensive dedup by conversation id — protects the page (small, bounded by
@@ -294,17 +321,7 @@ export async function GET(request: NextRequest) {
     });
 
     const totalNum = Number(total ?? 0);
-    const summary: Summary = {
-      new_today: Number(newTodayResult.count ?? 0),
-      new_week: Number(newWeekResult.count ?? 0),
-      new_month: Number(newMonthResult.count ?? 0),
-      hot: Number((hotResult as { count: number | null }).count ?? 0),
-      warm: Number((warmResult as { count: number | null }).count ?? 0),
-      cold: Number((coldResult as { count: number | null }).count ?? 0),
-      unanswered: Number(unansweredResult.count ?? 0),
-      unread: Number(unreadResult.count ?? 0),
-      total: totalNum,
-    };
+    if (summary) summary.total = totalNum;
 
     return NextResponse.json({ conversations, total: totalNum, summary });
   } catch (error) {

@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     }
 
     const term: Term = termInput ?? 'monthly';
-    if (!(term in TERMS)) {
+    if (!Object.prototype.hasOwnProperty.call(TERMS, term)) {
       return NextResponse.json({ error: `term must be one of: ${Object.keys(TERMS).join(', ')}` }, { status: 400 });
     }
 

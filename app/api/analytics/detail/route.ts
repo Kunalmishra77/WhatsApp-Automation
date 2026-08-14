@@ -19,14 +19,13 @@ export async function GET(request: NextRequest) {
     await requireWorkspacePermission(workspaceId, 'view_analytics');
     const db = createAdminClient() as any;
 
+    // IST-correct, half-open range shared by every branch below (was previously a mix
+    // of naive UTC-midnight strings per branch, which is wrong for any non-UTC
+    // workspace timezone — see the open/resolved branch this was lifted from).
+    const { fromUtc, toUtc } = resolveRange('custom', { from, to });
+
     // ── Conversations by status ─────────────────────────────────────────────
     if (type === 'open' || type === 'resolved' || type === 'pending' || type === 'assigned') {
-      // IST-correct, half-open range, filtered on created_at to match the
-      // analytics_conversation_status RPC (migration 064) that produces the
-      // openConversations/resolvedConversations summary counts this drawer
-      // is opened from — was previously unfiltered by date entirely.
-      const { fromUtc, toUtc } = resolveRange('custom', { from, to });
-
       // Bounded "recent N for display" list (drawer table, not an aggregate) —
       // .limit(150) intentionally kept; no count/total is derived from these rows.
       const { data } = await db
@@ -72,8 +71,8 @@ export async function GET(request: NextRequest) {
         .from('contacts')
         .select('id, name, phone, email, tags, company, created_at, is_blocked, opted_out')
         .eq('workspace_id', workspaceId)
-        .gte('created_at', from ? `${from}T00:00:00.000Z` : '1970-01-01T00:00:00.000Z')
-        .lte('created_at', to   ? `${to}T23:59:59.999Z`  : new Date().toISOString())
+        .gte('created_at', fromUtc)
+        .lt('created_at', toUtc)
         .order('created_at', { ascending: false })
         .limit(150);
 
@@ -105,8 +104,8 @@ export async function GET(request: NextRequest) {
         `)
         .eq('workspace_id', workspaceId)
         .not('score', 'is', null)
-        .gte('responded_at', from ? `${from}T00:00:00.000Z` : '1970-01-01')
-        .lte('responded_at', to   ? `${to}T23:59:59.999Z`  : new Date().toISOString())
+        .gte('responded_at', fromUtc)
+        .lt('responded_at', toUtc)
         .order('responded_at', { ascending: false })
         .limit(200);
 
@@ -132,8 +131,8 @@ export async function GET(request: NextRequest) {
         `)
         .eq('workspace_id', workspaceId)
         .eq('direction', 'inbound')
-        .gte('created_at', `${from}T00:00:00.000Z`)
-        .lte('created_at', `${to}T23:59:59.999Z`)
+        .gte('created_at', fromUtc)
+        .lt('created_at', toUtc)
         .order('created_at', { ascending: false })
         .limit(200);
 
@@ -153,8 +152,8 @@ export async function GET(request: NextRequest) {
         `)
         .eq('workspace_id', workspaceId)
         .eq('direction', 'outbound')
-        .gte('created_at', `${from}T00:00:00.000Z`)
-        .lte('created_at', `${to}T23:59:59.999Z`)
+        .gte('created_at', fromUtc)
+        .lt('created_at', toUtc)
         .order('created_at', { ascending: false })
         .limit(200);
 
@@ -168,8 +167,8 @@ export async function GET(request: NextRequest) {
         .select('status, delivered_at, read_at, created_at')
         .eq('workspace_id', workspaceId)
         .eq('direction', 'outbound')
-        .gte('created_at', `${from}T00:00:00.000Z`)
-        .lte('created_at', `${to}T23:59:59.999Z`);
+        .gte('created_at', fromUtc)
+        .lt('created_at', toUtc);
 
       const buckets: Record<string, number> = { sent: 0, delivered: 0, read: 0, failed: 0, queued: 0 };
       for (const r of (data ?? []) as Array<{ status: string }>) {

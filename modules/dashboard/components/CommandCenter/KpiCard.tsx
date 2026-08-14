@@ -44,7 +44,7 @@ export function KpiCard({
   );
 }
 
-// null → grey "no change data" chip; positive → green up-arrow; negative → red down-arrow.
+// null → grey "no change data" chip; 0 → grey flat chip; positive → green up-arrow; negative → red down-arrow.
 function ChangeChip({ value }: { value: number | null }) {
   if (value === null) {
     return (
@@ -53,7 +53,14 @@ function ChangeChip({ value }: { value: number | null }) {
       </span>
     );
   }
-  const up = value >= 0;
+  if (value === 0) {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-[10px] font-medium mt-1 text-muted-foreground">
+        <Minus className="h-2.5 w-2.5" /> 0% vs prior period
+      </span>
+    );
+  }
+  const up = value > 0;
   return (
     <span className={cn('inline-flex items-center gap-0.5 text-[10px] font-medium mt-1', up ? 'text-green-600' : 'text-red-500')}>
       {up ? <ArrowUpRight className="h-2.5 w-2.5" /> : <ArrowDownRight className="h-2.5 w-2.5" />}

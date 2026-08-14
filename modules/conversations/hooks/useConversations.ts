@@ -80,7 +80,7 @@ export function useConversations(filters: ConversationQueryFilters) {
     [query.data],
   );
   const total: number = query.data?.pages[0]?.total ?? 0;
-  const summary: ConversationSearchSummary | undefined = query.data?.pages[0]?.summary;
+  const summary: ConversationSearchSummary | undefined = query.data?.pages[0]?.summary ?? undefined;
 
   return {
     ...query,
