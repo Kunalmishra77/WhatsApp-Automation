@@ -3,12 +3,12 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer,
 } from 'recharts';
 import {
   MessageSquare, Users, Target, CheckCircle2, Reply, TrendingUp,
-  LayoutDashboard, Send, Eye, MessageCircleReply,
+  LayoutDashboard, Send, Eye, MessageCircleReply, MessageCircle, Clock, CalendarCheck,
   Megaphone, AlertCircle, RefreshCw,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -23,7 +23,8 @@ import { KpiCard } from './KpiCard';
 import { SectionCard } from './SectionCard';
 
 // ── Chart theme — reused from modules/analytics/components/AnalyticsDashboard ──
-const BRAND = '#6366f1', GREEN = '#10b981', SKY = '#0ea5e9';
+const BRAND = '#6366f1', GREEN = '#10b981', SKY = '#0ea5e9', AMBER = '#f59e0b', ROSE = '#ef4444', VIOLET = '#8b5cf6';
+const PIE_COLORS = [BRAND, GREEN, AMBER, ROSE, SKY, VIOLET];
 const TT = { background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '8px', fontSize: 12 };
 
 // ── Payload shape — mirrors GET /api/dashboard/overview (Task 2) exactly ──────
@@ -49,6 +50,16 @@ interface DashboardOverview {
     sent: number; delivered: number; read: number; replied: number;
     top: Array<{ name: string; sent: number; replied: number }>;
   };
+  leads: {
+    total: number; hot: number; warm: number; cold: number; converted: number;
+    by_stage: Array<{ stage: string; count: number }>;
+  };
+  conversations: {
+    total: number; open: number; resolved: number; unresolved: number;
+    avg_first_response_mins: number | null;
+    by_status: Array<{ status: string; count: number }>;
+  };
+  events: Array<{ type: string; count: number }>;
 }
 
 function useDashboardOverview(rangeQs: string | null) {
@@ -74,6 +85,18 @@ function ChartSkeleton({ h = 56 }: { h?: number }) {
 }
 function Empty({ msg = 'No data for this period' }: { msg?: string }) {
   return <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">{msg}</div>;
+}
+
+// ── Pie label — mirrors AnalyticsDashboard's PieLabel (percent labels inside slices) ──
+function PieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent }: { cx: number; cy: number; midAngle: number; innerRadius: number; outerRadius: number; percent: number }) {
+  if (percent < 0.05) return null;
+  const R = Math.PI / 180, r = innerRadius + (outerRadius - innerRadius) * 0.5;
+  return <text x={cx + r * Math.cos(-midAngle * R)} y={cy + r * Math.sin(-midAngle * R)} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={600}>{`${(percent * 100).toFixed(0)}%`}</text>;
+}
+
+// ── event_type → human label, e.g. "demo_booked" → "Demo Booked" ───────────
+function formatEventType(type: string): string {
+  return type.split('_').map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(' ');
 }
 
 // ── Small stat tile (sub-metrics inside message/campaign sections) ─────────
@@ -108,6 +131,9 @@ export function CommandCenter() {
   const k = data?.kpis;
   const m = data?.messages;
   const c = data?.campaigns;
+  const l = data?.leads;
+  const conv = data?.conversations;
+  const ev = data?.events;
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -301,6 +327,125 @@ export function CommandCenter() {
                   )}
                 </CardContent>
               </Card>
+            </SectionCard>
+
+            {/* ══ Leads funnel ═════════════════════════════════════════════════ */}
+            <SectionCard icon={Target} title="Leads Funnel" sub="Stage breakdown, temperature and conversion for the period" color="text-pink-600">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-2">
+                <StatTile label="Total" value={l?.total ?? 0} loading={loading} />
+                <StatTile label="Hot" value={l?.hot ?? 0} loading={loading} />
+                <StatTile label="Warm" value={l?.warm ?? 0} loading={loading} />
+                <StatTile label="Cold" value={l?.cold ?? 0} loading={loading} />
+                <StatTile label="Converted" value={l?.converted ?? 0} loading={loading} />
+              </div>
+              <p className="text-[11px] text-muted-foreground mb-4">
+                Temperature is activity-based (derived from recent message volume) — not AI-scored.
+              </p>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <Card className="lg:col-span-2">
+                  <CardContent className="pt-4 overflow-x-auto">
+                    {loading ? <ChartSkeleton h={56} /> : (l?.by_stage?.every((s) => s.count === 0) ?? true) ? <Empty msg="No leads in this period" /> : (
+                      <div className="min-w-[420px]">
+                        <ResponsiveContainer width="100%" height={220}>
+                          <BarChart data={l!.by_stage} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="stage" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v.replace('_', ' ')} />
+                            <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                            <Tooltip contentStyle={TT} cursor={{ fill: 'hsl(var(--muted))' }} />
+                            <Bar dataKey="count" name="Leads" radius={[4, 4, 0, 0]}>
+                              {l!.by_stage.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="pt-4 flex flex-col items-center justify-center h-full gap-1.5 text-center min-h-[180px]">
+                    {loading ? <Skeleton className="h-10 w-20" /> : (
+                      <>
+                        <p className="text-3xl font-bold tabular-nums text-pink-600">{k?.conversion_rate.value ?? 0}%</p>
+                        <p className="text-xs text-muted-foreground">Conversion rate</p>
+                        {k?.conversion_rate.pct_change != null && (
+                          <span className={cn('inline-flex items-center gap-0.5 text-[10px] font-medium', k.conversion_rate.pct_change >= 0 ? 'text-green-600' : 'text-red-500')}>
+                            {k.conversion_rate.pct_change >= 0 ? '↑' : '↓'} {Math.abs(k.conversion_rate.pct_change)}% vs prior period
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </SectionCard>
+
+            {/* ══ Conversations ════════════════════════════════════════════════ */}
+            <SectionCard icon={MessageCircle} title="Conversations" sub="Status breakdown and response time for the period" color="text-indigo-600">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                <StatTile label="Total" value={conv?.total ?? 0} loading={loading} />
+                <StatTile label="Open" value={conv?.open ?? 0} loading={loading} />
+                <StatTile label="Resolved" value={conv?.resolved ?? 0} loading={loading} />
+                <StatTile label="Unresolved" value={conv?.unresolved ?? 0} loading={loading} />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <Card>
+                  <CardContent className="pt-4 flex flex-col items-center justify-center h-full gap-1.5 text-center min-h-[200px]">
+                    {loading ? <Skeleton className="h-10 w-20" /> : (
+                      <>
+                        <Clock className="h-5 w-5 text-indigo-500 mb-1" />
+                        <p className="text-3xl font-bold tabular-nums">
+                          {conv?.avg_first_response_mins != null ? `${conv.avg_first_response_mins} min` : '—'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Avg first response time</p>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card className="lg:col-span-2">
+                  <CardContent className="pt-4">
+                    {loading ? <ChartSkeleton /> : (conv?.by_status?.length ?? 0) === 0 ? <Empty /> : (
+                      <ResponsiveContainer width="100%" height={200}>
+                        <PieChart>
+                          <Pie data={conv!.by_status} dataKey="count" nameKey="status" cx="50%" cy="50%" innerRadius={40} outerRadius={70} labelLine={false} label={PieLabel}>
+                            {conv!.by_status.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                          </Pie>
+                          <Tooltip contentStyle={TT} />
+                          <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </SectionCard>
+
+            {/* ══ Bookings & Events ═══════════════════════════════════════════ */}
+            <SectionCard icon={CalendarCheck} title="Bookings & Events" sub="Tracked conversion events for the period" color="text-emerald-600">
+              {loading ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[68px] w-full rounded-xl" />)}
+                </div>
+              ) : (ev?.length ?? 0) === 0 ? (
+                <Card><CardContent className="py-8"><Empty msg="No booking or conversion events in this period" /></CardContent></Card>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {ev!.map((e, i) => (
+                    <div key={e.type} className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${PIE_COLORS[i % PIE_COLORS.length]}22` }}>
+                        <CalendarCheck className="h-4 w-4" style={{ color: PIE_COLORS[i % PIE_COLORS.length] }} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xl font-bold tabular-nums">{e.count.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground truncate">{formatEventType(e.type)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </SectionCard>
           </>
         )}
