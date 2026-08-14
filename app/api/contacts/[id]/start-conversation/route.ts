@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { authzResponse, requireWorkspacePermission } from '@/lib/authz';
+import { assertWorkspaceActive, suspendedResponse, SuspendedError } from '@/lib/billing-guard';
 
 export async function POST(
   request: NextRequest,
@@ -29,6 +30,18 @@ export async function POST(
     }
 
     await requireWorkspacePermission(contact.workspace_id, 'handle_conversations');
+
+    // Suspension guard — blocks the outbound send for suspended/cancelled
+    // workspaces. Fails open on any internal error (see lib/billing-guard.ts).
+    try {
+      await assertWorkspaceActive(db, contact.workspace_id);
+    } catch (e) {
+      if (e instanceof SuspendedError) {
+        return suspendedResponse();
+      }
+      // Any other error from the guard itself — do not block the send.
+      console.error('[StartConversation] billing guard check failed unexpectedly, allowing through:', e);
+    }
 
     // Load template (include header_type for media headers)
     const { data: template, error: templateError } = await db

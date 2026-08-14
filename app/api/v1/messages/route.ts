@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { validateApiKey, apiUnauthorized } from '@/lib/api-auth';
 import { checkApiLimit } from '@/lib/rate-limit';
+import { assertWorkspaceActive, suspendedResponse, SuspendedError } from '@/lib/billing-guard';
 
 // POST /api/v1/messages — send a WhatsApp text message
 export async function POST(request: NextRequest) {
@@ -10,6 +11,18 @@ export async function POST(request: NextRequest) {
 
   const rl = await checkApiLimit(auth.keyId);
   if (!rl.success) return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
+
+  // Suspension guard — blocks the outbound send for suspended/cancelled
+  // workspaces. Fails open on any internal error (see lib/billing-guard.ts).
+  try {
+    await assertWorkspaceActive(createAdminClient(), auth.workspaceId);
+  } catch (e) {
+    if (e instanceof SuspendedError) {
+      return suspendedResponse();
+    }
+    // Any other error from the guard itself — do not block the send.
+    console.error('[V1 Messages] billing guard check failed unexpectedly, allowing through:', e);
+  }
 
   const { to, message, conversationId } = await request.json() as {
     to?: string;

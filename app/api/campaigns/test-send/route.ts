@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { normalizePhone } from '@/lib/phone';
+import { assertWorkspaceActive, suspendedResponse, SuspendedError } from '@/lib/billing-guard';
 
 // POST /api/campaigns/test-send
 // Sends a single test message to a specific phone number.
@@ -27,6 +28,18 @@ export async function POST(request: NextRequest) {
     await requireWorkspacePermission(workspaceId, 'create_campaigns');
 
     const db = createAdminClient() as any;
+
+    // Suspension guard — blocks the outbound send for suspended/cancelled
+    // workspaces. Fails open on any internal error (see lib/billing-guard.ts).
+    try {
+      await assertWorkspaceActive(db, workspaceId);
+    } catch (e) {
+      if (e instanceof SuspendedError) {
+        return suspendedResponse();
+      }
+      // Any other error from the guard itself — do not block the send.
+      console.error('[Test Send] billing guard check failed unexpectedly, allowing through:', e);
+    }
 
     // Fetch workspace credentials
     const { data: workspace } = await db

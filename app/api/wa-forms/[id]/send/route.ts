@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { assertWorkspaceActive, suspendedResponse, SuspendedError } from '@/lib/billing-guard';
 
 // POST /api/wa-forms/[id]/send  — start a form session for a conversation
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -16,6 +17,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!form.is_active) return NextResponse.json({ error: 'Form is inactive' }, { status: 400 });
 
     await requireWorkspacePermission(form.workspace_id as string, 'handle_conversations');
+
+    // Suspension guard — blocks the outbound send for suspended/cancelled
+    // workspaces. Fails open on any internal error (see lib/billing-guard.ts).
+    try {
+      await assertWorkspaceActive(db, form.workspace_id as string);
+    } catch (e) {
+      if (e instanceof SuspendedError) {
+        return suspendedResponse();
+      }
+      // Any other error from the guard itself — do not block the send.
+      console.error('[WA Forms send] billing guard check failed unexpectedly, allowing through:', e);
+    }
 
     const { data: conversation } = await db
       .from('conversations')
