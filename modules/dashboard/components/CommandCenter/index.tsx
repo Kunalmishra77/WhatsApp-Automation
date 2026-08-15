@@ -340,8 +340,9 @@ export function CommandCenter() {
                 <StatCard size="sm" label="Hot" value={l?.hot ?? 0} loading={loading} onClick={() => router.push('/crm?temperature=hot')} />
                 <StatCard size="sm" label="Warm" value={l?.warm ?? 0} loading={loading} onClick={() => router.push('/crm?temperature=warm')} />
                 <StatCard size="sm" label="Cold" value={l?.cold ?? 0} loading={loading} onClick={() => router.push('/crm?temperature=cold')} />
-                {/* KanbanBoard only reads ?temperature, not ?stage — link stays unfiltered. */}
-                <StatCard size="sm" label="Converted" value={l?.converted ?? 0} loading={loading} onClick={() => router.push('/crm')} />
+                {/* Static — KanbanBoard can't filter to converted (reads only ?temperature),
+                    so a link here would drop to an unfiltered /crm and mislead. */}
+                <StatCard size="sm" label="Converted" value={l?.converted ?? 0} loading={loading} />
               </div>
               <p className="text-[11px] text-muted-foreground mb-4">
                 Temperature is activity-based (derived from recent message volume) — not AI-scored.
