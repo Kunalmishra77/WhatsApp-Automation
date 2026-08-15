@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -48,7 +49,7 @@ interface DashboardOverview {
   campaigns: {
     total: number; active: number; completed: number; failed: number; scheduled: number;
     sent: number; delivered: number; read: number; replied: number;
-    top: Array<{ name: string; sent: number; replied: number }>;
+    top: Array<{ id: string; name: string; sent: number; replied: number }>;
   };
   leads: {
     total: number; hot: number; warm: number; cold: number; converted: number;
@@ -103,6 +104,7 @@ function formatEventType(type: string): string {
 }
 
 export function CommandCenter() {
+  const router = useRouter();
   // ── Global date-range filter — mirrors AnalyticsDashboard's pattern exactly:
   //    quick presets resolve server-side; custom only fires once both from/to
   //    are picked (rangeQs is null until then, holding off the fetch). ────────
@@ -208,21 +210,27 @@ export function CommandCenter() {
                   <StatCard size="md" label="Total Messages" value={k?.total_messages.value.toLocaleString() ?? 0}
                     icon={MessageSquare} iconBg="bg-brand-500" loading={loading} change={k?.total_messages.pct_change} />
                   <StatCard size="md" label="Conversations" value={k?.total_conversations.value.toLocaleString() ?? 0}
-                    icon={MessageCircleReply} iconBg="bg-sky-500" loading={loading} change={k?.total_conversations.pct_change} />
+                    icon={MessageCircleReply} iconBg="bg-sky-500" loading={loading} change={k?.total_conversations.pct_change}
+                    onClick={() => router.push('/conversations')} />
                   <StatCard size="md" label="New Leads" value={k?.new_leads.value.toLocaleString() ?? 0}
-                    icon={Target} iconBg="bg-pink-500" loading={loading} change={k?.new_leads.pct_change} />
+                    icon={Target} iconBg="bg-pink-500" loading={loading} change={k?.new_leads.pct_change}
+                    onClick={() => router.push('/crm')} />
                   <StatCard size="md" label="Delivery Rate" value={`${k?.delivery_rate.value ?? 0}%`}
-                    icon={CheckCircle2} iconBg="bg-green-500" loading={loading} change={k?.delivery_rate.pct_change} />
+                    icon={CheckCircle2} iconBg="bg-green-500" loading={loading} change={k?.delivery_rate.pct_change}
+                    onClick={() => router.push('/analytics')} />
                   <StatCard size="md" label="Reply Rate" value={`${k?.reply_rate.value ?? 0}%`}
-                    icon={Reply} iconBg="bg-violet-500" loading={loading} change={k?.reply_rate.pct_change} />
+                    icon={Reply} iconBg="bg-violet-500" loading={loading} change={k?.reply_rate.pct_change}
+                    onClick={() => router.push('/analytics')} />
                   <StatCard size="md" label="Conversion Rate" value={`${k?.conversion_rate.value ?? 0}%`}
-                    icon={Users} iconBg="bg-amber-500" loading={loading} change={k?.conversion_rate.pct_change} />
+                    icon={Users} iconBg="bg-amber-500" loading={loading} change={k?.conversion_rate.pct_change}
+                    onClick={() => router.push('/analytics')} />
                 </div>
               </SectionCard>
             </div>
 
             {/* ══ Message analytics ═══════════════════════════════════════════ */}
-            <SectionCard icon={MessageSquare} title="Message Analytics" sub="Volume, delivery funnel and daily inbound/outbound trend" color="text-sky-600">
+            <SectionCard icon={MessageSquare} title="Message Analytics" sub="Volume, delivery funnel and daily inbound/outbound trend" color="text-sky-600"
+              onClick={() => router.push('/analytics')}>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
                 <StatCard size="sm" label="Sent" value={m?.sent ?? 0} loading={loading} />
                 <StatCard size="sm" label="Delivered" value={m?.delivered ?? 0} loading={loading} />
@@ -289,13 +297,14 @@ export function CommandCenter() {
             </SectionCard>
 
             {/* ══ Campaign performance ════════════════════════════════════════ */}
-            <SectionCard icon={Megaphone} title="Campaign Performance" sub="Status breakdown and top campaigns by volume" color="text-orange-600">
+            <SectionCard icon={Megaphone} title="Campaign Performance" sub="Status breakdown and top campaigns by volume" color="text-orange-600"
+              onClick={() => router.push('/campaigns')}>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
-                <StatCard size="sm" label="Total" value={c?.total ?? 0} loading={loading} />
-                <StatCard size="sm" label="Active" value={c?.active ?? 0} loading={loading} />
-                <StatCard size="sm" label="Completed" value={c?.completed ?? 0} loading={loading} />
-                <StatCard size="sm" label="Failed" value={c?.failed ?? 0} loading={loading} />
-                <StatCard size="sm" label="Scheduled" value={c?.scheduled ?? 0} loading={loading} />
+                <StatCard size="sm" label="Total" value={c?.total ?? 0} loading={loading} onClick={() => router.push('/campaigns')} />
+                <StatCard size="sm" label="Active" value={c?.active ?? 0} loading={loading} onClick={() => router.push('/campaigns?status=running')} />
+                <StatCard size="sm" label="Completed" value={c?.completed ?? 0} loading={loading} onClick={() => router.push('/campaigns?status=completed')} />
+                <StatCard size="sm" label="Failed" value={c?.failed ?? 0} loading={loading} onClick={() => router.push('/campaigns?status=failed')} />
+                <StatCard size="sm" label="Scheduled" value={c?.scheduled ?? 0} loading={loading} onClick={() => router.push('/campaigns?status=scheduled')} />
               </div>
 
               <Card>
@@ -310,8 +319,11 @@ export function CommandCenter() {
                           <YAxis tick={{ fontSize: 10 }} />
                           <Tooltip contentStyle={TT} cursor={{ fill: 'hsl(var(--muted))' }} />
                           <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
-                          <Bar dataKey="sent" name="Sent" fill={BRAND} radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="replied" name="Replied" fill={GREEN} radius={[4, 4, 0, 0]} />
+                          {/* Each bar links through to its campaign — id added to the overview payload for this. */}
+                          <Bar dataKey="sent" name="Sent" fill={BRAND} radius={[4, 4, 0, 0]} cursor="pointer"
+                            onClick={(entry: { id?: string }) => entry?.id && router.push(`/campaigns/${entry.id}`)} />
+                          <Bar dataKey="replied" name="Replied" fill={GREEN} radius={[4, 4, 0, 0]} cursor="pointer"
+                            onClick={(entry: { id?: string }) => entry?.id && router.push(`/campaigns/${entry.id}`)} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -321,13 +333,15 @@ export function CommandCenter() {
             </SectionCard>
 
             {/* ══ Leads funnel ═════════════════════════════════════════════════ */}
-            <SectionCard icon={Target} title="Leads Funnel" sub="Stage breakdown, temperature and conversion for the period" color="text-pink-600">
+            <SectionCard icon={Target} title="Leads Funnel" sub="Stage breakdown, temperature and conversion for the period" color="text-pink-600"
+              onClick={() => router.push('/crm')}>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-2">
-                <StatCard size="sm" label="Total" value={l?.total ?? 0} loading={loading} />
-                <StatCard size="sm" label="Hot" value={l?.hot ?? 0} loading={loading} />
-                <StatCard size="sm" label="Warm" value={l?.warm ?? 0} loading={loading} />
-                <StatCard size="sm" label="Cold" value={l?.cold ?? 0} loading={loading} />
-                <StatCard size="sm" label="Converted" value={l?.converted ?? 0} loading={loading} />
+                <StatCard size="sm" label="Total" value={l?.total ?? 0} loading={loading} onClick={() => router.push('/crm')} />
+                <StatCard size="sm" label="Hot" value={l?.hot ?? 0} loading={loading} onClick={() => router.push('/crm?temperature=hot')} />
+                <StatCard size="sm" label="Warm" value={l?.warm ?? 0} loading={loading} onClick={() => router.push('/crm?temperature=warm')} />
+                <StatCard size="sm" label="Cold" value={l?.cold ?? 0} loading={loading} onClick={() => router.push('/crm?temperature=cold')} />
+                {/* KanbanBoard only reads ?temperature, not ?stage — link stays unfiltered. */}
+                <StatCard size="sm" label="Converted" value={l?.converted ?? 0} loading={loading} onClick={() => router.push('/crm')} />
               </div>
               <p className="text-[11px] text-muted-foreground mb-4">
                 Temperature is activity-based (derived from recent message volume) — not AI-scored.
@@ -373,11 +387,13 @@ export function CommandCenter() {
             </SectionCard>
 
             {/* ══ Conversations ════════════════════════════════════════════════ */}
-            <SectionCard icon={MessageCircle} title="Conversations" sub="Status breakdown and response time for the period" color="text-indigo-600">
+            <SectionCard icon={MessageCircle} title="Conversations" sub="Status breakdown and response time for the period" color="text-indigo-600"
+              onClick={() => router.push('/conversations')}>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                <StatCard size="sm" label="Total" value={conv?.total ?? 0} loading={loading} />
-                <StatCard size="sm" label="Open" value={conv?.open ?? 0} loading={loading} />
-                <StatCard size="sm" label="Resolved" value={conv?.resolved ?? 0} loading={loading} />
+                <StatCard size="sm" label="Total" value={conv?.total ?? 0} loading={loading} onClick={() => router.push('/conversations')} />
+                <StatCard size="sm" label="Open" value={conv?.open ?? 0} loading={loading} onClick={() => router.push('/conversations?status=open')} />
+                <StatCard size="sm" label="Resolved" value={conv?.resolved ?? 0} loading={loading} onClick={() => router.push('/conversations?status=resolved')} />
+                {/* "Unresolved" = total − resolved server-side, not a real conversation status — no status= value the list understands, so left static. */}
                 <StatCard size="sm" label="Unresolved" value={conv?.unresolved ?? 0} loading={loading} />
               </div>
 

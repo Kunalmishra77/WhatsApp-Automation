@@ -213,8 +213,9 @@ export function ConversationList() {
       {/* Filter bar: search + date/campaign/temperature/stage/flag/agent/label/sentiment */}
       <ConversationFilters value={advFilters} onChange={setAdvFilters} />
 
-      {/* Reporting summary strip — reflects the filters currently applied above */}
-      <ConversationSummaryBar summary={summary} isLoading={isLoading} />
+      {/* Reporting summary strip — reflects the filters currently applied above; tiles are
+          clickable and apply the matching filter (see ConversationSummaryBar). */}
+      <ConversationSummaryBar summary={summary} isLoading={isLoading} advFilters={advFilters} onAdvFiltersChange={setAdvFilters} />
 
       {/* Channel filter */}
       <div className="shrink-0 border-b border-border px-3 py-1.5 flex items-center gap-1">

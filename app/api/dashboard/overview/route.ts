@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
         .eq('status', 'failed').gte('created_at', fromUtc).lt('created_at', toUtc),
       // Top campaigns by volume — bounded top-N, not a bare capped select.
       db.from('campaigns')
-        .select('name, sent_count, replied_count')
+        .select('id, name, sent_count, replied_count')
         .eq('workspace_id', workspaceId)
         .gte('created_at', fromUtc).lt('created_at', toUtc)
         .order('sent_count', { ascending: false })
@@ -279,8 +279,8 @@ export async function GET(request: NextRequest) {
       campaignsRead += Number(row.read);
       campaignsReplied += Number(row.replied);
     }
-    const topCampaigns = ((topCampaignsRaw ?? []) as Array<{ name: string; sent_count: number | null; replied_count: number | null }>)
-      .map((c) => ({ name: c.name, sent: c.sent_count ?? 0, replied: c.replied_count ?? 0 }));
+    const topCampaigns = ((topCampaignsRaw ?? []) as Array<{ id: string; name: string; sent_count: number | null; replied_count: number | null }>)
+      .map((c) => ({ id: c.id, name: c.name, sent: c.sent_count ?? 0, replied: c.replied_count ?? 0 }));
 
     // ── 8. Payload ───────────────────────────────────────────────────────────────────────
     return NextResponse.json({
