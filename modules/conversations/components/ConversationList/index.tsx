@@ -113,7 +113,9 @@ function ExportDialog({
       const { data: { user } } = await supabase.auth.getUser();
       if (user) p.set('assigned_agent_id', p.get('assigned_agent_id') ?? user.id);
     } else if (expStatus === 'spam') {
-      p.set('flag', 'spam');
+      // Only fill flag if the advanced filters didn't already set one (mirrors
+      // searchConversations(): flag = flag ?? 'spam').
+      if (!p.get('flag')) p.set('flag', 'spam');
     } else if (expStatus) {
       p.set('status', expStatus);
     }
