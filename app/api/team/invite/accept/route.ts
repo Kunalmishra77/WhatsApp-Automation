@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
       if (password.length < 8 || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
         return NextResponse.json({ error: 'Password must be at least 8 characters with 1 uppercase letter and 1 number' }, { status: 400 });
       }
-      const { user, error: signUpError } = await signUp(invite.email, password, fullName);
+      const { user, error: signUpError } = await signUp(invite.email, password, fullName, { confirmed: true });
       if (signUpError || !user) {
         return NextResponse.json({ error: signUpError ?? 'Failed to create account' }, { status: 500 });
       }

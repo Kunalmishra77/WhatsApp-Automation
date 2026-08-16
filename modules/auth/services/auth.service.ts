@@ -8,15 +8,22 @@ export async function signInWithPassword(email: string, password: string) {
   return { user: data.user, error: null };
 }
 
-export async function signUp(email: string, password: string, fullName: string) {
-  // Use admin client to create user pre-confirmed — no confirmation email sent
-  // This avoids Supabase email rate limits and removes the verify-email friction
+export async function signUp(
+  email: string,
+  password: string,
+  fullName: string,
+  opts?: { confirmed?: boolean },
+) {
+  // Public self-service signup creates an UNconfirmed user by default — the
+  // caller (signupAction) issues an email OTP and gates access until verified.
+  // Callers that must stay pre-confirmed (e.g. team invite accept, which
+  // never verifies) pass { confirmed: true } to skip that friction.
   const { createAdminClient } = await import('@/services/supabase/admin');
   const adminDb = createAdminClient();
   const { data: adminData, error: adminError } = await adminDb.auth.admin.createUser({
     email,
     password,
-    email_confirm: true,
+    email_confirm: opts?.confirmed ?? false,
     user_metadata: { full_name: fullName },
   });
   if (adminError) return { user: null, error: friendlySupabaseError(adminError.message) };

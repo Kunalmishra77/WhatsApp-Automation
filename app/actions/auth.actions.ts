@@ -13,6 +13,9 @@ import {
 import { getUserWorkspaces } from '@/modules/auth/services/workspace.service';
 import { ROUTES } from '@/lib/constants';
 import { SESSION_COOKIE_NAME } from '@/lib/session';
+import { issueOtp } from '@/lib/email-otp';
+import { createAdminClient } from '@/services/supabase/admin';
+import { sendMail } from '@/lib/mailer';
 import type { AuthActionResult } from '@/modules/auth/types';
 
 export async function loginAction(
@@ -77,8 +80,19 @@ export async function signupAction(
 
   await signInWithPassword(parsed.data.email, parsed.data.password);
 
+  const adminDb = createAdminClient() as any;
+  const code = await issueOtp(adminDb, user.id);
+  const { ok, error: mailError } = await sendMail({
+    to: parsed.data.email,
+    subject: 'Your Agentix verification code',
+    html: `<p>Your Agentix verification code is:</p><p style="font-size:24px;font-weight:bold;letter-spacing:4px;">${code}</p><p>This code expires in 10 minutes.</p>`,
+  });
+  if (!ok) {
+    console.error('[signupAction] sendMail failed', mailError);
+  }
+
   revalidatePath('/', 'layout');
-  return { success: true, redirectTo: ROUTES.WORKSPACE_NEW };
+  return { success: true, redirectTo: ROUTES.VERIFY_EMAIL };
 }
 
 export async function forgotPasswordAction(
