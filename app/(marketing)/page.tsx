@@ -34,7 +34,7 @@ const DIFFERENTIATORS = [
     icon: IndianRupee,
     title: 'Transparent flat INR pricing',
     description:
-      '₹2,999 per month, GST included. No hidden Meta conversation markup, no per-agent surprises buried in the invoice.',
+      '₹2,999 per month, excl. 18% GST. No hidden Meta conversation markup, no per-agent surprises buried in the invoice.',
   },
 ];
 
@@ -223,7 +223,7 @@ export default function MarketingHomePage() {
             <span className="font-display text-5xl font-bold text-navy-900">₹2,999</span>
             <span className="text-sm font-medium text-navy-900/50">/ month</span>
           </div>
-          <p className="mt-2 text-sm text-navy-900/50">GST included · Instagram add-on available</p>
+          <p className="mt-2 text-sm text-navy-900/50">Excl. 18% GST (₹3,539 incl.) · Instagram add-on available</p>
           <ul className="mt-7 space-y-3 text-sm text-navy-900/70">
             <li className="flex items-center gap-2.5">
               <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />

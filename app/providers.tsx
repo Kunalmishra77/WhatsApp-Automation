@@ -10,13 +10,26 @@ interface ProvidersProps {
   children: React.ReactNode;
 }
 
-// Public marketing routes — kept off the React Query Devtools toggle so it never shows up
-// in marketing design/QA screenshots. Extend this as more (marketing) pages ship.
-const MARKETING_ROUTES = new Set(['/']);
+// Public marketing route prefixes — kept off the React Query Devtools toggle so it never
+// shows up in marketing design/QA screenshots. Extend this as more (marketing) pages ship.
+const MARKETING_ROUTE_PREFIXES = [
+  '/features',
+  '/pricing',
+  '/integrations',
+  '/security',
+  '/about',
+  '/contact',
+  '/faq',
+  '/docs',
+];
+
+function isMarketingPath(pathname: string): boolean {
+  return pathname === '/' || MARKETING_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
 
 export function Providers({ children }: ProvidersProps) {
   const pathname = usePathname();
-  const isMarketingRoute = MARKETING_ROUTES.has(pathname);
+  const isMarketingRoute = isMarketingPath(pathname);
   const [queryClient] = useState(
     () =>
       new QueryClient({
