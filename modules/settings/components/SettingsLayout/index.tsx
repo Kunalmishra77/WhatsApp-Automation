@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   User, Building2, MessageSquare, Shield, Clock,
-  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText, Camera, CalendarCheck, Megaphone, Trash2,
+  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText, Camera, CalendarCheck, Megaphone, Trash2, CreditCard,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProfileSettings } from '../ProfileSettings';
@@ -56,7 +56,7 @@ const NAV_SECTIONS: NavSection[] = [
       { key: 'profile',   label: 'Profile',   icon: User },
       { key: 'workspace', label: 'Workspace', icon: Building2 },
       { key: 'branding',  label: 'Branding',  icon: Layers },
-      { key: 'billing',   label: 'Billing',   icon: Key },
+      { key: 'billing',   label: 'Billing',   icon: CreditCard },
     ],
   },
   {
