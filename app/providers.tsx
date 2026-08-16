@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { Toaster } from 'sonner';
@@ -9,7 +10,26 @@ interface ProvidersProps {
   children: React.ReactNode;
 }
 
+// Public marketing route prefixes — kept off the React Query Devtools toggle so it never
+// shows up in marketing design/QA screenshots. Extend this as more (marketing) pages ship.
+const MARKETING_ROUTE_PREFIXES = [
+  '/features',
+  '/pricing',
+  '/integrations',
+  '/security',
+  '/about',
+  '/contact',
+  '/faq',
+  '/docs',
+];
+
+function isMarketingPath(pathname: string): boolean {
+  return pathname === '/' || MARKETING_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
 export function Providers({ children }: ProvidersProps) {
+  const pathname = usePathname();
+  const isMarketingRoute = isMarketingPath(pathname);
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -40,7 +60,7 @@ export function Providers({ children }: ProvidersProps) {
           },
         }}
       />
-      {process.env.NODE_ENV === 'development' && (
+      {process.env.NODE_ENV === 'development' && !isMarketingRoute && (
         <ReactQueryDevtools initialIsOpen={false} />
       )}
     </QueryClientProvider>
