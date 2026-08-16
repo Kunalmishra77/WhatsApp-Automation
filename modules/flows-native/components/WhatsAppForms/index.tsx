@@ -41,7 +41,7 @@ const TEMPLATE_FIELDS: Record<string, Array<{ label: string; icon: React.Element
 };
 
 /**
- * "WhatsApp Forms" — management UI for native (non-endpoint) Meta WhatsApp
+ * "In-Chat Forms" — management UI for native (non-endpoint) Meta WhatsApp
  * Flows. Distinct from the homegrown "Chatbot Flows" builder (visual
  * automation canvas) and the conversational "WA Forms" (multi-step Q&A sent
  * as plain text messages) — this publishes an actual native WhatsApp Flow UI
@@ -87,10 +87,10 @@ export function WhatsAppForms() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h2 className="text-base font-semibold">WhatsApp Forms</h2>
+        <h2 className="text-base font-semibold">In-Chat Forms</h2>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Native WhatsApp Flow forms — a rich, in-chat form UI (not a plain text Q&A). Publish a
-          form once, then send it from any conversation.
+          In-Chat Forms — a native WhatsApp form sent into a conversation (a rich, in-chat form UI,
+          not a plain text Q&A). Publish a form once, then send it from any conversation.
         </p>
       </div>
 

@@ -272,7 +272,7 @@ export function MessageInput({ conversationId }: MessageInputProps) {
       const data = await res.json() as { published?: Array<{ template_key: string; name: string; status: string; meta_flow_id: string | null }> };
       const published = (data.published ?? []).filter((p) => p.status === 'published' && p.meta_flow_id);
       if (published.length === 0) {
-        toast.error('No forms published — publish one in WhatsApp Forms first.');
+        toast.error('No forms published — publish one in In-Chat Forms first.');
         return;
       }
       if (published.length === 1) {

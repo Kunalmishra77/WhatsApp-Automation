@@ -68,7 +68,7 @@ const NAV_SECTIONS: NavSection[] = [
       { key: 'quick-replies',  label: 'Quick Replies',  icon: MessagesSquare },
       { key: 'qr-code',        label: 'QR Code',        icon: Layers },
       { key: 'catalog',        label: 'Product Catalog', icon: ShoppingBag },
-      { key: 'whatsapp-forms', label: 'WhatsApp Forms',  icon: ClipboardList },
+      { key: 'whatsapp-forms', label: 'In-Chat Forms',   icon: ClipboardList },
       { key: 'chat-widget',    label: 'Chat Widget',     icon: MessageSquare },
       { key: 'media-library',  label: 'Media Library',  icon: MessagesSquare },
       { key: 'instagram',      label: 'Instagram DM',   icon: Camera },
