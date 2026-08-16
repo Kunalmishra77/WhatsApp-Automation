@@ -11,15 +11,24 @@ const RESEND_COOLDOWN_SECONDS = 60;
 
 interface Props {
   email: string | null;
+  notice?: string;
 }
 
-export function VerifyEmailForm({ email }: Props) {
+export function VerifyEmailForm({ email, notice }: Props) {
   const router = useRouter();
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (notice === 'unverified') {
+      toast.info("Please verify your email — we've sent you a new code.");
+    }
+    // Only show this once, on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -41,7 +50,10 @@ export function VerifyEmailForm({ email }: Props) {
       const res = await fetch('/api/auth/verify-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
+        // `email` lets the endpoint resolve an unconfirmed user when there's
+        // no session yet (e.g. arriving here straight from signup/login); an
+        // authenticated request ignores it and uses the session instead.
+        body: JSON.stringify({ code, email }),
       });
       const data = await res.json() as { ok?: boolean; error?: string };
 
@@ -63,7 +75,11 @@ export function VerifyEmailForm({ email }: Props) {
     setError(null);
     setIsResending(true);
     try {
-      const res = await fetch('/api/auth/resend-otp', { method: 'POST' });
+      const res = await fetch('/api/auth/resend-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
       const data = await res.json() as { ok?: boolean; error?: string };
 
       if (!res.ok || !data.ok) {

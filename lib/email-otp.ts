@@ -32,6 +32,15 @@ export async function issueOtp(db: any, userId: string): Promise<string> {
   return code;
 }
 
+// Shared email body for the verification code — reused by signup, resend,
+// and the login unconfirmed-user branch so the copy stays in one place.
+export function buildOtpEmail(code: string): { subject: string; html: string } {
+  return {
+    subject: 'Your Agentix verification code',
+    html: `<p>Your Agentix verification code is:</p><p style="font-size:24px;font-weight:bold;letter-spacing:4px;">${code}</p><p>This code expires in 10 minutes.</p>`,
+  };
+}
+
 export type VerifyOtpFailureReason = 'expired' | 'mismatch' | 'too_many' | 'not_found';
 
 export interface VerifyOtpResult {

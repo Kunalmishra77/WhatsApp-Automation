@@ -13,7 +13,7 @@ import {
 import { getUserWorkspaces } from '@/modules/auth/services/workspace.service';
 import { ROUTES } from '@/lib/constants';
 import { SESSION_COOKIE_NAME } from '@/lib/session';
-import { issueOtp } from '@/lib/email-otp';
+import { issueOtp, buildOtpEmail } from '@/lib/email-otp';
 import { createAdminClient } from '@/services/supabase/admin';
 import { sendMail } from '@/lib/mailer';
 import type { AuthActionResult } from '@/modules/auth/types';
@@ -28,21 +28,32 @@ export async function loginAction(
     return { success: false, error: parsed.error.issues[0]?.message ?? 'Invalid input' };
   }
 
-  let { user, error } = await signInWithPassword(parsed.data.email, parsed.data.password);
+  const { user, error } = await signInWithPassword(parsed.data.email, parsed.data.password);
 
   if (!user && error === 'Please verify your email before signing in.') {
+    // Unverified account — do NOT auto-confirm them just for attempting a
+    // password login (that would defeat email verification entirely).
+    // Instead, re-issue an OTP and send them back to /verify-email.
     try {
-      const { createAdminClient } = await import('@/services/supabase/admin');
-      const adminDb = createAdminClient();
+      const adminDb = createAdminClient() as any;
       const { data: list } = await adminDb.auth.admin.listUsers();
       const found = list?.users?.find((u: { email?: string }) => u.email === parsed.data.email);
       if (found) {
-        await adminDb.auth.admin.updateUserById(found.id, { email_confirm: true });
-        const retry = await signInWithPassword(parsed.data.email, parsed.data.password);
-        user = retry.user;
-        error = retry.error;
+        const code = await issueOtp(adminDb, found.id);
+        const { ok, error: mailError } = await sendMail({
+          to: parsed.data.email,
+          ...buildOtpEmail(code),
+        });
+        if (!ok) console.error('[loginAction] sendMail failed', mailError);
       }
-    } catch { /* non-fatal */ }
+    } catch (err) {
+      console.error('[loginAction] failed to re-issue OTP for unverified user', err);
+    }
+
+    return {
+      success: true,
+      redirectTo: `${ROUTES.VERIFY_EMAIL}?email=${encodeURIComponent(parsed.data.email)}&notice=unverified`,
+    };
   }
 
   if (error || !user) return { success: false, error: error ?? 'Sign in failed.' };
@@ -84,15 +95,17 @@ export async function signupAction(
   const code = await issueOtp(adminDb, user.id);
   const { ok, error: mailError } = await sendMail({
     to: parsed.data.email,
-    subject: 'Your Agentix verification code',
-    html: `<p>Your Agentix verification code is:</p><p style="font-size:24px;font-weight:bold;letter-spacing:4px;">${code}</p><p>This code expires in 10 minutes.</p>`,
+    ...buildOtpEmail(code),
   });
   if (!ok) {
     console.error('[signupAction] sendMail failed', mailError);
   }
 
   revalidatePath('/', 'layout');
-  return { success: true, redirectTo: ROUTES.VERIFY_EMAIL };
+  return {
+    success: true,
+    redirectTo: `${ROUTES.VERIFY_EMAIL}?email=${encodeURIComponent(parsed.data.email)}`,
+  };
 }
 
 export async function forgotPasswordAction(
