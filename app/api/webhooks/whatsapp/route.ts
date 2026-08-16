@@ -20,6 +20,8 @@ import { webhookIdemKey, isWebhookProcessed, markWebhookProcessed } from '@/lib/
 import { decideSpam } from '@/lib/spam';
 import { getBillingState } from '@/lib/billing-guard';
 import { parseNfmReply } from '@/lib/native-flows';
+import { classifyLeadPipeline } from '@/lib/lead-classifier';
+import { hasFeature } from '@/lib/plan-features';
 
 // Node runtime (uses crypto + admin client); allow headroom for the inbound
 // auto-reply pipeline (AI call is internally bounded to ~25s of retries).
@@ -1096,6 +1098,25 @@ async function handleIncomingMessage(
   if (content && content.length > 5) {
     updateConversationSentiment(supabase as any, conversation.id, content).catch(() => {});
   }
+
+  // ── AI pipeline classification (CRM plan only) — non-blocking ──────────────
+  // autoCreateOrUpdateLead above is fire-and-forget and doesn't return an id,
+  // so look the lead up by conversation. If it hasn't been created yet (first
+  // message / still in flight), skip — Task 4's cron backstop will pick it up.
+  void (async () => {
+    const { getWorkspacePlan } = await import('@/lib/plan-guard');
+    const workspacePlan = await getWorkspacePlan(workspaceId);
+    if (!hasFeature(workspacePlan, 'crm')) return;
+    const { data: lead } = await (supabase as any)
+      .from('leads')
+      .select('id')
+      .eq('conversation_id', conversation.id)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    if (lead?.id) {
+      await classifyLeadPipeline({ conversationId: conversation.id, workspaceId, leadId: lead.id });
+    }
+  })().catch((e) => console.error('[crm] classify trigger failed', e));
 }
 
 const ESCALATION_KEYWORDS = [
