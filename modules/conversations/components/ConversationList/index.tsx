@@ -189,7 +189,7 @@ function ExportDialog({
           className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-60"
         >
           <Download className="h-3.5 w-3.5" />
-          {downloading ? 'Downloading…' : 'Download Excel'}
+          {downloading ? 'Exporting…' : 'Export'}
         </button>
       </div>
     </div>
@@ -235,7 +235,14 @@ export function ConversationList() {
   });
 
   return (
-    <div className="flex h-full w-80 shrink-0 flex-col border-r border-border bg-card">
+    <div
+      className={cn(
+        // Mobile: full-width list; hides once a conversation is open (drill-down).
+        // Desktop (lg+): fixed 3-pane sidebar, always visible — unchanged.
+        'flex h-full w-full shrink-0 flex-col border-r border-border bg-card lg:w-80 lg:flex',
+        activeId ? 'hidden' : 'flex',
+      )}
+    >
       {showExport && (
         <ExportDialog
           workspaceId={workspaceId}
