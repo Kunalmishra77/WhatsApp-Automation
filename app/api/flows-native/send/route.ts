@@ -81,7 +81,9 @@ export async function POST(request: NextRequest) {
     const flowToken = newFlowToken();
 
     // ── Session row (before sending, so we can correlate the eventual nfm_reply) ─
-    await db.from('flow_sessions_native').insert({
+    // Must succeed before we send — otherwise a submitted form has nothing to
+    // correlate against and the reply is silently lost.
+    const { error: sessErr } = await db.from('flow_sessions_native').insert({
       workspace_id: conversation.workspace_id,
       conversation_id: conversationId,
       contact_id: contact.id,
@@ -90,6 +92,11 @@ export async function POST(request: NextRequest) {
       meta_flow_id: form.meta_flow_id,
       status: 'sent',
     });
+
+    if (sessErr) {
+      console.error('[FlowSend] Failed to create flow session:', sessErr);
+      return NextResponse.json({ error: 'Failed to create flow session' }, { status: 500 });
+    }
 
     const interactive: Record<string, unknown> = {
       type: 'flow',
@@ -136,10 +143,12 @@ export async function POST(request: NextRequest) {
 
     if (!waResponse.ok || !waData?.messages?.[0]?.id) {
       console.error('[FlowSend] WhatsApp API error:', waData);
+      // Nothing was actually delivered — don't leave the session looking 'sent'.
+      await db.from('flow_sessions_native').update({ status: 'failed' }).eq('flow_token', flowToken);
       return NextResponse.json({ error: waData?.error?.message ?? 'WhatsApp API error', details: waData }, { status: 502 });
     }
 
-    const { data: message } = await db
+    const { data: msgRow, error: msgErr } = await db
       .from('messages')
       .insert({
         conversation_id: conversationId,
@@ -153,15 +162,21 @@ export async function POST(request: NextRequest) {
         whatsapp_msg_id: waData.messages[0].id,
         metadata: { flow_token: flowToken, meta_flow_id: form.meta_flow_id, template_key: templateKey },
       })
-      .select()
+      .select('id')
       .single();
+
+    if (msgErr) {
+      // The WhatsApp send already succeeded — log and continue rather than
+      // report failure for a message that was actually delivered.
+      console.error('[FlowSend] Failed to insert messages row:', msgErr);
+    }
 
     await db
       .from('conversations')
       .update({ last_message: '📋 Sent form: ' + form.name, last_message_at: new Date().toISOString() })
       .eq('id', conversationId);
 
-    return NextResponse.json({ ok: true, messageId: message?.id });
+    return NextResponse.json({ ok: true, messageId: msgRow?.id ?? null });
   } catch (error) {
     if (error instanceof AuthzError) {
       return authzResponse(error);
