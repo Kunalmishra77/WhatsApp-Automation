@@ -1,9 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Download, ChevronDown } from 'lucide-react';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { toast } from 'sonner';
+import { LEAD_STAGES, STAGE_LABELS } from '../../services/lead.service';
 
 const TEMPS = [
   { key: 'all',  label: 'All Leads' },
@@ -12,15 +14,44 @@ const TEMPS = [
   { key: 'cold', label: '❄️ Cold leads' },
 ];
 
-/** Bulk lead export dropdown — All / Hot / Warm / Cold in Excel or CSV. */
+interface TeamMemberOption { user_id: string; full_name: string | null; email: string | null; }
+
+function useAgentOptions(workspaceId: string) {
+  return useQuery<TeamMemberOption[]>({
+    queryKey: ['lead-export-agents', workspaceId],
+    queryFn: async () => {
+      const res = await fetch(`/api/team/members?workspaceId=${workspaceId}`);
+      if (!res.ok) return [];
+      const data = (await res.json()) as { members: TeamMemberOption[] };
+      return data.members ?? [];
+    },
+    enabled: !!workspaceId,
+    staleTime: 60_000,
+  });
+}
+
+/** Bulk lead export dropdown — All / Hot / Warm / Cold in Excel or CSV, with
+ *  optional stage / assigned-agent / date-range filters (passed through to
+ *  /api/leads/export, which already accepts them server-side). */
 export function LeadExportMenu({ compact = false }: { compact?: boolean }) {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id ?? '');
   const [open, setOpen] = useState(false);
   const [format, setFormat] = useState<'xlsx' | 'csv'>('xlsx');
+  const [stage, setStage] = useState('');
+  const [assignedAgent, setAssignedAgent] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+
+  const { data: agents = [] } = useAgentOptions(workspaceId);
 
   const download = (temperature: string) => {
     if (!workspaceId) { toast.error('No workspace selected'); return; }
-    window.open(`/api/leads/export?workspaceId=${workspaceId}&format=${format}&temperature=${temperature}`, '_blank');
+    const p = new URLSearchParams({ workspaceId, format, temperature });
+    if (stage) p.set('stage', stage);
+    if (assignedAgent) p.set('assigned_agent', assignedAgent);
+    if (from) p.set('from', from);
+    if (to) p.set('to', to);
+    window.open(`/api/leads/export?${p}`, '_blank');
     toast.success(`Exporting ${temperature === 'all' ? 'all' : temperature} leads (${format.toUpperCase()})…`);
     setOpen(false);
   };
@@ -47,7 +78,7 @@ export function LeadExportMenu({ compact = false }: { compact?: boolean }) {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-50 mt-1 w-52 rounded-lg border border-border bg-card p-1 shadow-lg">
+          <div className="absolute right-0 z-50 mt-1 w-64 rounded-lg border border-border bg-card p-1 shadow-lg">
             <div className="flex items-center gap-1 p-1.5">
               {(['xlsx', 'csv'] as const).map((f) => (
                 <button
@@ -62,6 +93,49 @@ export function LeadExportMenu({ compact = false }: { compact?: boolean }) {
               ))}
             </div>
             <div className="my-1 h-px bg-border" />
+
+            {/* Optional filters — narrow the exported set before picking a temperature below */}
+            <div className="space-y-1.5 p-1.5">
+              <select
+                value={stage}
+                onChange={(e) => setStage(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
+              >
+                <option value="">Any stage</option>
+                {LEAD_STAGES.map((s) => (
+                  <option key={s} value={s}>{STAGE_LABELS[s]}</option>
+                ))}
+              </select>
+              <select
+                value={assignedAgent}
+                onChange={(e) => setAssignedAgent(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
+              >
+                <option value="">Any agent</option>
+                {agents.map((a) => (
+                  <option key={a.user_id} value={a.user_id}>{a.full_name ?? a.email ?? a.user_id}</option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1">
+                <input
+                  type="date"
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
+                  aria-label="From date"
+                />
+                <span className="text-[10px] text-muted-foreground">–</span>
+                <input
+                  type="date"
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
+                  aria-label="To date"
+                />
+              </div>
+            </div>
+            <div className="my-1 h-px bg-border" />
+
             {TEMPS.map((t) => (
               <button
                 key={t.key}

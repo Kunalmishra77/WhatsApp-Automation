@@ -19,6 +19,8 @@ import { useConversationStore } from '@/store/conversation.store';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { LeadExportMenu } from '@/modules/crm/components/LeadExportMenu';
 import type { ConversationWithContact } from '../../services/conversation.service';
+import { createClient } from '@/services/supabase/client';
+import { resolveRange, type QuickRange } from '@/lib/date-range';
 
 const STATUS_TABS = ['all', 'mine', 'open', 'assigned', 'pending', 'resolved', 'spam'] as const;
 
@@ -54,27 +56,68 @@ function initAdvFiltersFromUrl(sp: ReadonlyURLSearchParams): ConversationAdvance
 }
 
 // ── Export dialog ─────────────────────────────────────────────────────────────
+// Seeds its date/status/channel controls from the list's CURRENT view (advFilters +
+// status tab + channel tab) so "Export" defaults to exactly what's on screen, while
+// keeping those controls independently editable before download (existing behavior).
 function ExportDialog({
   onClose,
   workspaceId,
+  status,
+  channel,
+  advFilters,
 }: {
   onClose: () => void;
   workspaceId: string;
+  status: string;
+  channel: string;
+  advFilters: ConversationAdvancedFilters;
 }) {
   const today = new Date().toISOString().slice(0, 10);
-  const [from,        setFrom]        = useState(today);
-  const [to,          setTo]          = useState(today);
-  const [expStatus,   setExpStatus]   = useState('');
-  const [expChannel,  setExpChannel]  = useState('');
+  // If the list's filter bar has an active quick/custom date range, resolve it to
+  // concrete from/to dates to seed these editable fields; otherwise default to today
+  // (matches the dialog's pre-existing default).
+  const seedRange = advFilters.quick
+    ? resolveRange(advFilters.quick as QuickRange, { from: advFilters.from, to: advFilters.to })
+    : null;
+  const [from,        setFrom]        = useState(seedRange?.from ?? advFilters.from ?? today);
+  const [to,          setTo]          = useState(seedRange?.to ?? advFilters.to ?? today);
+  const [expStatus,   setExpStatus]   = useState(status === 'all' ? '' : status);
+  const [expChannel,  setExpChannel]  = useState(channel === 'all' ? '' : channel);
   const [downloading, setDownloading] = useState(false);
 
-  function handleDownload() {
-    const p = new URLSearchParams({ workspaceId });
-    if (from)       p.set('from', from);
-    if (to)         p.set('to', to);
-    if (expStatus)  p.set('status', expStatus);
-    if (expChannel) p.set('channel', expChannel);
+  async function handleDownload() {
     setDownloading(true);
+    const p = new URLSearchParams({ workspaceId });
+    const set = (key: string, val?: string) => { if (val) p.set(key, val); };
+
+    // Layer in the list's current advanced filters (temperature/stage/flag/agent/
+    // label/sentiment/search/campaign) — the dialog's own date/status/channel
+    // controls below take precedence for those three dimensions.
+    set('temperature', advFilters.temperature);
+    set('stage', advFilters.stage);
+    set('flag', advFilters.flag);
+    set('assigned_agent_id', advFilters.assigned_agent_id);
+    set('label', advFilters.label);
+    set('sentiment', advFilters.sentiment);
+    set('q', advFilters.q);
+    set('campaign_id', advFilters.campaign_id);
+
+    set('from', from);
+    set('to', to);
+    set('channel', expChannel);
+
+    // Same status-tab → server-param translation as searchConversations():
+    // 'mine' → assigned_agent_id (current user), 'spam' → flag=spam, else → status.
+    if (expStatus === 'mine') {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) p.set('assigned_agent_id', p.get('assigned_agent_id') ?? user.id);
+    } else if (expStatus === 'spam') {
+      p.set('flag', 'spam');
+    } else if (expStatus) {
+      p.set('status', expStatus);
+    }
+
     window.open(`/api/conversations/export?${p}`, '_blank');
     setTimeout(() => setDownloading(false), 1500);
   }
@@ -116,9 +159,12 @@ function ExportDialog({
               className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground"
             >
               <option value="">All statuses</option>
+              <option value="mine">Mine</option>
               <option value="open">Open</option>
+              <option value="assigned">Assigned</option>
               <option value="pending">Pending</option>
               <option value="resolved">Resolved</option>
+              <option value="spam">Spam</option>
             </select>
           </div>
           <div>
@@ -189,7 +235,13 @@ export function ConversationList() {
   return (
     <div className="flex h-full w-80 shrink-0 flex-col border-r border-border bg-card">
       {showExport && (
-        <ExportDialog workspaceId={workspaceId} onClose={() => setShowExport(false)} />
+        <ExportDialog
+          workspaceId={workspaceId}
+          status={status}
+          channel={channel}
+          advFilters={advFilters}
+          onClose={() => setShowExport(false)}
+        />
       )}
 
       {/* Header */}

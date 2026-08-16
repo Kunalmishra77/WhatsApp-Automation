@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { paginateAll, exportResponse, streamingCsvResponse } from '@/lib/export-stream';
+import { resolveRange, type QuickRange } from '@/lib/date-range';
+import { escapeIlike, resolveMatchingContactIds, applyConversationFilters, applyConversationFlag } from '@/lib/conversation-filters';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -20,8 +22,17 @@ interface ConvRow {
   created_at: string | null;
   labels: string[] | null;
   bot_paused: boolean | null;
+  sentiment: string | null;
+  unread_count: number | null;
+  is_spam: boolean | null;
+  first_replied_at: string | null;
   contacts: { name?: string | null; phone?: string | null } | null;
   profiles: { full_name?: string | null; email?: string | null } | null;
+  campaigns: { name?: string | null } | null;
+  // Embedded from the `conversations` side (leads.conversation_id has no unique
+  // constraint), so PostgREST returns an array — ~1 row per conversation in
+  // practice (see search route's LEADS_EMBED comment); first element is used.
+  leads: Array<{ temperature?: string | null; stage?: string | null }> | null;
 }
 interface MsgRow {
   conversation_id: string;
@@ -35,13 +46,23 @@ interface MsgRow {
 const SUMMARY_HEADERS = [
   'Contact Name', 'Phone', 'Status', 'Channel', 'Last Message', 'Last Message At',
   'Assigned Agent', 'Labels', 'Bot Paused', 'Created At',
+  'Sentiment', 'Temperature', 'Lead Stage', 'Source Campaign', 'First Replied At',
+  'Unread Count', 'Is Spam',
 ];
 const HISTORY_HEADERS = [
   'Contact Name', 'Phone', 'Channel', 'Assigned Agent', 'Direction', 'Sender',
   'Message', 'Type', 'Status', 'Timestamp (IST)',
 ];
 
-// GET /api/conversations/export?workspaceId=&view=summary|history&from=&to=&status=&channel=&format=csv
+// GET /api/conversations/export
+//   ?workspaceId=&view=summary|history&format=csv
+//   &status=&channel=&from=&to=&quick=
+//   &temperature=&stage=&flag=unread|replied|unanswered|spam&assigned_agent_id=
+//   &label=&sentiment=&q=&campaign_id=
+//
+// Filter set mirrors app/api/conversations/search/route.ts exactly (same helpers,
+// via lib/conversation-filters.ts) so the exported rows match what the Conversations
+// list shows for the same filters — "export what I'm looking at".
 export async function GET(request: NextRequest) {
   try {
     const sp = request.nextUrl.searchParams;
@@ -52,37 +73,68 @@ export async function GET(request: NextRequest) {
     const db = createAdminClient() as any;
 
     const view = sp.get('view') === 'history' ? 'history' : 'summary';
+    const forceCsv = sp.get('format') === 'csv';
+
+    // ── Parse the full filter set (same params/semantics as the search route) ──
     const from = sp.get('from');
     const to = sp.get('to');
-    const status = sp.get('status') ?? '';
-    const channel = sp.get('channel') ?? '';
-    const forceCsv = sp.get('format') === 'csv';
     const dateTag = from && to ? `${from}_to_${to}` : new Date().toISOString().slice(0, 10);
 
+    const quickParam = sp.get('quick') as QuickRange | null;
+    let dateRange: { fromUtc: string; toUtc: string } | null = null;
+    if (quickParam || (from && to)) {
+      const r = resolveRange((quickParam || 'custom') as QuickRange, { from: from ?? undefined, to: to ?? undefined });
+      dateRange = { fromUtc: r.fromUtc, toUtc: r.toUtc };
+    }
+
+    const status = sp.get('status') || undefined;
+    const channel = sp.get('channel') || undefined;
+    const assignedAgentId = sp.get('assigned_agent_id') || undefined;
+    const sentiment = sp.get('sentiment') || undefined;
+    const campaignId = sp.get('campaign_id') || undefined;
+    const label = sp.get('label') || undefined;
+    const flag = sp.get('flag') || undefined;
+    const temperature = sp.get('temperature') || undefined;
+    const stage = sp.get('stage') || undefined;
+    const qRaw = (sp.get('q') || '').trim();
+    const searchQ = qRaw ? escapeIlike(qRaw).slice(0, 100) : undefined;
+
+    const needsLeadsJoin = Boolean(temperature || stage);
+    // Resolved once so every query built off applyConvFilters below sees the same
+    // contact match set for this `q` (mirrors search route).
+    const matchingContactIds = searchQ ? await resolveMatchingContactIds(db, workspaceId, searchQ) : [];
+
+    // Spam is excluded by default — same as the on-screen conversation list — unless
+    // the caller explicitly asked for spam via flag=spam, so the exported set matches
+    // what's visible in the UI for the same filters.
     const applyConvFilters = (q: any) => {
-      q = q.eq('workspace_id', workspaceId);
-      if (ctx.role === 'agent') q = q.eq('assigned_agent_id', ctx.userId);
-      if (status) q = q.eq('status', status);
-      if (channel) q = q.eq('channel', channel);
-      if (from) q = q.gte('last_message_at', `${from}T00:00:00.000Z`);
-      if (to) q = q.lte('last_message_at', `${to}T23:59:59.999Z`);
-      return q;
+      let out = applyConversationFilters(q, {
+        workspaceId, role: ctx.role, userId: ctx.userId,
+        channel, status, assignedAgentId, sentiment, campaignId, label,
+        temperature, stage, q: searchQ, dateRange,
+      }, matchingContactIds);
+      if (flag !== 'spam') out = out.eq('is_spam', false);
+      return applyConversationFlag(out, flag);
     };
 
     // ── SUMMARY: one row per conversation, hybrid xlsx/csv ──────────────────────
     if (view === 'summary') {
+      const countSelect = 'id' + (needsLeadsJoin ? ', leads!inner(temperature, stage)' : '');
       const { count, error: countErr } = await applyConvFilters(
-        db.from('conversations').select('*', { count: 'exact', head: true }),
+        db.from('conversations').select(countSelect, { count: 'exact', head: true }),
       );
       if (countErr) {
         console.error('[ConvExport count]', countErr);
         return NextResponse.json({ error: 'Failed to count conversations' }, { status: 500 });
       }
+      const summarySelect = `
+        id, status, channel, last_message, last_message_at, created_at, labels, bot_paused,
+        sentiment, unread_count, is_spam, first_replied_at,
+        contacts(name, phone), profiles:assigned_agent_id(full_name, email),
+        campaigns:source_campaign_id(name), leads${needsLeadsJoin ? '!inner' : ''}(temperature, stage)
+      `;
       const pages = paginateAll<ConvRow>((offset, pageSize) =>
-        applyConvFilters(db.from('conversations').select(`
-          id, status, channel, last_message, last_message_at, created_at, labels, bot_paused,
-          contacts(name, phone), profiles:assigned_agent_id(full_name, email)
-        `))
+        applyConvFilters(db.from('conversations').select(summarySelect))
           .order('last_message_at', { ascending: false })
           .order('id', { ascending: true })
           .range(offset, offset + pageSize - 1),
@@ -98,6 +150,13 @@ export async function GET(request: NextRequest) {
           c.profiles?.full_name ?? c.profiles?.email ?? 'Unassigned',
           Array.isArray(c.labels) ? c.labels.join(', ') : '', c.bot_paused ? 'Yes' : 'No',
           toIST(c.created_at),
+          c.sentiment ?? '',
+          c.leads?.[0]?.temperature ?? '',
+          c.leads?.[0]?.stage ?? '',
+          c.campaigns?.name ?? '',
+          toIST(c.first_replied_at),
+          c.unread_count ?? 0,
+          c.is_spam ? 'Yes' : 'No',
         ],
         filenameBase: `conversations_summary_${dateTag}`,
         sheetName: 'Summary',
@@ -107,10 +166,11 @@ export async function GET(request: NextRequest) {
     // ── HISTORY: one row per message, always streaming CSV ──────────────────────
     // Phase 1: page all matching conversation IDs (uncapped) + build a meta lookup.
     const meta = new Map<string, { name: string; phone: string; agent: string; channel: string }>();
+    const metaSelect =
+      'id, channel, contacts(name, phone), profiles:assigned_agent_id(full_name, email)' +
+      (needsLeadsJoin ? ', leads!inner(temperature, stage)' : '');
     for await (const page of paginateAll<ConvRow>((offset, pageSize) =>
-      applyConvFilters(db.from('conversations').select(`
-        id, channel, contacts(name, phone), profiles:assigned_agent_id(full_name, email)
-      `))
+      applyConvFilters(db.from('conversations').select(metaSelect))
         .order('last_message_at', { ascending: false })
         .order('id', { ascending: true })
         .range(offset, offset + pageSize - 1),

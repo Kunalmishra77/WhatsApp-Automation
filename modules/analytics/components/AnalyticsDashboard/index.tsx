@@ -258,6 +258,8 @@ export function AnalyticsDashboard() {
               <DropdownMenuItem onSelect={() => handleExport('conversations')}>Export Conversations</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => handleExport('messages')}>Export Messages</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => handleExport('contacts')}>Export Contacts</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleExport('campaigns')}>Export Campaigns</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => handleExport('leads')}>Export Leads</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

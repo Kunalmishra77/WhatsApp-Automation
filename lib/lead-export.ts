@@ -3,6 +3,7 @@
 export const LEAD_EXPORT_HEADERS = [
   'Contact Name', 'Phone', 'Temperature', 'Stage', 'Priority', 'Source',
   'Value', 'Currency', 'Tags', 'Assigned Agent', 'Follow-up At', 'Created At', 'Last Activity',
+  'AI Score',
 ] as const;
 
 type Temperature = 'hot' | 'warm' | 'cold';
@@ -17,6 +18,7 @@ export interface LeadRecord {
   tags?: string[] | null;
   follow_up_at?: string | null;
   created_at?: string | null;
+  ai_score?: number | null;
   contacts?: { name?: string | null; phone?: string | null } | null;
   profiles?: { full_name?: string | null; email?: string | null } | null;
   conversations?: { last_message_at?: string | null } | null;
@@ -44,6 +46,7 @@ export function leadToRow(lead: LeadRecord): string[] {
     lead.follow_up_at ?? '',
     lead.created_at ?? '',
     lead.conversations?.last_message_at ?? '',
+    lead.ai_score != null ? String(lead.ai_score) : '',
   ];
 }
 

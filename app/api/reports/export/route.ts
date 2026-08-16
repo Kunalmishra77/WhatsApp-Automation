@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { paginateAll } from '@/lib/export-stream';
+import { LEAD_EXPORT_HEADERS, leadToRow, type LeadRecord } from '@/lib/lead-export';
 
 // ── CSV helper ──────────────────────────────────────────────────────────────
 function toCSV(headers: string[], rows: string[][]): string {
@@ -21,9 +22,9 @@ export async function GET(request: NextRequest) {
     if (!workspaceId) {
       return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
     }
-    if (!type || !['conversations', 'messages', 'contacts'].includes(type)) {
+    if (!type || !['conversations', 'messages', 'contacts', 'campaigns', 'leads'].includes(type)) {
       return NextResponse.json(
-        { error: 'type must be one of: conversations, messages, contacts' },
+        { error: 'type must be one of: conversations, messages, contacts, campaigns, leads' },
         { status: 400 },
       );
     }
@@ -158,7 +159,7 @@ export async function GET(request: NextRequest) {
     }
 
     // ── contacts ───────────────────────────────────────────────────────────
-    else {
+    else if (type === 'contacts') {
       const SELECT = 'id, name, phone, email, company, country, tags, temperature, language, opted_out, created_at';
       const data: any[] = [];
       try {
@@ -208,6 +209,90 @@ export async function GET(request: NextRequest) {
         ['ID', 'Name', 'Phone', 'Email', 'Company', 'Country', 'Tags', 'Lead Temperature', 'Language', 'Opted Out', 'Created At'],
         rows,
       );
+    }
+
+    // ── campaigns ──────────────────────────────────────────────────────────
+    else if (type === 'campaigns') {
+      const SELECT = 'id, name, status, sent_count, delivered_count, read_count, replied_count, failed_count, created_at';
+      const data: any[] = [];
+      try {
+        for await (const page of paginateAll<any>((offset, pageSize) =>
+          (supabase as any)
+            .from('campaigns')
+            .select(SELECT)
+            .eq('workspace_id', workspaceId)
+            .gte('created_at', `${from}T00:00:00.000Z`)
+            .lte('created_at', `${to}T23:59:59.999Z`)
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: true })
+            .range(offset, offset + pageSize - 1),
+        )) {
+          data.push(...page);
+        }
+      } catch (error) {
+        console.error('[Export] campaigns error', error);
+        return NextResponse.json({ error: 'Failed to fetch campaigns' }, { status: 500 });
+      }
+
+      const rows: string[][] = ((data ?? []) as Array<{
+        id: string;
+        name: string | null;
+        status: string | null;
+        sent_count: number | null;
+        delivered_count: number | null;
+        read_count: number | null;
+        replied_count: number | null;
+        failed_count: number | null;
+        created_at: string | null;
+      }>).map((row) => [
+        row.id ?? '',
+        row.name ?? '',
+        row.status ?? '',
+        String(row.sent_count ?? 0),
+        String(row.delivered_count ?? 0),
+        String(row.read_count ?? 0),
+        String(row.replied_count ?? 0),
+        String(row.failed_count ?? 0),
+        row.created_at ?? '',
+      ]);
+
+      csvContent = toCSV(
+        ['ID', 'Name', 'Status', 'Sent', 'Delivered', 'Read', 'Replied', 'Failed', 'Created At'],
+        rows,
+      );
+    }
+
+    // ── leads ──────────────────────────────────────────────────────────────
+    // Reuses lib/lead-export.ts's headers/row-mapper so this stays in sync with
+    // /api/leads/export's column set (incl. AI Score) rather than re-forking it.
+    else {
+      const SELECT = `
+        temperature, stage, priority, source, value, currency, tags, follow_up_at, created_at, ai_score,
+        contacts(name, phone),
+        profiles:assigned_agent_id(full_name, email),
+        conversations(last_message_at)
+      `;
+      const data: LeadRecord[] = [];
+      try {
+        for await (const page of paginateAll<LeadRecord>((offset, pageSize) =>
+          (supabase as any)
+            .from('leads')
+            .select(SELECT)
+            .eq('workspace_id', workspaceId)
+            .gte('created_at', `${from}T00:00:00.000Z`)
+            .lte('created_at', `${to}T23:59:59.999Z`)
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: true })
+            .range(offset, offset + pageSize - 1),
+        )) {
+          data.push(...page);
+        }
+      } catch (error) {
+        console.error('[Export] leads error', error);
+        return NextResponse.json({ error: 'Failed to fetch leads' }, { status: 500 });
+      }
+
+      csvContent = toCSV([...LEAD_EXPORT_HEADERS], data.map((lead) => leadToRow(lead)));
     }
 
     return new NextResponse(csvContent, {

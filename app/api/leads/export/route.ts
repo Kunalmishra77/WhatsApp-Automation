@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const SELECT = `
-  temperature, stage, priority, source, value, currency, tags, follow_up_at, created_at,
+  temperature, stage, priority, source, value, currency, tags, follow_up_at, created_at, ai_score,
   contacts(name, phone),
   profiles:assigned_agent_id(full_name, email),
   conversations(last_message_at)

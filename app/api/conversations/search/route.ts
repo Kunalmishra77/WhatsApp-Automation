@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { resolveRange, type QuickRange } from '@/lib/date-range';
-import { paginateAll } from '@/lib/export-stream';
+import { escapeIlike, quoteOrValue, resolveMatchingContactIds } from '@/lib/conversation-filters';
 
 export const runtime = 'nodejs';
 
@@ -49,73 +49,9 @@ const CONVERSATION_FIELDS =
 // the 1:1 assumption.
 const LEADS_EMBED = ', leads!inner(temperature,stage)';
 
-// Escapes ILIKE's own wildcard/escape characters so user input behaves as a literal
-// substring match rather than an accidental wildcard pattern. `.ilike()` is a
-// parameterized supabase-js call (not a hand-built filter string), so there is no
-// filter-injection concern here — this is purely about ILIKE semantics.
-function escapeIlike(raw: string): string {
-  return raw.replace(/[\\%_]/g, (c) => `\\${c}`);
-}
-
-// Hand-built `.or(...)` filter strings go through PostgREST's own DSL grammar, where
-// `,` `(` `)` are structural delimiters (they separate/close individual conditions)
-// and `"`/`\` are the DSL's own quoting/escape characters. `escapeIlike` above only
-// escapes ILIKE's wildcard characters (`%` `_` `\`) — it says nothing about the outer
-// DSL, so a value containing e.g. `,` or `(`/`)` (an ordinary parenthesized phone
-// number like "(555) 123-4567") would silently split into extra bogus filter clauses
-// or unbalance the expression (PostgREST 500), and a value containing `,is_spam.eq.
-// false,` etc. could graft on attacker-controlled filter clauses.
-//
-// Per PostgREST's documented quoting rule, a value containing reserved characters is
-// wrapped in double quotes, and within that quoted value a literal backslash is
-// written `\\` and a literal double quote is written `\"`. Applying this AFTER the
-// ILIKE-escaped value is built (so it doubles/escapes whatever backslashes
-// `escapeIlike` already introduced) makes the whole thing round-trip correctly:
-// PostgREST's quote-parser recovers exactly the ILIKE-escaped string, which Postgres'
-// ILIKE then interprets as intended. Only used for the two `.or()` call sites below —
-// `contact_id.in.(...)` is a separate, uuid-only list and needs no quoting.
-function quoteOrValue(value: string): string {
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
-
-// Sanity bound on the resulting `.in()` id-list size for a broad `q` (e.g. a single
-// common letter matching thousands of contacts) — NOT a silent correctness cap. The
-// underlying paginateAll walk below is itself uncapped (pages through every matching
-// row past PostgREST's 1000-row default); this only stops accumulating ids once the
-// list is already large. Kept modest because every id here ends up in the
-// `contact_id.in.(...)` URL query string, and a very long `.in()` list risks tripping
-// proxy/header-size limits: 1000 uuids is a ~37K URL, 5000 (~180K) far worse. That
-// already exceeds a strict nginx-style ~8K header buffer, but Supabase's gateway
-// permits much longer URLs (this works in production today) — 1000 is the pragmatic
-// ceiling; lower it if a fronting proxy ever rejects the request. Message-text
-// matching is unaffected by this cap; it only bounds the contact-id half of `q`.
-const CONTACT_ID_MATCH_CAP = 1000;
-
-// Resolves every contact id in this workspace whose name or phone ilike-matches `q`,
-// via `paginateAll` (uncapped — pages through all rows) rather than a bare `.select()`
-// (which would silently cap at PostgREST's default 1000-row limit and undercount/miss
-// conversations for any workspace with >1000 matching contacts). `q` must already be
-// escapeIlike()'d by the caller; this function applies quoteOrValue() itself before
-// embedding it in the `.or(...)` string.
-async function resolveMatchingContactIds(db: any, workspaceId: string, q: string): Promise<string[]> {
-  const pattern = quoteOrValue(`%${q}%`);
-  const ids: string[] = [];
-  outer: for await (const page of paginateAll<{ id: string }>((offset, pageSize) =>
-    db
-      .from('contacts')
-      .select('id')
-      .eq('workspace_id', workspaceId)
-      .or(`name.ilike.${pattern},phone.ilike.${pattern}`)
-      .order('id', { ascending: true })
-      .range(offset, offset + pageSize - 1),
-  )) {
-    for (const row of page) {
-      ids.push(row.id);
-      if (ids.length >= CONTACT_ID_MATCH_CAP) break outer;
-    }
-  }
-  return ids;
-}
+// escapeIlike / quoteOrValue / resolveMatchingContactIds now live in
+// lib/conversation-filters.ts (imported above) so /api/conversations/export can apply
+// the exact same `q` matching semantics.
 
 type TempBucket = 'hot' | 'warm' | 'cold';
 
