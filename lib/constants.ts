@@ -41,6 +41,7 @@ export const ROUTES = {
   VERIFY_EMAIL:     '/verify-email',
   WORKSPACE_NEW:    '/workspace/new',
   WORKSPACE_SELECT: '/workspace/select',
+  ONBOARDING:       '/onboarding',
   DASHBOARD:        '/conversations',
   AUTH_CALLBACK:    '/api/auth/callback',
 } as const;

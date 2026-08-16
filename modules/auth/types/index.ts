@@ -32,6 +32,9 @@ export const workspaceCreateSchema = z.object({
     .min(2)
     .max(50)
     .regex(/^[a-z0-9-]+$/, 'Only lowercase letters, numbers, and hyphens'),
+  company_name: z.string().min(2, 'Business name must be at least 2 characters').max(100),
+  owner_phone:  z.string().min(7, 'Enter a valid phone number').max(20),
+  industry:     z.string().min(1, 'Select an industry'),
 });
 
 export type LoginInput           = z.infer<typeof loginSchema>;

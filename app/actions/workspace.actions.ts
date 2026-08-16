@@ -5,13 +5,20 @@ import { workspaceCreateSchema } from '@/modules/auth/types';
 import { getUser } from '@/modules/auth/services/auth.service';
 import { createAdminClient } from '@/services/supabase/admin';
 import { ROUTES } from '@/lib/constants';
+import { SELF_SERVE_INITIAL } from '@/lib/onboarding-state';
 import type { AuthActionResult } from '@/modules/auth/types';
 
 export async function createWorkspaceAction(
   _prev: AuthActionResult,
   formData: FormData,
 ): Promise<AuthActionResult> {
-  const raw = { name: formData.get('name'), slug: formData.get('slug') };
+  const raw = {
+    name:         formData.get('name'),
+    slug:         formData.get('slug'),
+    company_name: formData.get('company_name'),
+    owner_phone:  formData.get('owner_phone'),
+    industry:     formData.get('industry'),
+  };
   const parsed = workspaceCreateSchema.safeParse(raw);
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0]?.message ?? 'Invalid input' };
@@ -25,7 +32,16 @@ export async function createWorkspaceAction(
 
   const { data: workspace, error: wsError } = await db
     .from('workspaces')
-    .insert({ name: parsed.data.name, slug: parsed.data.slug, plan: 'starter' })
+    .insert({
+      name:         parsed.data.name,
+      slug:         parsed.data.slug,
+      plan:         'whatsapp',
+      owner_email:  user.email,
+      owner_phone:  parsed.data.owner_phone,
+      industry:     parsed.data.industry,
+      settings:     { company_name: parsed.data.company_name },
+      ...SELF_SERVE_INITIAL,
+    })
     .select('id')
     .single();
 
@@ -44,5 +60,5 @@ export async function createWorkspaceAction(
     role: 'super_admin',
   });
 
-  redirect(ROUTES.DASHBOARD);
+  redirect(ROUTES.ONBOARDING);
 }

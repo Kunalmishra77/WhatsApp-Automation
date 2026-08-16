@@ -10,6 +10,18 @@ import type { AuthActionResult } from '@/modules/auth/types';
 
 const initialState: AuthActionResult = { success: false };
 
+const INDUSTRIES = [
+  { value: 'retail_ecommerce',      label: 'Retail / E-commerce' },
+  { value: 'healthcare',            label: 'Healthcare' },
+  { value: 'education',             label: 'Education' },
+  { value: 'real_estate',           label: 'Real Estate' },
+  { value: 'financial_services',    label: 'Financial Services' },
+  { value: 'hospitality',           label: 'Hospitality' },
+  { value: 'professional_services', label: 'Professional Services' },
+  { value: 'manufacturing',         label: 'Manufacturing' },
+  { value: 'other',                 label: 'Other' },
+];
+
 function toSlug(value: string): string {
   return value
     .toLowerCase()
@@ -72,6 +84,53 @@ export function WorkspaceCreateForm() {
         <p className="text-caption text-muted-foreground">
           Lowercase letters, numbers, and hyphens only.
         </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="company_name">Business name</Label>
+        <Input
+          id="company_name"
+          name="company_name"
+          type="text"
+          placeholder="Acme Corp Pvt. Ltd."
+          required
+          className="h-11"
+        />
+        <p className="text-caption text-muted-foreground">
+          Your registered business name, if different from the workspace name.
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="owner_phone">Business phone number</Label>
+        <Input
+          id="owner_phone"
+          name="owner_phone"
+          type="tel"
+          placeholder="+91 98765 43210"
+          required
+          className="h-11"
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="industry">Industry</Label>
+        <select
+          id="industry"
+          name="industry"
+          required
+          defaultValue=""
+          className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-body-md ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <option value="" disabled>
+            Select your industry
+          </option>
+          {INDUSTRIES.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {!state.success && state.error && (
