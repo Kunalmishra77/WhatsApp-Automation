@@ -36,10 +36,13 @@ export async function loginAction(
     // Instead, re-issue an OTP and send them back to /verify-email.
     try {
       const adminDb = createAdminClient() as any;
-      const { data: list } = await adminDb.auth.admin.listUsers();
-      const found = list?.users?.find((u: { email?: string }) => u.email === parsed.data.email);
-      if (found) {
-        const code = await issueOtp(adminDb, found.id);
+      const { data: profile } = await adminDb
+        .from('profiles')
+        .select('id')
+        .eq('email', parsed.data.email)
+        .maybeSingle();
+      if (profile) {
+        const code = await issueOtp(adminDb, profile.id);
         const { ok, error: mailError } = await sendMail({
           to: parsed.data.email,
           ...buildOtpEmail(code),

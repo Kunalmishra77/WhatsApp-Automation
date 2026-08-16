@@ -33,14 +33,17 @@ export async function POST(request: NextRequest) {
       targetEmail = sessionUser.email;
     } else {
       if (!bodyEmail) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-      const { data: list } = await db.auth.admin.listUsers();
-      const found = list?.users?.find(
-        (u: { email?: string; email_confirmed_at?: string | null }) => u.email === bodyEmail,
-      );
-      if (!found || found.email_confirmed_at) {
+      const { data: profile } = await db
+        .from('profiles')
+        .select('id')
+        .eq('email', bodyEmail)
+        .maybeSingle();
+      if (!profile) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+      const { data: found } = await db.auth.admin.getUserById(profile.id);
+      if (!found?.user || found.user.email_confirmed_at) {
         return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
       }
-      userId = found.id;
+      userId = found.user.id;
       targetEmail = bodyEmail;
     }
 
