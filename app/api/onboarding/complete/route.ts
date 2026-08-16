@@ -12,11 +12,10 @@ export async function POST(request: NextRequest) {
       app_secret?: string;
       industry?: string;
       business_phone?: string;
-      selected_plan?: string;
     };
 
     const { workspaceId, phone_number_id, access_token,
-            waba_id, app_secret, industry, business_phone, selected_plan } = body;
+            waba_id, app_secret, industry, business_phone } = body;
 
     if (!workspaceId || !phone_number_id || !access_token) {
       return NextResponse.json(
@@ -38,7 +37,6 @@ export async function POST(request: NextRequest) {
     if (waba_id)        update.waba_id     = waba_id;
     if (industry)       update.industry    = industry;
     if (business_phone) update.owner_phone = business_phone;
-    if (selected_plan)  update.plan        = selected_plan;
     if (app_secret)     update.settings    = { app_secret };
 
     const { error } = await db.from('workspaces').update(update).eq('id', workspaceId);

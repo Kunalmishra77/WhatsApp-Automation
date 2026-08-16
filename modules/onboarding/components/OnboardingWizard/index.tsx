@@ -291,13 +291,12 @@ export function OnboardingWizard({ workspaceId, workspaceName }: Props) {
           app_secret:      form.appSecret || undefined,
           industry:        form.industry || undefined,
           business_phone:  form.businessPhone || undefined,
-          selected_plan:   form.selectedPlan || 'starter',
         }),
       });
       const data = await res.json() as { success?: boolean; error?: string };
       if (data.success) {
-        toast.success('Setup complete! Waiting for admin approval.');
-        router.push('/pending-approval');
+        toast.success('WhatsApp connected! Your workspace is ready.');
+        router.push('/conversations');
       } else {
         toast.error(data.error ?? 'Failed to complete setup. Try again.');
       }
@@ -564,16 +563,15 @@ export function OnboardingWizard({ workspaceId, workspaceName }: Props) {
         {/* ── STEP 5: Summary + Submit ── */}
         {step === 5 && (
           <div className="rounded-2xl border border-border bg-card p-8 shadow-xl shadow-black/5">
-            <StepHeader step={5} title="Ready to submit!"
-              subtitle="Review your setup and submit for admin approval." />
+            <StepHeader step={5} title="Ready to finish!"
+              subtitle="Review your setup and connect WhatsApp to your workspace." />
 
-            <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
-              <p className="text-sm font-semibold text-amber-900 mb-2">📋 What happens next</p>
-              <ol className="text-xs text-amber-800 space-y-1 list-decimal list-inside">
-                <li>Your setup details will be sent to the Agentix admin</li>
-                <li>Admin reviews and activates your account (usually within a few hours)</li>
-                <li>You'll see this page update automatically when approved</li>
-                <li>Once active — your full WhatsApp CRM dashboard opens</li>
+            <div className="mb-6 rounded-xl border border-green-200 bg-green-50 px-5 py-4">
+              <p className="text-sm font-semibold text-green-900 mb-2">📋 What happens next</p>
+              <ol className="text-xs text-green-800 space-y-1 list-decimal list-inside">
+                <li>Your WhatsApp credentials are saved to your workspace</li>
+                <li>Your workspace is already active — no approval needed</li>
+                <li>You'll be taken straight to your dashboard</li>
               </ol>
             </div>
 
@@ -595,8 +593,8 @@ export function OnboardingWizard({ workspaceId, workspaceName }: Props) {
               <Button variant="ghost" onClick={() => setStep(4)}>← Back</Button>
               <Button onClick={handleSubmit} disabled={loading} className="gap-2 bg-green-600 hover:bg-green-700">
                 {loading
-                  ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> Submitting…</>
-                  : '🚀 Submit for Approval'}
+                  ? <><span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" /> Finishing…</>
+                  : '🚀 Finish Setup'}
               </Button>
             </div>
           </div>
