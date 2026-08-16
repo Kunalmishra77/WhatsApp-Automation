@@ -94,7 +94,10 @@ export default function MarketingHomePage() {
   return (
     <>
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <Section variant="navy" className="relative overflow-hidden pb-16 pt-16 sm:pb-20 sm:pt-20">
+      {/* -mt-16 pulls the hero up under the sticky h-16 nav so the nav's transparent
+          state genuinely sits over the navy background (not the layout's warm bg) —
+          pt-16 keeps the visible content clear of the nav bar. */}
+      <Section variant="navy" className="relative -mt-16 overflow-hidden pb-16 pt-16 sm:pb-20 sm:pt-20">
         <div className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-brand-500/20 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-navy-500/30 blur-3xl" />
         <div className="relative grid items-center gap-16 lg:grid-cols-2">

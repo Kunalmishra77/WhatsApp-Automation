@@ -21,6 +21,10 @@ const securityHeaders = [
 const config: NextConfig = {
   output: 'standalone',
 
+  // Dev-only route indicator badge — off so design/QA screenshots stay clean.
+  // Has zero effect on production (Next.js only ever renders it under `next dev`).
+  devIndicators: false,
+
   // Increase body size limit for KB document uploads (PDFs up to 10MB)
   experimental: {
     serverActions: {

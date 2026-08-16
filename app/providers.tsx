@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { Toaster } from 'sonner';
@@ -9,7 +10,13 @@ interface ProvidersProps {
   children: React.ReactNode;
 }
 
+// Public marketing routes — kept off the React Query Devtools toggle so it never shows up
+// in marketing design/QA screenshots. Extend this as more (marketing) pages ship.
+const MARKETING_ROUTES = new Set(['/']);
+
 export function Providers({ children }: ProvidersProps) {
+  const pathname = usePathname();
+  const isMarketingRoute = MARKETING_ROUTES.has(pathname);
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -40,7 +47,7 @@ export function Providers({ children }: ProvidersProps) {
           },
         }}
       />
-      {process.env.NODE_ENV === 'development' && (
+      {process.env.NODE_ENV === 'development' && !isMarketingRoute && (
         <ReactQueryDevtools initialIsOpen={false} />
       )}
     </QueryClientProvider>

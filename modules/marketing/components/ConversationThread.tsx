@@ -34,67 +34,40 @@ function usePrefersReducedMotion(): boolean {
 }
 
 /**
- * THE signature element: a rendered (not screenshotted) WhatsApp-style thread that reveals
- * turn-by-turn on scroll, with a typing indicator before agent replies and an optional
- * pipeline chip row that lights up as the conversation progresses. Fully static (all turns
- * visible immediately, no typing indicator, no motion) under prefers-reduced-motion.
+ * THE signature element: a rendered (not screenshotted) WhatsApp-style thread.
+ *
+ * Progressive enhancement, by design: every turn is in the DOM and fully visible from the
+ * very first render — no JS, a slow connection, or a full-page/static capture will ever see
+ * an empty thread. IntersectionObserver is used ONLY to trigger a one-time staggered
+ * fade/rise flourish (and light up the pipeline chips) once the thread scrolls into view in
+ * a live browser; it never gates whether the conversation content exists. Static (no
+ * animation) under prefers-reduced-motion.
  */
 export function ConversationThread({ turns, pipeline, compact = false, className }: ConversationThreadProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [inView, setInView] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(0);
-  const [isTyping, setIsTyping] = useState(false);
+  const [played, setPlayed] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
 
-  // Reveal the frame once it's ~30% into the viewport.
   useEffect(() => {
+    if (reducedMotion) return;
     const el = containerRef.current;
     if (!el) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry?.isIntersecting) {
-          setInView(true);
+          setPlayed(true);
           observer.disconnect();
         }
       },
-      { threshold: 0.3 }
+      // Fire a little before the frame is fully in view.
+      { rootMargin: '0px 0px -10% 0px', threshold: 0.1 }
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [reducedMotion]);
 
-  // Reduced motion: show everything immediately, no stagger, no typing indicator.
-  useEffect(() => {
-    if (reducedMotion) {
-      setVisibleCount(turns.length);
-      setIsTyping(false);
-    }
-  }, [reducedMotion, turns.length]);
-
-  // Staggered reveal, one turn at a time, with a brief "typing…" beat before agent turns.
-  useEffect(() => {
-    if (reducedMotion || !inView || visibleCount >= turns.length) return;
-
-    const nextTurn = turns[visibleCount];
-    if (!nextTurn) return;
-    if (nextTurn.from === 'agent' && !isTyping) {
-      const typingTimer = setTimeout(() => setIsTyping(true), 350);
-      return () => clearTimeout(typingTimer);
-    }
-
-    const delay = nextTurn.from === 'agent' ? (isTyping ? 900 : 0) : 650;
-    const revealTimer = setTimeout(() => {
-      setIsTyping(false);
-      setVisibleCount((count) => count + 1);
-    }, delay);
-    return () => clearTimeout(revealTimer);
-  }, [inView, visibleCount, turns, reducedMotion, isTyping]);
-
-  const litPipelineSteps = pipeline
-    ? reducedMotion
-      ? pipeline.length
-      : Math.min(pipeline.length, Math.round((visibleCount / turns.length) * pipeline.length))
-    : 0;
+  const animate = !reducedMotion;
+  const litSteps = pipeline ? (reducedMotion || played ? pipeline.length : 0) : 0;
 
   return (
     <div className={cn('w-full', className)}>
@@ -116,26 +89,23 @@ export function ConversationThread({ turns, pipeline, compact = false, className
           </div>
         </div>
 
-        {/* messages */}
+        {/* messages — always rendered; the reveal animation is a non-gating enhancement */}
         <div
           className={cn(
             'flex flex-col justify-end gap-2 bg-[#efeae2] px-4 py-5',
             compact ? 'min-h-[190px]' : 'min-h-[280px]'
           )}
         >
-          {turns.map((turn, i) => {
-            const isVisible = reducedMotion || i < visibleCount;
-            if (!isVisible) return null;
-            return <ChatBubble key={i} turn={turn} animate={!reducedMotion} />;
-          })}
-          {isTyping && !reducedMotion && <TypingBubble />}
+          {turns.map((turn, i) => (
+            <ChatBubble key={i} turn={turn} animate={animate} play={played} index={i} />
+          ))}
         </div>
       </div>
 
       {pipeline && pipeline.length > 0 && (
         <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
           {pipeline.map((step, i) => {
-            const lit = i < litPipelineSteps;
+            const lit = i < litSteps;
             return (
               <div key={step} className="flex items-center gap-2">
                 <span
@@ -160,7 +130,17 @@ export function ConversationThread({ turns, pipeline, compact = false, className
   );
 }
 
-function ChatBubble({ turn, animate }: { turn: ConversationTurn; animate: boolean }) {
+function ChatBubble({
+  turn,
+  animate,
+  play,
+  index,
+}: {
+  turn: ConversationTurn;
+  animate: boolean;
+  play: boolean;
+  index: number;
+}) {
   const isAgent = turn.from === 'agent';
   return (
     <div className={cn('flex', isAgent ? 'justify-end' : 'justify-start')}>
@@ -168,8 +148,13 @@ function ChatBubble({ turn, animate }: { turn: ConversationTurn; animate: boolea
         className={cn(
           'max-w-[80%] rounded-2xl px-3.5 py-2 text-[13.5px] leading-snug shadow-sm',
           isAgent ? 'rounded-tr-sm bg-[#dcf8c6] text-navy-900' : 'rounded-tl-sm bg-white text-navy-900',
-          animate && 'animate-bubble-in'
+          // The bubble is already fully visible by default (opacity/position are never
+          // gated). "animate-bubble-in" only replays a short fade/rise flourish once the
+          // thread has been observed scrolling into view — content, not visibility, is
+          // what's guaranteed here.
+          animate && play && 'animate-bubble-in'
         )}
+        style={animate && play ? { animationDelay: `${index * 90}ms` } : undefined}
       >
         <p>{turn.text}</p>
         {isAgent && (
@@ -177,18 +162,6 @@ function ChatBubble({ turn, animate }: { turn: ConversationTurn; animate: boolea
             <CheckCheck className="h-3.5 w-3.5 text-sky-500" aria-hidden="true" />
           </span>
         )}
-      </div>
-    </div>
-  );
-}
-
-function TypingBubble() {
-  return (
-    <div className="flex justify-end animate-bubble-in">
-      <div className="flex items-center gap-1 rounded-2xl rounded-tr-sm bg-[#dcf8c6] px-3.5 py-2.5">
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-navy-900/40 [animation-delay:-0.3s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-navy-900/40 [animation-delay:-0.15s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-navy-900/40" />
       </div>
     </div>
   );
