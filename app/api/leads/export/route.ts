@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     const sp = request.nextUrl.searchParams;
     const workspaceId = sp.get('workspaceId');
     if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
-    await requireWorkspacePermission(workspaceId, 'view_analytics');
+    const ctx = await requireWorkspacePermission(workspaceId, 'view_analytics');
 
     const db = createAdminClient() as any;
     const temperature = parseTemperature(sp.get('temperature'));
@@ -33,6 +33,12 @@ export async function GET(request: NextRequest) {
 
     const applyFilters = (q: any) => {
       q = q.eq('workspace_id', workspaceId);
+      // Defense-in-depth agent isolation (mirrors conversations search/export): an
+      // agent may only export leads assigned to them, never the whole workspace.
+      // Currently unreachable by agents (the 'view_analytics' gate above already
+      // excludes them), but keeps this safe if that gate is ever loosened to
+      // 'manage_leads' — the admin client bypasses RLS, so the scope must be explicit.
+      if (ctx.role === 'agent') q = q.eq('assigned_agent_id', ctx.userId);
       if (temperature) q = q.eq('temperature', temperature);
       if (stage) q = q.eq('stage', stage);
       if (assignedAgent) q = q.eq('assigned_agent_id', assignedAgent);
