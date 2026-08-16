@@ -1,4 +1,4 @@
-export type PlanKey = 'free' | 'starter' | 'pro' | 'enterprise';
+export type PlanKey = 'free' | 'starter' | 'pro' | 'enterprise' | 'whatsapp' | 'whatsapp_instagram';
 
 export const PLAN_LIMITS: Record<PlanKey, {
   maxAgents: number;
@@ -50,6 +50,32 @@ export const PLAN_LIMITS: Record<PlanKey, {
     analyticsHistoryDays: 365,
     apiCallsPerDay: 1000,
   },
+  // One-plan self-serve billing model (see lib/billing.ts PLAN_KEYS) — every
+  // paying self-serve workspace is on 'whatsapp' (or 'whatsapp_instagram' with
+  // the Instagram add-on). Provisioned at the 'pro' tier: generous limits for
+  // a ₹2,999/mo paid plan, not the free-tier fallback. Instagram access itself
+  // is gated separately via hasInstagramAccess()/subscriptions.has_instagram,
+  // not by these limits — whatsapp_instagram mirrors whatsapp exactly.
+  whatsapp: {
+    maxAgents: 10,
+    maxMessages: 25000,
+    maxContacts: 10000,
+    maxCampaigns: 50,
+    maxKbEntries: 500,
+    maxFlows: 20,
+    analyticsHistoryDays: 90,
+    apiCallsPerDay: 100,
+  },
+  whatsapp_instagram: {
+    maxAgents: 10,
+    maxMessages: 25000,
+    maxContacts: 10000,
+    maxCampaigns: 50,
+    maxKbEntries: 500,
+    maxFlows: 20,
+    analyticsHistoryDays: 90,
+    apiCallsPerDay: 100,
+  },
 };
 
 // Feature flags — which plan unlocks each feature
@@ -100,6 +126,34 @@ export const PLAN_FEATURES: Record<PlanKey, Set<string>> = {
     'revenue_attribution', 'vip_contacts', 'web_widget',
     'instagram_messenger', 'api_full', 'priority_support',
   ]),
+  // Self-serve one-plan tiers — same feature set as 'pro'. Instagram is not
+  // gated here; use hasInstagramAccess()/subscriptions.has_instagram instead.
+  whatsapp: new Set([
+    'conversations', 'contacts', 'templates_send', 'campaigns_basic',
+    'quick_replies', 'business_hours', 'analytics_basic', 'media_send',
+    'auto_reply_basic', 'opt_out_detection',
+    'templates_create', 'crm', 'lead_scoring', 'lead_temperature',
+    'contact_lifecycle', 'vision_ai', 'flows', 'flow_templates',
+    'flow_branching', 'sla', 'csat', 'follow_up_sequences',
+    'inbox_rules', 'custom_fields', 'contact_notes', 'sentiment',
+    'session_pause', 'chat_summary', 'ab_testing', 'campaign_analytics',
+    'labels', 'qr_code', 'async_campaigns', 'media_library',
+    'api_limited', 'contact_import', 'global_search', 'audit_logs',
+    'analytics_full',
+  ]),
+  whatsapp_instagram: new Set([
+    'conversations', 'contacts', 'templates_send', 'campaigns_basic',
+    'quick_replies', 'business_hours', 'analytics_basic', 'media_send',
+    'auto_reply_basic', 'opt_out_detection',
+    'templates_create', 'crm', 'lead_scoring', 'lead_temperature',
+    'contact_lifecycle', 'vision_ai', 'flows', 'flow_templates',
+    'flow_branching', 'sla', 'csat', 'follow_up_sequences',
+    'inbox_rules', 'custom_fields', 'contact_notes', 'sentiment',
+    'session_pause', 'chat_summary', 'ab_testing', 'campaign_analytics',
+    'labels', 'qr_code', 'async_campaigns', 'media_library',
+    'api_limited', 'contact_import', 'global_search', 'audit_logs',
+    'analytics_full',
+  ]),
 };
 
 // One-plan billing model (see lib/billing-guard.ts): every active workspace
@@ -130,8 +184,10 @@ export function getLimits(plan: string) {
 }
 
 export const PLAN_DISPLAY: Record<PlanKey, { name: string; price: number; color: string }> = {
-  free:       { name: 'Free',       price: 0,    color: 'gray'   },
-  starter:    { name: 'Starter',    price: 1499, color: 'blue'   },
-  pro:        { name: 'Pro',        price: 2999, color: 'violet' },
-  enterprise: { name: 'Enterprise', price: 9999, color: 'amber'  },
+  free:               { name: 'Free',                 price: 0,    color: 'gray'   },
+  starter:            { name: 'Starter',               price: 1499, color: 'blue'   },
+  pro:                { name: 'Pro',                   price: 2999, color: 'violet' },
+  enterprise:         { name: 'Enterprise',             price: 9999, color: 'amber'  },
+  whatsapp:           { name: 'WhatsApp',               price: 2999, color: 'green'  },
+  whatsapp_instagram: { name: 'WhatsApp + Instagram',   price: 3998, color: 'pink'   },
 };
