@@ -12,9 +12,10 @@ const RESEND_COOLDOWN_SECONDS = 60;
 interface Props {
   email: string | null;
   notice?: string;
+  hasSession: boolean;
 }
 
-export function VerifyEmailForm({ email, notice }: Props) {
+export function VerifyEmailForm({ email, notice, hasSession }: Props) {
   const router = useRouter();
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +64,11 @@ export function VerifyEmailForm({ email, notice }: Props) {
       }
 
       toast.success('Email verified!');
-      router.push('/onboarding');
+      // A session-less verify (the common self-service signup path) leaves
+      // the user logged out — /onboarding would just bounce them through
+      // /login. Send them to log in explicitly instead. If they already had
+      // a session (e.g. the logged-in-resend case), go straight to onboarding.
+      router.push(hasSession ? '/onboarding' : '/login?verified=1');
     } catch {
       setError('Something went wrong. Please try again.');
     } finally {

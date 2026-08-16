@@ -23,7 +23,7 @@ export default async function VerifyEmailPage({ searchParams }: Props) {
 
   return (
     <AuthCard title="Check your email" subtitle="We sent you a verification code">
-      <VerifyEmailForm email={email} notice={notice} />
+      <VerifyEmailForm email={email} notice={notice} hasSession={!!user} />
     </AuthCard>
   );
 }

@@ -26,6 +26,17 @@ export function LoginForm() {
     }
   }, [state, router]);
 
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    if (query.get('verified') === '1') {
+      toast.success('Email verified — please sign in.');
+      // Clean the query param so a refresh doesn't re-toast.
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+    // Only show this once, on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <form action={formAction} className="space-y-4">
       <div className="space-y-1.5">
