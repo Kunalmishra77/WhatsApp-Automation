@@ -8,3 +8,5 @@ export { FeatureCard } from './FeatureCard';
 export { StatBadge } from './StatBadge';
 export { CTABand } from './CTABand';
 export { FeaturePage, type FeaturePageProps, type FeaturePageSection } from './FeaturePage';
+export { PricingTable } from './PricingTable';
+export { FaqAccordion, type FaqItem } from './FaqAccordion';
