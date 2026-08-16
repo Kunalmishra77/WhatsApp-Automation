@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 interface WorkspaceSettings {
   razorpay_key_id?: string;
   razorpay_key_secret?: string;
+  razorpay_webhook_secret?: string;
   shopify_webhook_secret?: string;
   shopify_events?: Record<string, boolean>;
   shopify_messages?: Record<string, string>;
@@ -44,10 +45,13 @@ export function IntegrationSettings() {
   const [showShopify, setShowShopify] = useState(false);
 
   // Razorpay
-  const [keyId,      setKeyId]      = useState('');
-  const [keySecret,  setKeySecret]  = useState('');
-  const [showSecret, setShowSecret] = useState(false);
-  const [savingRzp,  setSavingRzp]  = useState(false);
+  const [keyId,         setKeyId]         = useState('');
+  const [keySecret,     setKeySecret]     = useState('');
+  const [webhookSecret, setWebhookSecret] = useState('');
+  const [showSecret,    setShowSecret]    = useState(false);
+  const [showWhSecret,  setShowWhSecret]  = useState(false);
+  const [copiedRzp,     setCopiedRzp]     = useState(false);
+  const [savingRzp,     setSavingRzp]     = useState(false);
 
   // Shopify
   const [shopifySecret,   setShopifySecret]   = useState('');
@@ -60,6 +64,10 @@ export function IntegrationSettings() {
     ? `${window.location.origin}/api/integrations/shopify?workspaceId=${workspace?.id ?? 'YOUR_WORKSPACE_ID'}`
     : `/api/integrations/shopify?workspaceId=${workspace?.id ?? 'YOUR_WORKSPACE_ID'}`;
 
+  const paymentWebhookUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/api/payments/webhook?workspaceId=${workspace?.id ?? 'YOUR_WORKSPACE_ID'}`
+    : `/api/payments/webhook?workspaceId=${workspace?.id ?? 'YOUR_WORKSPACE_ID'}`;
+
   useEffect(() => {
     if (!workspace?.id || loaded) return;
     fetch(`/api/settings/workspace?workspaceId=${workspace.id}`)
@@ -68,6 +76,7 @@ export function IntegrationSettings() {
         const s = data.workspace?.settings ?? {};
         setKeyId(s.razorpay_key_id ?? '');
         setKeySecret(s.razorpay_key_secret ?? '');
+        setWebhookSecret(s.razorpay_webhook_secret ?? '');
         setShopifySecret(s.shopify_webhook_secret ?? '');
         setShopifyEvents(s.shopify_events ?? {});
         setShopifyMessages({ ...DEFAULT_MESSAGES, ...(s.shopify_messages ?? {}) });
@@ -82,6 +91,7 @@ export function IntegrationSettings() {
     try {
       const settings: WorkspaceSettings = { razorpay_key_id: keyId };
       if (keySecret && keySecret !== '••••••••') settings.razorpay_key_secret = keySecret;
+      if (webhookSecret && webhookSecret !== '••••••••') settings.razorpay_webhook_secret = webhookSecret;
       const r = await fetch('/api/settings/workspace', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspaceId: workspace.id, settings }) });
       if (!r.ok) throw new Error('Failed');
       toast.success('Razorpay keys saved');
@@ -110,6 +120,13 @@ export function IntegrationSettings() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
     toast.success('Webhook URL copied!');
+  }
+
+  function copyPaymentWebhookUrl() {
+    void navigator.clipboard.writeText(paymentWebhookUrl);
+    setCopiedRzp(true);
+    setTimeout(() => setCopiedRzp(false), 2000);
+    toast.success('Payment webhook URL copied!');
   }
 
   const rzpConfigured = !!(keyId && keySecret);
@@ -152,6 +169,30 @@ export function IntegrationSettings() {
               </button>
             </div>
           </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Webhook Secret</Label>
+            <div className="relative">
+              <Input type={showWhSecret ? 'text' : 'password'} value={webhookSecret} onChange={e => setWebhookSecret(e.target.value)} placeholder="Set this in your Razorpay webhook settings" className="h-8 text-sm font-mono pr-9" />
+              <button type="button" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setShowWhSecret(v => !v)}>
+                {showWhSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            <p className="text-[10px] text-muted-foreground">Lets us confirm payments automatically. Add a webhook in your Razorpay dashboard (Settings → Webhooks) pointing to the URL below, with the same secret, subscribed to <code className="bg-muted px-1 rounded">payment_link.paid</code>.</p>
+          </div>
+
+          {/* Payment webhook URL — tenant registers this in their own Razorpay dashboard */}
+          <div className="rounded-lg bg-muted/50 border border-border p-3 space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Your Payment Webhook URL</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-[11px] font-mono truncate bg-background rounded px-2 py-1.5 border border-border">
+                {paymentWebhookUrl}
+              </code>
+              <Button size="sm" variant="outline" className="h-7 gap-1 text-xs shrink-0" onClick={copyPaymentWebhookUrl}>
+                {copiedRzp ? <><CheckCircle2 className="h-3 w-3 text-green-500" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
+              </Button>
+            </div>
+          </div>
+
           <Button size="sm" onClick={() => void handleSaveRzp()} disabled={savingRzp || !keyId}>
             {savingRzp ? 'Saving…' : 'Save Razorpay Keys'}
           </Button>

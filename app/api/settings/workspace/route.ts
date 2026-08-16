@@ -30,6 +30,9 @@ export async function GET(request: NextRequest) {
     if (safeSettings.razorpay_key_secret) {
       safeSettings.razorpay_key_secret = '••••••••';
     }
+    if (safeSettings.razorpay_webhook_secret) {
+      safeSettings.razorpay_webhook_secret = '••••••••';
+    }
 
     return NextResponse.json({ workspace: { ...data, settings: safeSettings } });
   } catch (error) {
