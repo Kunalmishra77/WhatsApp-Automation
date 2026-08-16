@@ -7,3 +7,4 @@ export { DisplayHeading } from './DisplayHeading';
 export { FeatureCard } from './FeatureCard';
 export { StatBadge } from './StatBadge';
 export { CTABand } from './CTABand';
+export { FeaturePage, type FeaturePageProps, type FeaturePageSection } from './FeaturePage';
