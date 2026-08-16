@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
-import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown, Bot, BotOff, Sparkles, Wand2, GitMerge, RefreshCw, FileText, Tag, Download } from 'lucide-react';
+import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown, ChevronLeft, Bot, BotOff, Sparkles, Wand2, GitMerge, RefreshCw, FileText, Tag, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { useWorkspaceStore } from '@/store/workspace.store';
@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 interface ConversationHeaderProps {
   conversation: ConversationWithContact;
   panelToggle?: React.ReactNode;
+  onBack?: () => void;
 }
 
 interface WorkspaceMember {
@@ -44,7 +45,7 @@ const STATUS_BADGE: Record<string, string> = {
   snoozed:  'bg-gray-100 text-gray-500',
 };
 
-export function ConversationHeader({ conversation, panelToggle }: ConversationHeaderProps) {
+export function ConversationHeader({ conversation, panelToggle, onBack }: ConversationHeaderProps) {
   const queryClient = useQueryClient();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
@@ -176,6 +177,19 @@ export function ConversationHeader({ conversation, panelToggle }: ConversationHe
 
   return (
     <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-4 overflow-hidden">
+      {/* Mobile drill-down: back to the conversation list (clears selection). Hidden on lg+. */}
+      {onBack && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="-ml-1 h-8 w-8 shrink-0 lg:hidden"
+          onClick={onBack}
+          aria-label="Back to conversations"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </Button>
+      )}
+
       {/* Left: contact info + status badge */}
       <div className="flex items-center gap-2.5 min-w-0 flex-1">
         <Avatar className="h-8 w-8 shrink-0">

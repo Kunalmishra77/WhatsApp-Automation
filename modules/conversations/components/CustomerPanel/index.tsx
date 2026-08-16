@@ -16,7 +16,7 @@ import { useWorkspaceStore } from '@/store/workspace.store';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
-interface CustomerPanelProps { conversationId: string; }
+interface CustomerPanelProps { conversationId: string; className?: string; }
 
 async function fetchContactId(conversationId: string): Promise<string | null> {
   const supabase = createClient() as any;
@@ -44,7 +44,7 @@ const ORDER_STATUS_COLOR: Record<string, string> = {
   cancelled:        'bg-red-100 text-red-700',
 };
 
-export function CustomerPanel({ conversationId }: CustomerPanelProps) {
+export function CustomerPanel({ conversationId, className }: CustomerPanelProps) {
   const workspaceId  = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
   const queryClient  = useQueryClient();
   const [noteText, setNoteText] = useState('');
@@ -85,7 +85,7 @@ export function CustomerPanel({ conversationId }: CustomerPanelProps) {
 
   if (isLoading || !data) {
     return (
-      <div className="w-72 shrink-0 border-l border-border bg-card p-4 space-y-3">
+      <div className={cn('w-72 shrink-0 border-l border-border bg-card p-4 space-y-3', className)}>
         <Skeleton className="h-10 w-10 rounded-full" />
         <Skeleton className="h-4 w-32" />
         <Skeleton className="h-3 w-24" />
@@ -110,7 +110,7 @@ export function CustomerPanel({ conversationId }: CustomerPanelProps) {
   const customFields = (contact.custom_fields as Record<string, unknown> | null) ?? {};
 
   return (
-    <ScrollArea className="w-72 shrink-0 border-l border-border bg-card">
+    <ScrollArea className={cn('w-72 shrink-0 border-l border-border bg-card', className)}>
       <div className="p-4 space-y-4">
         {/* Contact header */}
         <div className="flex items-start gap-3">

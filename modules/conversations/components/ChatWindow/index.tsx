@@ -18,9 +18,10 @@ import { isToday, isYesterday, format } from 'date-fns';
 interface ChatWindowProps {
   conversationId: string;
   panelToggle?: React.ReactNode;
+  onBack?: () => void;
 }
 
-export function ChatWindow({ conversationId, panelToggle }: ChatWindowProps) {
+export function ChatWindow({ conversationId, panelToggle, onBack }: ChatWindowProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
@@ -58,7 +59,7 @@ export function ChatWindow({ conversationId, panelToggle }: ChatWindowProps) {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <ConversationHeader conversation={conversation} panelToggle={panelToggle} />
+      <ConversationHeader conversation={conversation} panelToggle={panelToggle} onBack={onBack} />
 
       {/* WhatsApp 24-hour session warning */}
       {!isLoading && !sessionOpen && (
