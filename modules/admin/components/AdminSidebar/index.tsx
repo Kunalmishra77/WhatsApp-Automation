@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Smartphone, TrendingUp,
   Ticket, Activity, Settings, ChevronRight, Brain,
-  ShieldCheck, BarChart3, Megaphone, Wallet, CreditCard,
+  ShieldCheck, BarChart3, Megaphone, Wallet, CreditCard, Inbox,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -29,6 +29,7 @@ const NAV_SECTIONS = [
   {
     label: 'Operations',
     items: [
+      { label: 'Client Inboxes',   href: '/admin/inboxes',        icon: Inbox           },
       { label: 'Analytics',        href: '/admin/analytics',      icon: BarChart3       },
       { label: 'Communications',   href: '/admin/communications', icon: Megaphone       },
       { label: 'Support',          href: '/admin/support',        icon: Ticket          },
