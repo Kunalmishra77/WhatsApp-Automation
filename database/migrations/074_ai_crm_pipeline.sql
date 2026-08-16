@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS public.lead_stage_history (
   source VARCHAR(10) NOT NULL CHECK (source IN ('ai','manual')),
   reason TEXT,
   confidence INTEGER,
-  actor_id UUID REFERENCES auth.users(id),
+  actor_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -35,12 +35,9 @@ CREATE INDEX IF NOT EXISTS idx_leads_ai_classified_at
 
 ALTER TABLE public.lead_stage_history ENABLE ROW LEVEL SECURITY;
 
--- Mirror the workspace-isolation pattern from 049_assignment_isolation_rls.sql.
--- Reads for members of the workspace; writes come via the admin client (RLS-bypassing).
+-- Mirror the workspace-isolation pattern used repo-wide (e.g. 002_core_domain.sql,
+-- 058_tasks.sql): reads for members of the workspace via the is_workspace_member()
+-- helper. Writes come via the admin client (RLS-bypassing).
 DROP POLICY IF EXISTS lead_stage_history_workspace_isolation ON public.lead_stage_history;
 CREATE POLICY lead_stage_history_workspace_isolation ON public.lead_stage_history
-  FOR SELECT USING (
-    workspace_id IN (
-      SELECT workspace_id FROM public.workspace_members WHERE user_id = auth.uid()
-    )
-  );
+  FOR SELECT USING (public.is_workspace_member(workspace_id));
