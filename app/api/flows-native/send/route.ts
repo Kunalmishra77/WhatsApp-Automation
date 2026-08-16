@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
           flow_id: form.meta_flow_id,
           flow_cta: cta ?? 'Open Form',
           flow_action: 'navigate',
-          flow_action_payload: { screen: template.firstScreen },
+          flow_action_payload: { screen: template.firstScreen, data: { flow_token: flowToken } },
         },
       },
     };
