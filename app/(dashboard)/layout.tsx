@@ -58,6 +58,7 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
 
   if (ws?.onboarding_complete === false) redirect('/onboarding');
   if (ws?.is_active === false) {
+    if (ws?.subscription_status === 'incomplete') redirect('/onboarding');
     redirect(ws?.subscription_status === 'pending_approval'
       ? '/pending-approval'
       : '/payment-required');
