@@ -531,6 +531,32 @@ async function handleIncomingMessage(
   }
   // ─────────────────────────────────────────────────────────────────────────────
 
+  // ── Inbound cart order (Meta `order` message type) ──────────────────────────
+  // Customer checked out a cart from a product-list message. Capture line items,
+  // persist an order, log a thread summary and acknowledge. Fully fail-open: any
+  // error is swallowed so the webhook / reply pipeline can never break — and an
+  // order message NEVER falls through to the generic AI auto-reply below.
+  if (msg.type === 'order') {
+    try {
+      await handleInboundOrder(
+        supabase,
+        msg,
+        workspaceId,
+        contact.id,
+        conversation.id,
+        waId,
+        customerName,
+        phoneNumberId,
+        ws.access_token ?? undefined,
+      );
+    } catch (e) {
+      console.error('[Webhook] Inbound order handling failed (fail-open):', e);
+    }
+    // Short-circuit — order messages are handled here, never by the AI reply path.
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // ── Non-blocking language detection for contact ────────────────────────────
   if (content && content.length > 5) {
     const _contactId = contactId;
@@ -1776,6 +1802,149 @@ async function handleOptInOut(
   return null;
 }
 
+// Renders a currency amount with a friendly symbol for INR, code otherwise.
+function formatOrderAmount(amount: number, currency: string): string {
+  const rounded = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+  return currency === 'INR' ? `₹${rounded}` : `${currency} ${rounded}`;
+}
+
+// Handles an inbound `order` message (cart checkout from a product-list message).
+// Resolves each product_retailer_id against the workspace catalog cache, persists an
+// order, links it to the conversation, logs an internal thread summary and sends a
+// brief acknowledgment. Every branch is best-effort; the caller wraps this in try/catch.
+async function handleInboundOrder(
+  supabase: AdminClient,
+  msg: WAMessage,
+  workspaceId: string,
+  contactId: string,
+  conversationId: string,
+  contactPhone: string,
+  customerName: string,
+  phoneNumberId: string,
+  accessToken: string | undefined,
+): Promise<void> {
+  const db = supabase as any;
+  const items = Array.isArray(msg.order?.product_items) ? msg.order!.product_items! : [];
+
+  if (items.length === 0) {
+    console.warn(`[InboundOrder] Empty product_items for ${contactPhone} — nothing to record`);
+    return;
+  }
+
+  // Resolve retailer_ids → product names via the workspace catalog cache
+  const retailerIds = Array.from(
+    new Set(items.map((it) => String(it.product_retailer_id)).filter(Boolean)),
+  );
+  const catalogMap = new Map<string, { name: string }>();
+  if (retailerIds.length > 0) {
+    const { data: catRows } = await db
+      .from('catalog_products')
+      .select('retailer_id, name')
+      .eq('workspace_id', workspaceId)
+      .in('retailer_id', retailerIds);
+    for (const r of (catRows ?? []) as Array<{ retailer_id: string; name: string }>) {
+      catalogMap.set(String(r.retailer_id), { name: r.name });
+    }
+  }
+
+  // Compute total + a readable "2× Product A, 1× Product B" summary.
+  // Falls back to the retailer_id + payload item_price when a product isn't cached.
+  let totalAmount = 0;
+  let currency = 'INR';
+  const summaryParts: string[] = [];
+  for (const it of items) {
+    const rid = String(it.product_retailer_id);
+    const qty = Number(it.quantity) || 0;
+    const price = Number(it.item_price) || 0;
+    if (it.currency) currency = String(it.currency);
+    totalAmount += qty * price;
+    const name = catalogMap.get(rid)?.name ?? rid;
+    summaryParts.push(`${qty}× ${name}`);
+  }
+  const itemsSummary = summaryParts.join(', ');
+
+  // Unique, human-scannable order reference
+  const orderRef = `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+
+  // Persist the order, linked to the conversation for revenue attribution
+  const { data: orderRow, error: orderErr } = await db
+    .from('orders')
+    .insert({
+      workspace_id:    workspaceId,
+      contact_id:      contactId,
+      conversation_id: conversationId,
+      order_ref:       orderRef,
+      status:          'pending',
+      customer_name:   customerName,
+      items_summary:   itemsSummary,
+      total_amount:    totalAmount,
+      currency,
+      notes:           `Placed via WhatsApp cart checkout (catalog ${msg.order?.catalog_id ?? 'unknown'})`,
+    })
+    .select('id, order_ref')
+    .single();
+
+  if (orderErr) {
+    console.error('[InboundOrder] Failed to insert order:', orderErr.message);
+    // Keep going — still try to surface the order to the agent in the thread below.
+  }
+
+  // Log an internal thread summary so the agent sees the order inline.
+  // internal_note + sender_type 'system' keeps it out of lead-scoring triggers.
+  const summaryLine = `🛒 New order ${orderRow?.order_ref ?? orderRef}: ${itemsSummary} — Total ${formatOrderAmount(totalAmount, currency)}`;
+  await db.from('messages').insert({
+    conversation_id: conversationId,
+    workspace_id:    workspaceId,
+    sender_type:     'system',
+    sender_id:       null,
+    direction:       'outbound',
+    type:            'internal_note',
+    content:         summaryLine,
+    status:          'delivered',
+    metadata: {
+      order_id:      orderRow?.id ?? null,
+      order_ref:     orderRow?.order_ref ?? orderRef,
+      total_amount:  totalAmount,
+      currency,
+      catalog_id:    msg.order?.catalog_id ?? null,
+      product_items: items,
+    } as Record<string, unknown>,
+  });
+
+  // Keep the conversation preview in sync with the latest activity.
+  await db
+    .from('conversations')
+    .update({ last_message: summaryLine, last_message_at: new Date().toISOString() })
+    .eq('id', conversationId);
+
+  // Brief customer acknowledgment (best-effort — never blocks the record above).
+  if (phoneNumberId && accessToken) {
+    try {
+      await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken.replace(/﻿/g, '').trim()}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: contactPhone,
+          type: 'text',
+          text: {
+            preview_url: false,
+            body: `Thanks for your order! 🛒\n\n${itemsSummary}\nTotal: ${formatOrderAmount(totalAmount, currency)}\n\nOur team will confirm shortly.`,
+          },
+        }),
+      });
+    } catch (waErr) {
+      console.error('[InboundOrder] Acknowledgment send failed (non-fatal):', waErr);
+    }
+  }
+
+  console.log(`[InboundOrder] Captured ${orderRow?.order_ref ?? orderRef} for ${contactPhone}: ${itemsSummary}`);
+}
+
 async function checkAndHandleOrderQuery(
   supabase: AdminClient,
   contactPhone: string,
@@ -2108,6 +2277,10 @@ function extractMessageContent(msg: WAMessage): string {
     case 'document': return msg.document?.filename ?? '[Document]';
     case 'location': return `[Location: ${msg.location?.latitude},${msg.location?.longitude}]`;
     case 'sticker': return '[Sticker]';
+    case 'order': {
+      const count = (msg.order?.product_items ?? []).reduce((n, it) => n + (Number(it.quantity) || 0), 0);
+      return `[Cart order: ${count} item${count === 1 ? '' : 's'}]`;
+    }
     case 'button': return `[Tapped button: "${msg.button?.text ?? 'button'}"]`;
     case 'interactive': {
       const ir = msg.interactive;
@@ -2169,6 +2342,17 @@ interface WAMessage {
   interactive?: WAInteractiveReply;
   // Template quick-reply button tap (type = "button")
   button?: { text: string; payload?: string };
+  // Cart checkout from a product-list message (type = "order")
+  order?: {
+    catalog_id?: string;
+    text?: string;
+    product_items?: Array<{
+      product_retailer_id: string;
+      quantity: number | string;
+      item_price: number | string;
+      currency?: string;
+    }>;
+  };
   // Click-to-WhatsApp ad referral — present when message originates from a Meta ad
   referral?: {
     headline?:    string;
