@@ -78,6 +78,13 @@ interface CheckoutButtonProps {
   disabled?: boolean;
   /** Called once the payment is confirmed (manual: server-verified; auto: Checkout handler fired, webhook finalizes async). */
   onSuccess: () => void;
+  /**
+   * Optional: called (in addition to the built-in toast) when checkout could not even be
+   * started — script/gateway failure before Razorpay's modal opens. Lets callers surface
+   * their own inline copy (e.g. "payments aren't live yet") alongside the toast. Not fired
+   * for post-payment verification failures — those are genuine errors, not a pending-setup state.
+   */
+  onError?: (message: string) => void;
 }
 
 // Pay Now (manual) / Enable auto-pay button. Loads Checkout.js on demand, asks
@@ -96,6 +103,7 @@ export function CheckoutButton({
   className,
   disabled,
   onSuccess,
+  onError,
 }: CheckoutButtonProps) {
   const [busy, setBusy] = useState(false);
 
@@ -107,7 +115,9 @@ export function CheckoutButton({
       await loadRazorpayScript();
       const Razorpay = getRazorpayCtor();
       if (!Razorpay) {
-        toast.error('Could not load the payment window. Check your connection and try again.');
+        const msg = 'Could not load the payment window. Check your connection and try again.';
+        toast.error(msg);
+        onError?.(msg);
         return;
       }
 
@@ -119,17 +129,23 @@ export function CheckoutButton({
       const checkoutData = (await checkoutRes.json()) as CheckoutResponse;
 
       if (!checkoutRes.ok || 'error' in checkoutData) {
-        toast.error(('error' in checkoutData && checkoutData.error) || 'Could not start checkout');
+        const msg = ('error' in checkoutData && checkoutData.error) || 'Could not start checkout';
+        toast.error(msg);
+        onError?.(msg);
         return;
       }
 
       // Guard: never open Checkout without a resolved order/subscription to charge against.
       if (checkoutData.mode === 'manual' && !checkoutData.order_id) {
-        toast.error('Payment order was not created');
+        const msg = 'Payment order was not created';
+        toast.error(msg);
+        onError?.(msg);
         return;
       }
       if (checkoutData.mode === 'auto' && !checkoutData.subscription_id) {
-        toast.error('Subscription was not created');
+        const msg = 'Subscription was not created';
+        toast.error(msg);
+        onError?.(msg);
         return;
       }
 
@@ -188,7 +204,9 @@ export function CheckoutButton({
       modalOpened = true;
       rzp.open();
     } catch {
-      toast.error('Something went wrong starting checkout');
+      const msg = 'Something went wrong starting checkout';
+      toast.error(msg);
+      onError?.(msg);
     } finally {
       if (!modalOpened) setBusy(false);
     }
