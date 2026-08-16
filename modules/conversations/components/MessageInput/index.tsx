@@ -20,7 +20,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Send, StickyNote, LayoutList, IndianRupee, Sparkles, Loader2, X, ShoppingBag, Paperclip, Smile, ChevronUp } from 'lucide-react';
+import { Send, StickyNote, LayoutList, IndianRupee, Sparkles, Loader2, X, ShoppingBag, Paperclip, Smile, ChevronUp, ClipboardList } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,6 +49,9 @@ export function MessageInput({ conversationId }: MessageInputProps) {
   const [payDescription, setPayDescription] = useState('');
   const [payCurrency, setPayCurrency] = useState('INR');
   const [isSendingPayment, setIsSendingPayment] = useState(false);
+  const [isSendingForm, setIsSendingForm]       = useState(false);
+  const [isFormPickerOpen, setIsFormPickerOpen] = useState(false);
+  const [formOptions, setFormOptions]           = useState<Array<{ key: string; name: string }>>([]);
   const [isCatalogOpen, setIsCatalogOpen]       = useState(false);
   const [catalogId, setCatalogId]               = useState('');
   const [productId, setProductId]               = useState('');
@@ -242,6 +245,47 @@ export function MessageInput({ conversationId }: MessageInputProps) {
     }
   };
 
+  const handleSendForm = async (templateKey: string) => {
+    setIsSendingForm(true);
+    try {
+      const res = await fetch('/api/flows-native/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId, templateKey }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? 'Failed to send form');
+      toast.success('Form sent');
+      setIsFormPickerOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send form');
+    } finally {
+      setIsSendingForm(false);
+    }
+  };
+
+  const openSendFormMenu = async () => {
+    if (!workspaceId) return;
+    try {
+      const res = await fetch(`/api/flows-native?workspaceId=${workspaceId}`);
+      if (!res.ok) throw new Error('Failed to load forms');
+      const data = await res.json() as { published?: Array<{ template_key: string; name: string; status: string; meta_flow_id: string | null }> };
+      const published = (data.published ?? []).filter((p) => p.status === 'published' && p.meta_flow_id);
+      if (published.length === 0) {
+        toast.error('No forms published — publish one in WhatsApp Forms first.');
+        return;
+      }
+      if (published.length === 1) {
+        void handleSendForm(published[0]!.template_key);
+        return;
+      }
+      setFormOptions(published.map((p) => ({ key: p.template_key, name: p.name })));
+      setIsFormPickerOpen(true);
+    } catch {
+      toast.error('Failed to load forms');
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -432,6 +476,9 @@ export function MessageInput({ conversationId }: MessageInputProps) {
                 </DropdownMenuItem>
                 <DropdownMenuItem className="gap-2 text-xs" onClick={() => setIsPaymentOpen(true)}>
                   <IndianRupee className="h-3.5 w-3.5" /> Payment link
+                </DropdownMenuItem>
+                <DropdownMenuItem className="gap-2 text-xs" onClick={() => void openSendFormMenu()}>
+                  <ClipboardList className="h-3.5 w-3.5" /> Send form
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -647,6 +694,29 @@ export function MessageInput({ conversationId }: MessageInputProps) {
                 {isSendingProduct ? 'Sending…' : sendMode === 'list' ? `Send ${selectedProducts.length || ''} Products` : 'Send Product'}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={isFormPickerOpen} onOpenChange={setIsFormPickerOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <ClipboardList className="h-5 w-5 text-brand-500" />
+              Send a Form
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            {formOptions.map((f) => (
+              <button
+                key={f.key}
+                onClick={() => void handleSendForm(f.key)}
+                disabled={isSendingForm}
+                className="w-full flex items-center justify-between rounded-lg border border-border px-3 py-2.5 text-left text-sm hover:border-brand-400 hover:bg-brand-50/50 transition-colors disabled:opacity-50"
+              >
+                {f.name}
+                {isSendingForm ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5 text-muted-foreground" />}
+              </button>
+            ))}
           </div>
         </DialogContent>
       </Dialog>

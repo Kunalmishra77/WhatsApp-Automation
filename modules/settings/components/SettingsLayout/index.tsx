@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   User, Building2, MessageSquare, Shield, Clock,
-  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText, Camera, CalendarCheck, Megaphone, Trash2, CreditCard,
+  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText, Camera, CalendarCheck, Megaphone, Trash2, CreditCard, ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProfileSettings } from '../ProfileSettings';
@@ -31,6 +31,7 @@ import { CatalogSettings } from '../CatalogSettings';
 import { AutomationTriggersSettings } from '../AutomationTriggersSettings';
 import { ChatWidgetSettings } from '../ChatWidgetSettings';
 import { WaFormsSettings } from '../WaFormsSettings';
+import { WhatsAppForms } from '@/modules/flows-native/components/WhatsAppForms';
 import { InstagramSettings } from '../InstagramSettings';
 import { GoogleCalendarSettings } from '../GoogleCalendarSettings';
 import { MetaAdsSettings } from '../MetaAdsSettings';
@@ -38,7 +39,7 @@ import { RetentionSettings } from '../RetentionSettings';
 
 type SettingKey =
   | 'profile' | 'workspace' | 'branding' | 'billing'
-  | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library' | 'chat-widget' | 'wa-forms'
+  | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library' | 'chat-widget' | 'wa-forms' | 'whatsapp-forms'
   | 'instagram' | 'meta-ads'
   | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers' | 'auto-triggers'
   | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models' | 'google-calendar'
@@ -67,6 +68,7 @@ const NAV_SECTIONS: NavSection[] = [
       { key: 'quick-replies',  label: 'Quick Replies',  icon: MessagesSquare },
       { key: 'qr-code',        label: 'QR Code',        icon: Layers },
       { key: 'catalog',        label: 'Product Catalog', icon: ShoppingBag },
+      { key: 'whatsapp-forms', label: 'WhatsApp Forms',  icon: ClipboardList },
       { key: 'chat-widget',    label: 'Chat Widget',     icon: MessageSquare },
       { key: 'media-library',  label: 'Media Library',  icon: MessagesSquare },
       { key: 'instagram',      label: 'Instagram DM',   icon: Camera },
@@ -126,6 +128,7 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'api-keys':       <ApiKeys />,
   'ai-models':      <LlmSettings />,
   'catalog':        <CatalogSettings />,
+  'whatsapp-forms': <WhatsAppForms />,
   'auto-triggers':  <AutomationTriggersSettings />,
   'chat-widget':    <ChatWidgetSettings />,
   'wa-forms':       <WaFormsSettings />,
