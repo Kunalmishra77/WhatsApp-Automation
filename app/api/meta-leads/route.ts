@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/services/supabase/server';
+import { paginateAll } from '@/lib/export-stream';
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -93,6 +94,61 @@ export async function GET(req: NextRequest) {
     .contains('labels', ['Meta Ad Lead'])
     .gte('created_at', `${monthStr}-01`);
 
+  // ── Per-ad breakdown (Top Ads) ────────────────────────────────────────────
+  // Uncapped: paginate through ALL ad-lead conversations (not a single capped
+  // select) and group by ad_id/headline in JS, since the ad fields live in a
+  // JSONB column that PostgREST cannot GROUP BY server-side.
+  type AdConv = { id: string; meta: { ad_source?: { ad_id?: string; headline?: string } } | null };
+  const adConvs: AdConv[] = [];
+  for await (const pageRows of paginateAll<AdConv>((offset, pageSize) =>
+    (supabase as any)
+      .from('conversations')
+      .select('id, meta')
+      .eq('workspace_id', workspaceId)
+      .contains('labels', ['Meta Ad Lead'])
+      .order('id', { ascending: true })
+      .range(offset, offset + pageSize - 1),
+  )) {
+    adConvs.push(...pageRows);
+  }
+
+  // Revenue per ad: sum converted-lead value, joined by conversation_id. Uncapped
+  // fetch of this workspace's converted leads, then mapped onto the ad conversations.
+  const convValue = new Map<string, number>();
+  for await (const pageRows of paginateAll<{ conversation_id: string | null; value: number | null }>((offset, pageSize) =>
+    (supabase as any)
+      .from('leads')
+      .select('conversation_id, value')
+      .eq('workspace_id', workspaceId)
+      .eq('stage', 'converted')
+      .not('conversation_id', 'is', null)
+      .order('conversation_id', { ascending: true })
+      .range(offset, offset + pageSize - 1),
+  )) {
+    for (const l of pageRows) {
+      if (!l.conversation_id) continue;
+      convValue.set(l.conversation_id, (convValue.get(l.conversation_id) ?? 0) + (l.value ?? 0));
+    }
+  }
+
+  const adMap = new Map<string, { ad_id: string | null; headline: string | null; lead_count: number; revenue: number }>();
+  for (const c of adConvs) {
+    const ad = c.meta?.ad_source ?? {};
+    const adId = ad.ad_id ?? null;
+    const headline = ad.headline ?? null;
+    const key = adId ?? headline ?? 'unknown';
+    const entry = adMap.get(key) ?? { ad_id: adId, headline, lead_count: 0, revenue: 0 };
+    entry.lead_count += 1;
+    entry.revenue += convValue.get(c.id) ?? 0;
+    // Prefer a non-null headline if a later row has one
+    if (!entry.headline && headline) entry.headline = headline;
+    adMap.set(key, entry);
+  }
+
+  const topAds = Array.from(adMap.values())
+    .sort((a, b) => b.lead_count - a.lead_count || b.revenue - a.revenue)
+    .slice(0, 50);
+
   return NextResponse.json({
     leads,
     total:      count ?? 0,
@@ -103,5 +159,6 @@ export async function GET(req: NextRequest) {
       today:      todayCount ?? 0,
       this_month: monthCount ?? 0,
     },
+    topAds,
   });
 }

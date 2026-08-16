@@ -26,6 +26,13 @@ type Lead = {
   first_message_at: string;
 };
 
+type TopAd = {
+  ad_id: string | null;
+  headline: string | null;
+  lead_count: number;
+  revenue: number;
+};
+
 export default function MetaLeadsPage() {
   useRequirePageRole('meta-leads');
   const router = useRouter();
@@ -48,7 +55,9 @@ export default function MetaLeadsPage() {
   });
 
   const leads: Lead[]  = data?.leads ?? [];
+  const topAds: TopAd[] = data?.topAds ?? [];
   const kpis           = data?.kpis  ?? {};
+  const hasRevenue = topAds.some((a) => a.revenue > 0);
   const totalPages: number = data?.totalPages ?? 1;
   const filteredTotal: number = data?.total ?? 0;
   const hasFilters = platform !== 'all' || status !== 'all' || !!from || !!to;
@@ -106,6 +115,53 @@ export default function MetaLeadsPage() {
           </div>
         ))}
       </div>
+
+      {/* Top Ads — per-ad breakdown, most leads first */}
+      {(isLoading || topAds.length > 0) && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-gray-100">
+            <TrendingUp className="h-4 w-4 text-orange-500" />
+            <h2 className="text-sm font-semibold text-gray-900">Top Ads</h2>
+            <span className="text-xs text-gray-400">by leads generated</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100">
+                  <th className="text-left px-5 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Ad</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Leads</th>
+                  {hasRevenue && (
+                    <th className="text-right px-5 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Value</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading && Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i} className="border-b border-gray-50">
+                    {Array.from({ length: hasRevenue ? 3 : 2 }).map((__, j) => (
+                      <td key={j} className="px-4 py-2.5"><Skeleton className="h-4 w-full" /></td>
+                    ))}
+                  </tr>
+                ))}
+                {!isLoading && topAds.map((ad, i) => (
+                  <tr key={ad.ad_id ?? ad.headline ?? i} className="border-b border-gray-50">
+                    <td className="px-5 py-2.5 max-w-[280px]">
+                      <p className="text-xs font-medium text-gray-800 truncate">{ad.headline ?? 'Unattributed'}</p>
+                      {ad.ad_id && <p className="text-[11px] text-gray-400 truncate">ID: {ad.ad_id}</p>}
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-xs font-semibold text-gray-900 tabular-nums">{ad.lead_count}</td>
+                    {hasRevenue && (
+                      <td className="px-5 py-2.5 text-right text-xs font-medium text-emerald-600 tabular-nums">
+                        {ad.revenue > 0 ? `₹${ad.revenue.toLocaleString('en-IN')}` : '—'}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Filtered result count — only shown when any filter is active */}
       {hasFilters && (

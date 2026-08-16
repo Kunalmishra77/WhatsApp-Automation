@@ -47,8 +47,11 @@ export async function POST(request: NextRequest, { params }: Params) {
       { role: 'user' as const, content: `Conversation transcript:\n\n${transcript}` },
     ];
 
+    const { resolveWorkspaceModel } = await import('@/lib/ai-model');
+    const model = await resolveWorkspaceModel(workspaceId);
+
     const summaryContent = await callAI(summarizeMessages, {
-      model: process.env.AI_MODEL ?? 'openai/gpt-oss-120b:free',
+      model,
       maxTokens: 200,
       temperature: 0.3,
     });

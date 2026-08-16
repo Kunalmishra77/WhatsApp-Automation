@@ -9,13 +9,13 @@ interface MetaConv {
   id: string;
   status: string | null;
   created_at: string | null;
-  meta: { ad_source?: { platform?: string; headline?: string; body?: string; ad_id?: string; source?: string } } | null;
+  meta: { ad_source?: { platform?: string; headline?: string; body?: string; ad_id?: string; ctwa_clid?: string; source?: string } } | null;
   contact: { name?: string | null; phone?: string | null } | null;
   messages: Array<{ content?: string | null; direction?: string | null; created_at?: string | null }> | null;
 }
 
 const HEADERS = [
-  'Name', 'Phone', 'Platform', 'Ad Headline', 'Ad Body', 'Ad ID', 'Source',
+  'Name', 'Phone', 'Platform', 'Ad Headline', 'Ad Body', 'Ad ID', 'CTWA Click ID', 'Source',
   'First Message', 'Conversation Date', 'Status',
 ];
 
@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime())[0];
     return [
       row.contact?.name ?? '', row.contact?.phone ?? '', ad.platform ?? 'facebook',
-      ad.headline ?? '', ad.body ?? '', ad.ad_id ?? '', ad.source ?? '',
+      ad.headline ?? '', ad.body ?? '', ad.ad_id ?? '', ad.ctwa_clid ?? '', ad.source ?? '',
       firstMsg?.content ?? '', row.created_at?.slice(0, 10) ?? '', row.status ?? '',
     ];
   }, parts.join('_'));

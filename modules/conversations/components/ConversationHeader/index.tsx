@@ -49,7 +49,11 @@ export function ConversationHeader({ conversation, panelToggle, onBack }: Conver
   const queryClient = useQueryClient();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
-  const [summary, setSummary] = useState<string | null>(null);
+  // Hydrate from the last-saved summary so opening the popover shows it instantly
+  // (Regenerate still re-runs the AI). Falls back to null when never summarized.
+  const [summary, setSummary] = useState<string | null>(
+    ((conversation as any).ai_summary as string | null) ?? null,
+  );
   const [summaryOpen, setSummaryOpen] = useState(false);
 
   const assignAgent       = useAssignAgent();
@@ -92,6 +96,11 @@ export function ConversationHeader({ conversation, panelToggle, onBack }: Conver
   const name = contact?.name ?? contact?.phone ?? 'Unknown';
   const initials = name.slice(0, 2).toUpperCase();
 
+  // CTWA ad attribution — meta is jsonb and may be absent; read defensively.
+  const adSource = ((conversation as any).meta?.ad_source ?? null) as
+    | { headline?: string | null; body?: string | null } | null;
+  const adHeadline = adSource?.headline?.trim() || adSource?.body?.trim() || null;
+
   // Fetch workspace members via server API (admin client bypasses profiles RLS)
   useEffect(() => {
     if (!workspaceId) return;
@@ -100,6 +109,14 @@ export function ConversationHeader({ conversation, panelToggle, onBack }: Conver
       .then((d) => { if (d?.members) setMembers(d.members); })
       .catch(() => {});
   }, [workspaceId]);
+
+  // Re-hydrate the saved summary when switching conversations (this component
+  // instance is reused across conversations, so the useState initializer alone
+  // would leave a stale summary from the previous chat).
+  useEffect(() => {
+    setSummary(((conversation as any).ai_summary as string | null) ?? null);
+    setSummaryOpen(false);
+  }, [conversation.id]);
 
   // Find assigned agent name
   const assignedMember = members.find((m) => m.user_id === conversation.assigned_agent_id);
@@ -207,6 +224,14 @@ export function ConversationHeader({ conversation, panelToggle, onBack }: Conver
             ))}
             {currentLabels.length > 2 && (
               <span className="text-[10px] text-muted-foreground shrink-0">+{currentLabels.length - 2}</span>
+            )}
+            {adHeadline && (
+              <span
+                className="shrink-0 max-w-[160px] truncate rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-700"
+                title={`Came from ad: ${adHeadline}`}
+              >
+                📢 Ad: {adHeadline}
+              </span>
             )}
           </div>
         </div>
