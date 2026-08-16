@@ -189,15 +189,27 @@ async function handlePaidEvent(
       .update({ last_message: confirmLine, last_message_at: paidAt })
       .eq('id', msgRow.conversation_id);
 
-    // Tenant-customer order (created by the inbound-order handler) — mark it paid
-    // by advancing its status to 'confirmed'. Strictly the tenant's own orders
-    // table; never SaaS billing.
-    await db
+    // Tenant-customer order (from the inbound-order handler) — advance to 'confirmed'
+    // ONLY when it's unambiguous: exactly one pending order on this conversation.
+    // Payment links carry no order-id linkage, so with 0 or >1 pending orders we leave
+    // them for the agent to confirm manually (the "Payment received" note above already
+    // surfaces the payment) rather than risk marking the wrong order paid. Strictly the
+    // tenant's own orders table; never SaaS billing.
+    const { data: pendingOrders } = await db
       .from('orders')
-      .update({ status: 'confirmed', updated_at: paidAt })
+      .select('id')
       .eq('workspace_id', workspaceId)
       .eq('conversation_id', msgRow.conversation_id)
       .eq('status', 'pending');
+    if (pendingOrders?.length === 1) {
+      await db
+        .from('orders')
+        .update({ status: 'confirmed', updated_at: paidAt })
+        .eq('id', pendingOrders[0].id)
+        .eq('workspace_id', workspaceId);
+    } else if ((pendingOrders?.length ?? 0) > 1) {
+      console.log('[PaymentsWebhook] multiple pending orders on conversation', msgRow.conversation_id, '— not auto-confirming (ambiguous)');
+    }
   }
 
   console.log('[PaymentsWebhook] payment_link marked paid', linkId, 'workspace', workspaceId);

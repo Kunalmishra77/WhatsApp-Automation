@@ -77,10 +77,14 @@ export async function PATCH(request: NextRequest) {
 
       const existingSettings = (existing?.settings ?? {}) as Record<string, unknown>;
 
-      // If incoming razorpay_key_secret is masked, preserve existing
+      // If an incoming secret is the masked placeholder, preserve the existing value
+      // (the GET response masks both, so a plain save-through must not clobber them).
       const incoming = { ...body.settings };
       if (incoming.razorpay_key_secret === '••••••••') {
         delete incoming.razorpay_key_secret;
+      }
+      if (incoming.razorpay_webhook_secret === '••••••••') {
+        delete incoming.razorpay_webhook_secret;
       }
 
       updatePayload.settings = { ...existingSettings, ...incoming } as Json;
