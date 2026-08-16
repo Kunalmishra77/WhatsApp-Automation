@@ -19,6 +19,7 @@ import { getWorkspaceByPhoneNumberId, getWorkspaceById } from '@/lib/workspace-c
 import { webhookIdemKey, isWebhookProcessed, markWebhookProcessed } from '@/lib/webhook-idempotency';
 import { decideSpam } from '@/lib/spam';
 import { getBillingState } from '@/lib/billing-guard';
+import { parseNfmReply } from '@/lib/native-flows';
 
 // Node runtime (uses crypto + admin client); allow headroom for the inbound
 // auto-reply pipeline (AI call is internally bounded to ~25s of retries).
@@ -553,6 +554,33 @@ async function handleIncomingMessage(
       console.error('[Webhook] Inbound order handling failed (fail-open):', e);
     }
     // Short-circuit — order messages are handled here, never by the AI reply path.
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // ── Native Flow submission (Meta `nfm_reply` interactive message) ───────────
+  // Customer completed a non-endpoint WhatsApp Flow (e.g. a lead-capture form)
+  // and Meta delivered the submitted fields back as an nfm_reply. Correlate via
+  // flow_token, enrich the contact/lead, and post a thread summary. Fully
+  // fail-open: any error is swallowed so the webhook / reply pipeline can never
+  // break — and a flow reply NEVER falls through to the generic AI auto-reply.
+  if (msg.type === 'interactive' && msg.interactive?.type === 'nfm_reply') {
+    try {
+      await handleNativeFlowReply(
+        supabase,
+        msg,
+        workspaceId,
+        contact.id,
+        conversation.id,
+        waId,
+        customerName,
+        phoneNumberId,
+        ws.access_token ?? undefined,
+      );
+    } catch (e) {
+      console.error('[Webhook] Native flow reply handling failed (fail-open):', e);
+    }
+    // Short-circuit — flow replies are handled here, never by the AI reply path.
     return;
   }
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1945,6 +1973,201 @@ async function handleInboundOrder(
   console.log(`[InboundOrder] Captured ${orderRow?.order_ref ?? orderRef} for ${contactPhone}: ${itemsSummary}`);
 }
 
+async function handleNativeFlowReply(
+  supabase: AdminClient,
+  msg: WAMessage,
+  workspaceId: string,
+  contactId: string,
+  conversationId: string,
+  contactPhone: string,
+  customerName: string,
+  phoneNumberId: string,
+  accessToken: string | undefined,
+): Promise<void> {
+  const db = supabase as any;
+
+  const { flow_token, fields } = parseNfmReply(msg.interactive?.nfm_reply?.response_json ?? '');
+  if (!flow_token) {
+    console.warn('[NativeFlowReply] nfm_reply missing/invalid flow_token — cannot correlate, ignoring');
+    return;
+  }
+
+  // Look up the session — this is the source of truth for workspace/conversation/contact,
+  // not the caller-supplied ids (defense-in-depth: a bad or replayed payload should
+  // never let us write into the wrong workspace).
+  const { data: session, error: sessionErr } = await db
+    .from('flow_sessions_native')
+    .select('*')
+    .eq('flow_token', flow_token)
+    .maybeSingle();
+
+  if (sessionErr || !session) {
+    console.warn(`[NativeFlowReply] Unknown flow_token — no matching session: ${flow_token}`);
+    return;
+  }
+
+  const sessWorkspaceId    = session.workspace_id as string;
+  const sessConversationId = session.conversation_id as string | null;
+  const sessContactId      = session.contact_id as string | null;
+
+  if (sessWorkspaceId !== workspaceId) {
+    // Should never happen (the session was created for this same inbound contact's
+    // workspace) — log loudly but still trust the session, not the caller context.
+    console.warn(`[NativeFlowReply] workspace mismatch for flow_token=${flow_token}: session=${sessWorkspaceId} inbound=${workspaceId}`);
+  }
+
+  // ── Enrich the contact ──────────────────────────────────────────────────────
+  if (sessContactId) {
+    try {
+      const { data: contactRow } = await db
+        .from('contacts')
+        .select('name, phone, email')
+        .eq('id', sessContactId)
+        .eq('workspace_id', sessWorkspaceId)
+        .maybeSingle();
+
+      if (contactRow) {
+        const patch: Record<string, string> = {};
+        if (fields.full_name && (!contactRow.name || contactRow.name === contactRow.phone)) {
+          patch.name = fields.full_name;
+        }
+        if (fields.email) {
+          patch.email = fields.email;
+        }
+        if (Object.keys(patch).length > 0) {
+          await db
+            .from('contacts')
+            .update(patch)
+            .eq('id', sessContactId)
+            .eq('workspace_id', sessWorkspaceId);
+        }
+      }
+    } catch (e) {
+      console.error('[NativeFlowReply] Contact enrichment failed (non-fatal):', e);
+    }
+  }
+
+  // ── Readable summary of captured fields, e.g. "Name: Asha · Email: a@b.com" ──
+  const summaryLine = `📋 Form submitted — ${formatFlowFields(fields)}`;
+
+  // ── Enrich an existing lead, or create a minimal one for this contact ───────
+  if (sessContactId) {
+    try {
+      const { data: existingLead } = await db
+        .from('leads')
+        .select('id, notes')
+        .eq('workspace_id', sessWorkspaceId)
+        .eq('contact_id', sessContactId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingLead) {
+        const appendedNotes = existingLead.notes
+          ? `${existingLead.notes}\n\n${summaryLine}`
+          : summaryLine;
+        await db
+          .from('leads')
+          .update({ source: 'whatsapp_flow', notes: appendedNotes })
+          .eq('id', existingLead.id)
+          .eq('workspace_id', sessWorkspaceId);
+      } else {
+        const displayName = fields.full_name || customerName || contactPhone;
+        await db.from('leads').insert({
+          workspace_id:    sessWorkspaceId,
+          contact_id:      sessContactId,
+          conversation_id: sessConversationId,
+          title:           `Lead — ${displayName}`,
+          stage:           'new',
+          priority:        'medium',
+          source:          'whatsapp_flow',
+          notes:           summaryLine,
+          tags:            [],
+          custom_fields:   {},
+        });
+      }
+    } catch (e) {
+      console.error('[NativeFlowReply] Lead enrichment failed (non-fatal):', e);
+    }
+  }
+
+  // ── Post a thread summary + keep the conversation preview in sync ──────────
+  if (sessConversationId) {
+    await db.from('messages').insert({
+      conversation_id: sessConversationId,
+      workspace_id:    sessWorkspaceId,
+      sender_type:      'system',
+      sender_id:        null,
+      direction:        'outbound',
+      type:             'internal_note',
+      content:          summaryLine,
+      status:           'delivered',
+      metadata: {
+        flow_token,
+        template_key: session.template_key ?? null,
+        fields,
+      } as Record<string, unknown>,
+    });
+
+    await db
+      .from('conversations')
+      .update({ last_message: summaryLine, last_message_at: new Date().toISOString() })
+      .eq('id', sessConversationId);
+  }
+
+  // ── Mark the session complete ───────────────────────────────────────────────
+  await db
+    .from('flow_sessions_native')
+    .update({ status: 'completed', response: fields, completed_at: new Date().toISOString() })
+    .eq('flow_token', flow_token)
+    .eq('workspace_id', sessWorkspaceId);
+
+  // Brief customer acknowledgment (best-effort — never blocks the record above).
+  if (phoneNumberId && accessToken) {
+    try {
+      await fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken.replace(/﻿/g, '').trim()}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: contactPhone,
+          type: 'text',
+          text: {
+            preview_url: false,
+            body: "Thanks! We've received your details. 🙏",
+          },
+        }),
+      });
+    } catch (waErr) {
+      console.error('[NativeFlowReply] Acknowledgment send failed (non-fatal):', waErr);
+    }
+  }
+
+  console.log(`[NativeFlowReply] Captured flow submission for ${contactPhone} (flow_token=${flow_token})`);
+}
+
+// Builds a readable "Name: Asha · Phone: … · Email: … · Interest: …" summary from
+// captured nfm_reply fields — friendly labels for known keys, blanks omitted.
+function formatFlowFields(fields: Record<string, string>): string {
+  const labels: Record<string, string> = {
+    full_name: 'Name',
+    phone: 'Phone',
+    email: 'Email',
+    interest: 'Interest',
+  };
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(fields)) {
+    if (!value || !value.trim()) continue;
+    const label = labels[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    parts.push(`${label}: ${value}`);
+  }
+  return parts.length > 0 ? parts.join(' · ') : '(no fields captured)';
+}
+
 async function checkAndHandleOrderQuery(
   supabase: AdminClient,
   contactPhone: string,
@@ -2322,9 +2545,11 @@ interface WAContact {
 }
 
 interface WAInteractiveReply {
-  type: 'button_reply' | 'list_reply';
+  type: 'button_reply' | 'list_reply' | 'nfm_reply';
   button_reply?: { id: string; title: string };
   list_reply?: { id: string; title: string; description?: string };
+  // Native (non-endpoint) WhatsApp Flow completion — `response_json` is a JSON-encoded string.
+  nfm_reply?: { response_json?: string; name?: string };
 }
 
 interface WAMessage {
