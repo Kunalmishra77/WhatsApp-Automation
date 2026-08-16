@@ -20,14 +20,15 @@ export async function issueOtp(db: any, userId: string): Promise<string> {
   const code = generateOtp();
   const expiresAt = new Date(Date.now() + OTP_TTL_MS).toISOString();
 
-  await db.from('email_otps').delete().eq('user_id', userId);
-
-  await db.from('email_otps').insert({
-    user_id: userId,
-    code_hash: hashOtp(code),
-    expires_at: expiresAt,
-    attempts: 0,
-  });
+  await db.from('email_otps').upsert(
+    {
+      user_id: userId,
+      code_hash: hashOtp(code),
+      expires_at: expiresAt,
+      attempts: 0,
+    },
+    { onConflict: 'user_id' },
+  );
 
   return code;
 }
