@@ -213,11 +213,16 @@ export async function GET(request: NextRequest) {
     //      existing /api/analytics/overview computation exactly. Divide-by-zero guarded. ──
     const deliveryRateCur = outboundCur > 0 ? Math.round(((deliveredCur ?? 0) / outboundCur) * 100) : 0;
     const readRateCur     = outboundCur > 0 ? Math.round(((readCur ?? 0) / outboundCur) * 100) : 0;
-    const replyRateCur    = outboundCur > 0 ? Math.round((inboundCur / outboundCur) * 100) : 0;
+    // Reply rate = customer replies relative to what we sent, capped at 100%. Customers
+    // often send more messages than the business (multiple replies per outbound), so the
+    // raw inbound/outbound ratio can exceed 100% — which reads as a broken "rate". Cap it:
+    // ">= as many replies as messages sent" is full (100%) engagement. The true reply
+    // volume is still surfaced separately as the raw "Replies" count.
+    const replyRateCur    = outboundCur > 0 ? Math.min(100, Math.round((inboundCur / outboundCur) * 100)) : 0;
 
     const deliveryRatePrev = outboundPrev > 0 ? Math.round(((deliveredPrev ?? 0) / outboundPrev) * 100) : 0;
     const readRatePrev     = outboundPrev > 0 ? Math.round(((readPrev ?? 0) / outboundPrev) * 100) : 0;
-    const replyRatePrev    = outboundPrev > 0 ? Math.round((inboundPrev / outboundPrev) * 100) : 0;
+    const replyRatePrev    = outboundPrev > 0 ? Math.min(100, Math.round((inboundPrev / outboundPrev) * 100)) : 0;
 
     // ── 5. Leads — stage × temperature breakdown (range-scoped RPC; every row returned
     //      already falls within the window, so "total leads in range" is the row sum). ──
