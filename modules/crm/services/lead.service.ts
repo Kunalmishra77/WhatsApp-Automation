@@ -82,12 +82,19 @@ export async function updateLead(id: string, payload: LeadUpdate): Promise<LeadR
 }
 
 export async function updateLeadStage(id: string, stage: LeadStage): Promise<void> {
-  const supabase = createClient() as any;
-  const { error } = await supabase
-    .from('leads')
-    .update({ stage, updated_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) throw error;
+  // Routed through the PATCH API (admin client) rather than a direct table update:
+  // `lead_stage_history` only grants SELECT under RLS (writes are admin-client only,
+  // see migration 074), so recording provenance + the audit-trail row for this manual
+  // move requires the server-side route.
+  const res = await fetch(`/api/leads/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stage }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { error?: string });
+    throw new Error(body.error ?? 'Failed to update lead stage');
+  }
 }
 
 export async function deleteLead(id: string): Promise<void> {
