@@ -2370,9 +2370,9 @@ async function checkAndHandleAutoCsatReply(
   content: string,
 ): Promise<boolean> {
   const trimmed = content.trim();
-  const score = parseInt(trimmed, 10);
-  // Accept single-digit 1-5; trimmed must be exactly one character after stripping whitespace
-  if (isNaN(score) || score < 1 || score > 5 || trimmed !== String(score)) return false;
+  const scoreMatch = trimmed.match(/^[1-5]$/);
+  if (!scoreMatch) return false;
+  const score = Number(trimmed);
 
   const db = supabase as any;
   const { data: conv } = await db.from('conversations').select('meta').eq('id', conversationId).maybeSingle();

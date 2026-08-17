@@ -9,6 +9,7 @@
 const QUIET_HOURS = 4;          // conversation must have been silent this long before we ask
 const INBOUND_WINDOW_HOURS = 24; // WhatsApp's free-form service-message window
 const MESSAGE_LOOKBACK = 50;     // recent messages fetched per candidate to compute eligibility
+const SCAN_WINDOW_DAYS = 7;      // don't scan conversations that went quiet longer ago than this
 
 export const CSAT_PROMPT =
   "Thanks for chatting with us! 🙏 How would you rate your experience? Reply with a number from 1 (poor) to 5 (excellent).";
@@ -63,18 +64,24 @@ interface FindOpts { limit: number; }
 export async function findCsatCandidates(db: any, opts: FindOpts): Promise<CsatCandidate[]> {
   const { limit } = opts;
   const quietBefore = new Date(Date.now() - QUIET_HOURS * 60 * 60 * 1000).toISOString();
+  const scanSince = new Date(Date.now() - SCAN_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const inboundCutoff = Date.now() - INBOUND_WINDOW_HOURS * 60 * 60 * 1000;
 
   // Scan a wider window than `limit` since some candidates will be filtered out below —
   // capped so a busy platform can never turn this into an unbounded scan.
   const scanWindow = Math.min(Math.max(limit * 8, 120), 300);
 
+  // Newest-quiet-first, bounded to the last SCAN_WINDOW_DAYS: a workspace with lots of
+  // old dead conversations would otherwise fill the whole scan with ancient rows that
+  // can never pass the 24h-inbound-window gate below, starving genuinely-eligible newer
+  // conversations out of every run. Net window here: quiet between 4h and 7 days ago.
   const { data: convRows, error: convErr } = await db
     .from('conversations')
     .select('id, workspace_id, contact_id, last_message_at, meta, bot_paused, is_spam')
     .not('last_message_at', 'is', null)
     .lte('last_message_at', quietBefore)
-    .order('last_message_at', { ascending: true })
+    .gte('last_message_at', scanSince)
+    .order('last_message_at', { ascending: false })
     .limit(scanWindow);
 
   if (convErr || !Array.isArray(convRows)) {
@@ -155,19 +162,34 @@ export async function findCsatCandidates(db: any, opts: FindOpts): Promise<CsatC
  */
 export async function sendCsatPrompt(db: any, candidate: CsatCandidate): Promise<'sent' | 'skipped' | 'failed'> {
   try {
-    // Idempotency re-check: guards against overlapping cron runs / a re-scan racing this
-    // send. Fail CLOSED — if the check itself errors, skip rather than risk a duplicate ask.
-    const { data: fresh, error: recheckErr } = await db
+    // Read the latest meta so the claim below merges onto current state rather than the
+    // (possibly stale) snapshot taken at scan time.
+    const { data: fresh, error: fetchErr } = await db
       .from('conversations').select('meta').eq('id', candidate.conversation_id).maybeSingle();
-    if (recheckErr) { console.error('[AutoCSAT] idempotency re-check failed — skipping:', recheckErr.message); return 'skipped'; }
+    if (fetchErr) { console.error('[AutoCSAT] meta fetch failed — skipping:', fetchErr.message); return 'skipped'; }
     const freshMeta = (fresh?.meta ?? {}) as Record<string, unknown>;
-    if (freshMeta.csat_sent_at) return 'skipped'; // already asked since this candidate was scanned
+    if (freshMeta.csat_sent_at) return 'skipped'; // already asked — fast local check
+
+    const now = new Date().toISOString();
+
+    // Atomic once-only claim, BEFORE sending: only a run whose UPDATE actually flips
+    // csat_sent_at from NULL wins the right to send. This closes the TOCTOU window a
+    // plain "select then send then update" would leave open — two overlapping cron runs
+    // can no longer both message the same customer. If the claim affects zero rows,
+    // another run already won it; we skip. A send failure AFTER a successful claim is
+    // accepted (not retried) — under-sending is fine, double-messaging a customer is not.
+    const { data: claimed, error: claimErr } = await db
+      .from('conversations')
+      .update({ meta: { ...freshMeta, csat_sent_at: now, csat_pending: true } })
+      .eq('id', candidate.conversation_id)
+      .is('meta->>csat_sent_at', null)
+      .select('id');
+    if (claimErr) { console.error('[AutoCSAT] claim failed — skipping:', claimErr.message); return 'skipped'; }
+    if (!claimed || !claimed.length) return 'skipped'; // lost the race to another run
 
     const token = cleanToken(candidate.access_token);
     const wamid = await sendWhatsAppText(candidate.phone_number_id, token, candidate.phone, CSAT_PROMPT);
-    if (!wamid) return 'failed';
-
-    const now = new Date().toISOString();
+    if (!wamid) return 'failed'; // claim stands; not retried — see comment above
 
     const { error: insErr } = await db.from('messages').insert({
       conversation_id: candidate.conversation_id,
@@ -187,13 +209,11 @@ export async function sendCsatPrompt(db: any, candidate: CsatCandidate): Promise
     }
 
     const { error: updErr } = await db.from('conversations').update({
-      meta: { ...freshMeta, csat_sent_at: now, csat_pending: true },
       last_message: CSAT_PROMPT,
       last_message_at: now,
     }).eq('id', candidate.conversation_id);
     if (updErr) {
-      console.error('[AutoCSAT] conversation update failed:', updErr.message);
-      return 'failed';
+      console.error('[AutoCSAT] last_message update failed (non-critical):', updErr.message);
     }
 
     return 'sent';
