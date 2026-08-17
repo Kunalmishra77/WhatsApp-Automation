@@ -6,8 +6,6 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 type LeadCandidate = {
   id: string;
   workspace_id: string;
@@ -33,17 +31,24 @@ async function run(request: NextRequest) {
   const supabase = createAdminClient() as any;
   const deadline = Date.now() + 55_000; // stop cleanly before maxDuration
 
+  // Throughput: classify with bounded concurrency instead of one-at-a-time, so each
+  // 55s run clears a large batch (a sequential loop only managed ~25/run, which made
+  // backfilling a big historical backlog take days). Concurrency is kept moderate to
+  // stay gentle on the AI provider; the run is near-idle once the backlog is cleared.
+  const CONCURRENCY = 5;
+  const PROCESS_CAP = 250;
+
   // Candidate leads: has a conversation, not in a terminal stage, oldest/never
-  // classified first. Over-fetch beyond the 100-lead cap since some candidates
-  // will turn out to still be fresh (classified after their conversation's last
-  // message) and get skipped below without counting toward the cap.
+  // classified first. Over-fetch beyond the cap since some candidates will turn out
+  // to still be fresh (classified after their conversation's last message) and get
+  // skipped below without counting toward the cap.
   const { data: candidates } = await supabase
     .from('leads')
     .select('id, workspace_id, conversation_id, ai_classified_at')
     .not('conversation_id', 'is', null)
     .not('stage', 'in', '(converted,lost)')
     .order('ai_classified_at', { ascending: true, nullsFirst: true })
-    .limit(300);
+    .limit(600);
 
   const rows = (candidates ?? []) as LeadCandidate[];
 
@@ -67,30 +72,34 @@ async function run(request: NextRequest) {
     }
   }
 
-  let scanned = 0;
-  let processed = 0;
-  for (const lead of rows) {
-    if (processed >= 100) break;
-    if (Date.now() > deadline) break;
-    scanned++;
-
+  // Keep only the stale candidates (missing classification, or classified before the
+  // conversation's latest message), preserving the oldest-first order.
+  const stale = rows.filter((lead) => {
     const rawLastMessageAt = lastMessageAtById.get(lead.conversation_id) ?? null;
     const lastMessageAt = rawLastMessageAt ? new Date(rawLastMessageAt).getTime() : null;
     const classifiedAt = lead.ai_classified_at ? new Date(lead.ai_classified_at).getTime() : null;
-    const isStale = classifiedAt === null || (lastMessageAt !== null && lastMessageAt > classifiedAt);
-    if (!isStale) continue;
+    return classifiedAt === null || (lastMessageAt !== null && lastMessageAt > classifiedAt);
+  });
 
-    // Swallows and logs its own errors — never throws.
-    await classifyLeadPipeline({
-      conversationId: lead.conversation_id,
-      workspaceId: lead.workspace_id,
-      leadId: lead.id,
-    });
-    processed++;
-    await sleep(150); // gentle pacing on the AI API
+  // Bounded-concurrency worker pool: CONCURRENCY workers pull from a shared cursor
+  // until the cap, the deadline, or the stale list is exhausted. classifyLeadPipeline
+  // swallows and logs its own errors, so one bad lead never stops the pool.
+  let cursor = 0;
+  let processed = 0;
+  async function worker() {
+    while (cursor < stale.length && processed < PROCESS_CAP && Date.now() < deadline) {
+      const lead = stale[cursor++]!;
+      await classifyLeadPipeline({
+        conversationId: lead.conversation_id,
+        workspaceId: lead.workspace_id,
+        leadId: lead.id,
+      });
+      processed++;
+    }
   }
+  await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
 
-  return NextResponse.json({ scanned, processed });
+  return NextResponse.json({ scanned: stale.length, processed });
 }
 
 export async function POST(request: NextRequest) { return run(request); }
