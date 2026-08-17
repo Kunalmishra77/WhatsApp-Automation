@@ -82,4 +82,13 @@ describe('applyLeadClassification', () => {
     const w = applyLeadClassification(lead(), cls({ needs_follow_up: false }), NOW);
     expect(w.leadUpdate.needs_follow_up).toBe(false);
   });
+  it('never sets needs_follow_up on a lost lead, even when the AI flags one', () => {
+    const w = applyLeadClassification(
+      lead({ stage: 'lost' }),
+      cls({ stage: 'lost', needs_follow_up: true, follow_up_reason: 'quiet 2d' }),
+      NOW,
+    );
+    expect(w.leadUpdate.needs_follow_up).toBe(false);
+    expect(w.leadUpdate.follow_up_at).toBeUndefined();
+  });
 });

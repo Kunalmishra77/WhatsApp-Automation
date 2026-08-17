@@ -52,6 +52,12 @@ async function run(request: NextRequest) {
   const conversationIds = [...new Set(rows.map((r) => r.conversation_id))];
   const lastMessageAtById = new Map<string, string | null>();
   if (conversationIds.length > 0) {
+    // Intentionally cross-workspace: `candidates` above spans every workspace (no
+    // per-workspace filter, per the one-plan-billing note), so conversationIds can
+    // too. This read is scoped by primary-key `id` (not workspace_id) and only
+    // pulls `last_message_at` for staleness comparison below — nothing here is
+    // ever written, and per-lead workspace scoping happens on every actual write
+    // (classifyLeadPipeline's own .eq('workspace_id', ...) calls).
     const { data: convs } = await supabase
       .from('conversations')
       .select('id, last_message_at')

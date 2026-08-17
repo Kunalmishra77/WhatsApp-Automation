@@ -128,9 +128,12 @@ export function applyLeadClassification(lead: LeadRow, c: LeadClassification, no
     };
   }
 
-  // A won lead needs no follow-up — skip entirely when converted.
+  // A won lead needs no follow-up — skip entirely when converted (converted
+  // leads never get a needs_follow_up write at all). A lost lead also needs no
+  // follow-up, but unlike converted it's still cleared explicitly (not skipped)
+  // since a lead can already be 'lost' coming into this call.
   if (!converted) {
-    if (c.needs_follow_up) {
+    if (c.needs_follow_up && lead.stage !== 'lost') {
       leadUpdate.needs_follow_up = true;
       leadUpdate.follow_up_reason = c.follow_up_reason;
       const existing = lead.follow_up_at ? new Date(lead.follow_up_at) : null;

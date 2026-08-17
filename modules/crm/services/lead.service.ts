@@ -170,16 +170,18 @@ export async function fetchLeadStageHistory(leadId: string): Promise<LeadStageHi
 
 // On-demand re-analyze — POSTs the classify route (Task 4), which runs the same
 // AI classifier the inbound webhook triggers automatically and returns the
-// refreshed lead row.
-export async function reclassifyLead(id: string): Promise<LeadRow> {
+// refreshed lead row. The route can legitimately reply with just `{ ok: true }`
+// (e.g. the lead has no conversation_id yet, or the post-classify re-fetch
+// failed) — that's a benign no-op, not an error, so we resolve with null
+// instead of throwing and surfacing a red error toast for a successful call.
+export async function reclassifyLead(id: string): Promise<LeadRow | null> {
   const res = await fetch(`/api/leads/${id}/classify`, { method: 'POST' });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { error?: string });
     throw new Error(body.error ?? 'Failed to re-analyze lead');
   }
   const body = await res.json() as { lead?: LeadRow; ok?: boolean };
-  if (!body.lead) throw new Error('Re-analyze produced no change to review');
-  return body.lead;
+  return body.lead ?? null;
 }
 
 // Confirm/undo an AI-marked conversion via the dedicated conversion route.
