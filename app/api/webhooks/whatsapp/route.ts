@@ -22,6 +22,7 @@ import { getBillingState } from '@/lib/billing-guard';
 import { parseNfmReply } from '@/lib/native-flows';
 import { classifyLeadPipeline } from '@/lib/lead-classifier';
 import { hasFeature } from '@/lib/plan-features';
+import { sendWhatsAppText as sendAutoCsatWhatsAppText, CSAT_THANK_YOU } from '@/lib/auto-csat';
 
 // Node runtime (uses crypto + admin client); allow headroom for the inbound
 // auto-reply pipeline (AI call is internally bounded to ~25s of retries).
@@ -650,6 +651,26 @@ async function handleIncomingMessage(
   );
   if (csatHandled) {
     console.log(`[Webhook] CSAT reply handled for conversation ${conversation.id}`);
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // ── Auto-CSAT reply detection (before rules/flow/AI) ────────────────────────
+  // Distinct from checkAndHandleCsatReply above: that one matches a pre-seeded
+  // (score IS NULL) csat_responses row from the manual CSAT flow. This one matches
+  // conversations.meta.csat_pending, set by the auto-CSAT cron (lib/auto-csat.ts)
+  // after it proactively asked for a rating. The two never fire on the same
+  // conversation, so there is no conflict — this is just a second, independent path.
+  const autoCsatHandled = await checkAndHandleAutoCsatReply(
+    supabase,
+    conversation.id,
+    workspaceId,
+    contact.id,
+    waId,
+    content,
+  );
+  if (autoCsatHandled) {
+    console.log(`[Webhook] Auto-CSAT reply handled for conversation ${conversation.id}`);
     return;
   }
   // ─────────────────────────────────────────────────────────────────────────────
@@ -2328,6 +2349,68 @@ async function checkAndHandleCsatReply(
     } catch (err) {
       console.error('[CSAT] Failed to send thank-you:', err);
     }
+  }
+
+  return true;
+}
+
+// Auto-CSAT reply parser. Matches a bare 1-5 digit reply against a conversation the
+// auto-CSAT cron (lib/auto-csat.ts) proactively asked to rate — flagged via
+// conversations.meta.csat_pending / csat_sent_at, NOT via a pre-seeded csat_responses
+// row (that's the older, separate checkAndHandleCsatReply flow above). Bounded to 48h
+// after the ask so a rating dropped long after the fact doesn't get misattributed to a
+// stale prompt. Fail-open: any read/write error just returns false and the normal AI
+// reply pipeline proceeds — a rating that fails to record never blocks the conversation.
+async function checkAndHandleAutoCsatReply(
+  supabase: AdminClient,
+  conversationId: string,
+  workspaceId: string,
+  contactId: string,
+  contactPhone: string,
+  content: string,
+): Promise<boolean> {
+  const trimmed = content.trim();
+  const score = parseInt(trimmed, 10);
+  // Accept single-digit 1-5; trimmed must be exactly one character after stripping whitespace
+  if (isNaN(score) || score < 1 || score > 5 || trimmed !== String(score)) return false;
+
+  const db = supabase as any;
+  const { data: conv } = await db.from('conversations').select('meta').eq('id', conversationId).maybeSingle();
+  const meta = (conv?.meta ?? {}) as Record<string, unknown>;
+
+  const pending = meta.csat_pending === true || meta.csat_pending === 'true';
+  if (!pending) return false;
+
+  const sentAtRaw = meta.csat_sent_at as string | undefined;
+  const sentAtMs = sentAtRaw ? new Date(sentAtRaw).getTime() : NaN;
+  if (!Number.isFinite(sentAtMs) || Date.now() - sentAtMs > 48 * 60 * 60 * 1000) return false;
+
+  const { error: insErr } = await db.from('csat_responses').insert({
+    workspace_id: workspaceId,
+    conversation_id: conversationId,
+    contact_id: contactId,
+    agent_id: null,
+    score,
+    responded_at: new Date().toISOString(),
+    created_at: new Date().toISOString(),
+  });
+  if (insErr) {
+    console.error('[AutoCSAT] Failed to record response:', insErr.message);
+    return false;
+  }
+
+  await db.from('conversations').update({ meta: { ...meta, csat_pending: false } }).eq('id', conversationId);
+
+  const { data: ws } = await supabase
+    .from('workspaces')
+    .select('phone_number_id, access_token')
+    .eq('id', workspaceId)
+    .single();
+  if (ws?.phone_number_id && ws?.access_token) {
+    const token = (ws.access_token as string).replace(/﻿/g, '').trim();
+    await sendAutoCsatWhatsAppText(ws.phone_number_id, token, contactPhone, CSAT_THANK_YOU).catch((e) => {
+      console.error('[AutoCSAT] Failed to send thank-you:', e);
+    });
   }
 
   return true;
