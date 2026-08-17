@@ -42,7 +42,7 @@ export const ROUTES = {
   WORKSPACE_NEW:    '/workspace/new',
   WORKSPACE_SELECT: '/workspace/select',
   ONBOARDING:       '/onboarding',
-  DASHBOARD:        '/conversations',
+  DASHBOARD:        '/dashboard',
   AUTH_CALLBACK:    '/api/auth/callback',
 } as const;
 
