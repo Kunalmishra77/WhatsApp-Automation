@@ -70,10 +70,22 @@ export async function createLead(
 }
 
 export async function updateLead(id: string, payload: LeadUpdate): Promise<LeadRow> {
+  const { stage, ...rest } = payload;
+
+  // Route a stage change through updateLeadStage (the PATCH route, admin client) so
+  // stage_source='manual' + the lead_stage_history audit row get recorded — the RLS
+  // client below has no INSERT policy on lead_stage_history and no way to know the
+  // lead's prior stage for the history row's from_stage. Excluded from `rest` so it
+  // isn't written twice; updateLeadStage itself only logs history when the stage
+  // actually differs from the current one.
+  if (stage !== undefined) {
+    await updateLeadStage(id, stage as LeadStage);
+  }
+
   const supabase = createClient() as any;
   const { data, error } = await supabase
     .from('leads')
-    .update({ ...payload, updated_at: new Date().toISOString() })
+    .update({ ...rest, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single();
