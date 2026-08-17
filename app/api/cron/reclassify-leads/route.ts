@@ -20,9 +20,9 @@ type LeadCandidate = {
 // conversation's latest message — e.g. the inbound-path classify call was
 // skipped or failed — across all workspaces.
 //
-// NOTE: hasFeature(plan, 'crm') is a passthrough today under one-plan billing
-// (every active workspace gets 'crm'), so no per-workspace plan filter is
-// needed here — every stale, non-terminal lead with a conversation qualifies.
+// One-plan billing (lib/plan-features.ts hasFeature): every active workspace
+// has CRM, so no per-workspace plan filter is needed here — matches the
+// reply-sweep cron which also runs across all workspaces.
 async function run(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
   const auth = request.headers.get('authorization');
@@ -47,6 +47,20 @@ async function run(request: NextRequest) {
 
   const rows = (candidates ?? []) as LeadCandidate[];
 
+  // Batch the conversation lookup in one round-trip instead of one query per
+  // candidate lead (avoids an N+1 of up to ~300 queries per run).
+  const conversationIds = [...new Set(rows.map((r) => r.conversation_id))];
+  const lastMessageAtById = new Map<string, string | null>();
+  if (conversationIds.length > 0) {
+    const { data: convs } = await supabase
+      .from('conversations')
+      .select('id, last_message_at')
+      .in('id', conversationIds);
+    for (const c of (convs ?? []) as { id: string; last_message_at: string | null }[]) {
+      lastMessageAtById.set(c.id, c.last_message_at);
+    }
+  }
+
   let scanned = 0;
   let processed = 0;
   for (const lead of rows) {
@@ -54,13 +68,8 @@ async function run(request: NextRequest) {
     if (Date.now() > deadline) break;
     scanned++;
 
-    const { data: conv } = await supabase
-      .from('conversations')
-      .select('last_message_at')
-      .eq('id', lead.conversation_id)
-      .single();
-
-    const lastMessageAt = conv?.last_message_at ? new Date(conv.last_message_at as string).getTime() : null;
+    const rawLastMessageAt = lastMessageAtById.get(lead.conversation_id) ?? null;
+    const lastMessageAt = rawLastMessageAt ? new Date(rawLastMessageAt).getTime() : null;
     const classifiedAt = lead.ai_classified_at ? new Date(lead.ai_classified_at).getTime() : null;
     const isStale = classifiedAt === null || (lastMessageAt !== null && lastMessageAt > classifiedAt);
     if (!isStale) continue;
