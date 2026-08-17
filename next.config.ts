@@ -9,11 +9,14 @@ const securityHeaders = [
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+      // Razorpay Checkout loads its script from checkout.razorpay.com and opens
+      // its payment UI in an iframe served from api.razorpay.com/checkout.razorpay.com.
+      "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://checkout.razorpay.com",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https:",
       "font-src 'self'",
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.supabase.in wss://*.supabase.in https://graph.facebook.com https://api.openai.com https://openrouter.ai https://api.resend.com",
+      "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com",
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.supabase.in wss://*.supabase.in https://graph.facebook.com https://api.openai.com https://openrouter.ai https://api.resend.com https://*.razorpay.com https://lumberjack.razorpay.com",
     ].join('; '),
   },
 ];

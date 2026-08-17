@@ -131,17 +131,19 @@ export async function GET(request: NextRequest) {
     //      so paginateAll is unavoidable here (both derived from a single scan,
     //      replacing what used to be two separate capped-at-1000 selects). ─────────
     const senderMap: Record<string, number> = {};
-    const cmap: Record<string, { id: string; name: string | null; phone: string; count: number }> = {};
+    // For inbound messages sender_id IS the contact id (sender_type='contact'), but
+    // there is NO foreign key messages.sender_id → contacts: outbound sender_ids are
+    // bots/campaigns/agents, so the constraint can't exist. That means PostgREST cannot
+    // embed `contacts!messages_sender_id_fkey` here — attempting it makes the whole route
+    // 500 with PGRST200 ("Could not find a relationship … in the schema cache"). Instead,
+    // tally inbound messages per sender_id, then resolve the top senders' contact rows in
+    // a single follow-up `.in()` query.
+    const inboundCounts: Record<string, number> = {};
 
-    type MsgRow = {
-      sender_id: string;
-      sender_type: string | null;
-      direction: string;
-      contacts: { id: string; name: string | null; phone: string } | null;
-    };
+    type MsgRow = { sender_id: string; sender_type: string | null; direction: string };
     for await (const page of paginateAll<MsgRow>((offset, pageSize) =>
       db.from('messages')
-        .select('sender_id, sender_type, direction, contacts!messages_sender_id_fkey(id, name, phone)')
+        .select('sender_id, sender_type, direction')
         .eq('workspace_id', workspaceId)
         .gte('created_at', fromUtc)
         .lt('created_at', toUtc)
@@ -152,18 +154,30 @@ export async function GET(request: NextRequest) {
       for (const row of page) {
         const t = row.sender_type ?? 'unknown';
         senderMap[t] = (senderMap[t] ?? 0) + 1;
-
-        if (row.direction === 'inbound' && row.contacts) {
-          const id = row.sender_id;
-          if (!cmap[id]) cmap[id] = { id: row.contacts.id, name: row.contacts.name, phone: row.contacts.phone, count: 0 };
-          cmap[id]!.count++;
+        if (row.direction === 'inbound' && row.sender_id) {
+          inboundCounts[row.sender_id] = (inboundCounts[row.sender_id] ?? 0) + 1;
         }
       }
     }
-    const topContacts = Object.values(cmap)
-      .sort((a, b) => b.count - a.count)
+
+    const topSenderIds = Object.entries(inboundCounts)
+      .sort(([, a], [, b]) => b - a)
       .slice(0, 10)
-      .map(({ id, name, phone, count }) => ({ id, name, phone, messageCount: count }));
+      .map(([id]) => id);
+    let topContacts: Array<{ id: string; name: string | null; phone: string; messageCount: number }> = [];
+    if (topSenderIds.length > 0) {
+      const { data: contactRows } = await db.from('contacts')
+        .select('id, name, phone')
+        .eq('workspace_id', workspaceId)
+        .in('id', topSenderIds);
+      const byId = new Map((contactRows ?? []).map((c: { id: string }) => [c.id, c]));
+      topContacts = topSenderIds
+        .map((id) => {
+          const c = byId.get(id) as { id: string; name: string | null; phone: string } | undefined;
+          return c ? { id: c.id, name: c.name, phone: c.phone, messageCount: inboundCounts[id]! } : null;
+        })
+        .filter((x): x is { id: string; name: string | null; phone: string; messageCount: number } => x !== null);
+    }
 
     // ── 8. New contacts — exact count for the summary card ─────────────────────────
     const { count: newContacts } = await db.from('contacts')
