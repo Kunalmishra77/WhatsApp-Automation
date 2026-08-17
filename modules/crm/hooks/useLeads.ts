@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   fetchLeadsByStage, createLead, updateLead, updateLeadStage, deleteLead,
+  fetchLeadStageHistory, reclassifyLead, reviewLeadConversion,
   LEAD_STAGES,
 } from '../services/lead.service';
 import type { LeadInsert, LeadStage, LeadUpdate, LeadWithContact } from '../services/lead.service';
@@ -91,5 +92,43 @@ export function useDeleteLead() {
     mutationFn: (id: string) => deleteLead(id),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ['leads', workspaceId] }),
+  });
+}
+
+// Newest-first stage history for the pipeline-history timeline in LeadDetail.
+export function useLeadStageHistory(leadId: string | null) {
+  return useQuery({
+    queryKey: ['lead-stage-history', leadId],
+    queryFn: () => fetchLeadStageHistory(leadId!),
+    enabled: !!leadId,
+  });
+}
+
+// On-demand "Re-analyze" for a single lead (bound to the lead already open in
+// LeadDetail, mirroring the useLeadStageHistory(leadId) shape above).
+export function useReclassifyLead(leadId: string | null) {
+  const queryClient = useQueryClient();
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
+  return useMutation({
+    mutationFn: () => reclassifyLead(leadId!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['leads', workspaceId] });
+      void queryClient.invalidateQueries({ queryKey: ['lead', leadId] });
+      void queryClient.invalidateQueries({ queryKey: ['lead-stage-history', leadId] });
+    },
+  });
+}
+
+// Confirm/undo an AI-marked conversion for the lead open in LeadDetail.
+export function useReviewConversion(leadId: string | null) {
+  const queryClient = useQueryClient();
+  const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
+  return useMutation({
+    mutationFn: (action: 'confirm' | 'undo') => reviewLeadConversion(leadId!, action),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['leads', workspaceId] });
+      void queryClient.invalidateQueries({ queryKey: ['lead', leadId] });
+      void queryClient.invalidateQueries({ queryKey: ['lead-stage-history', leadId] });
+    },
   });
 }

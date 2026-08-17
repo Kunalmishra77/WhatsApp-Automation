@@ -14,14 +14,18 @@ import {
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { LeadExportMenu } from '@/modules/crm/components/LeadExportMenu';
-import { Plus, Flame, Thermometer, Snowflake, LayoutGrid } from 'lucide-react';
+import { Plus, Flame, Thermometer, Snowflake, LayoutGrid, BellRing } from 'lucide-react';
 import { KanbanColumn } from '../KanbanColumn';
 import { LeadCard } from '../LeadCard';
 import { LeadDetail } from '../LeadDetail';
 import { LeadForm } from '../LeadForm';
 import { useLeads, useMoveLeadStage } from '../../hooks/useLeads';
-import { LEAD_STAGES } from '../../services/lead.service';
+import { LEAD_STAGES, leadNeedsFollowUp } from '../../services/lead.service';
 import type { LeadStage, LeadWithContact } from '../../services/lead.service';
+
+// Stages excluded from the "Needs follow-up" view — a converted or lost lead has
+// no pending follow-up action left, even if the AI flagged it earlier.
+const FOLLOW_UP_EXCLUDED_STAGES: LeadStage[] = ['converted', 'lost'];
 
 const TEMP_FILTERS = [
   { key: '',     label: 'All',  Icon: LayoutGrid,  color: 'text-muted-foreground' },
@@ -41,8 +45,14 @@ export function KanbanBoard() {
     const t = searchParams.get('temperature');
     return t && ['hot', 'warm', 'cold'].includes(t) ? t : '';
   });
+  const [followUpOnly, setFollowUpOnly]     = useState(false);
   const { data: pipeline, isLoading } = useLeads();
   const moveStage = useMoveLeadStage();
+
+  const needsFollowUpCount = pipeline
+    ? LEAD_STAGES.filter((s) => !FOLLOW_UP_EXCLUDED_STAGES.includes(s))
+        .reduce((sum, s) => sum + pipeline[s].filter(leadNeedsFollowUp).length, 0)
+    : 0;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -116,6 +126,28 @@ export function KanbanBoard() {
                 );
               })}
             </div>
+            <div className="h-4 w-px bg-border" />
+            {/* Needs follow-up toggle — client-side filter over the already-fetched leads */}
+            <button
+              onClick={() => setFollowUpOnly((v) => !v)}
+              className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full border transition-all ${
+                followUpOnly
+                  ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                  : 'text-muted-foreground border-border hover:border-amber-300 hover:bg-muted/50'
+              }`}
+            >
+              <BellRing className={`h-3 w-3 ${followUpOnly ? 'text-white' : 'text-amber-500'}`} />
+              Needs follow-up
+              {needsFollowUpCount > 0 && (
+                <span
+                  className={`ml-0.5 rounded-full px-1.5 text-[10px] font-bold ${
+                    followUpOnly ? 'bg-white/25' : 'bg-amber-100 text-amber-700'
+                  }`}
+                >
+                  {needsFollowUpCount}
+                </span>
+              )}
+            </button>
           </div>
           <div className="flex items-center gap-2">
             <LeadExportMenu />
@@ -137,9 +169,11 @@ export function KanbanBoard() {
           >
             <div className="flex gap-4 p-6 h-full">
               {LEAD_STAGES.map((stage) => {
-                const leads = (pipeline?.[stage] ?? []).filter(
-                  (l) => !tempFilter || ((l as any).temperature || 'warm') === tempFilter,
-                );
+                const leads = (pipeline?.[stage] ?? []).filter((l) => {
+                  if (tempFilter && ((l as any).temperature || 'warm') !== tempFilter) return false;
+                  if (followUpOnly && (FOLLOW_UP_EXCLUDED_STAGES.includes(stage) || !leadNeedsFollowUp(l))) return false;
+                  return true;
+                });
                 return (
                   <KanbanColumn
                     key={stage}

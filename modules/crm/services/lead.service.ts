@@ -29,9 +29,47 @@ export const STAGE_COLORS: Record<LeadStage, string> = {
   lost:       'bg-red-100 text-red-700',
 };
 
-export type LeadWithContact = LeadRow & {
+// The AI pipeline columns added by migration 074 — not yet present in the generated
+// `database.types.ts` (DB types are not regenerated as part of this task). Defined
+// here and intersected onto the lead types the CRM UI consumes; every field is
+// possibly-null/undefined so the UI renders defensively if a deploy hasn't run the
+// migration yet.
+export type LeadAIFields = {
+  stage_source?: 'ai' | 'manual' | null;
+  stage_reason?: string | null;
+  ai_stage_confidence?: number | null;
+  ai_classified_at?: string | null;
+  needs_follow_up?: boolean | null;
+  follow_up_reason?: string | null;
+  converted_signal?: string | null;
+  conversion_reviewed?: boolean | null;
+};
+
+export type LeadStageHistoryRow = {
+  id: string;
+  lead_id: string;
+  from_stage: string | null;
+  to_stage: string;
+  source: 'ai' | 'manual';
+  reason: string | null;
+  confidence: number | null;
+  actor_id: string | null;
+  created_at: string;
+};
+
+export type LeadWithContact = LeadRow & LeadAIFields & {
   contacts: { name: string | null; phone: string; avatar_url: string | null } | null;
 };
+
+// True when a lead should surface in the "Needs follow-up" view: either the AI
+// classifier flagged it, or its follow_up_at has passed. Stage exclusion
+// (converted/lost) is left to call sites since it varies by context (Kanban
+// column vs. a flat list).
+export function leadNeedsFollowUp(lead: LeadAIFields & { follow_up_at: string | null }): boolean {
+  const flagged = lead.needs_follow_up === true;
+  const overdue = !!lead.follow_up_at && new Date(lead.follow_up_at).getTime() <= Date.now();
+  return flagged || overdue;
+}
 
 export async function fetchLeadsByStage(
   workspaceId: string,
@@ -70,10 +108,22 @@ export async function createLead(
 }
 
 export async function updateLead(id: string, payload: LeadUpdate): Promise<LeadRow> {
+  const { stage, ...rest } = payload;
+
+  // Route a stage change through updateLeadStage (the PATCH route, admin client) so
+  // stage_source='manual' + the lead_stage_history audit row get recorded — the RLS
+  // client below has no INSERT policy on lead_stage_history and no way to know the
+  // lead's prior stage for the history row's from_stage. Excluded from `rest` so it
+  // isn't written twice; updateLeadStage itself only logs history when the stage
+  // actually differs from the current one.
+  if (stage !== undefined) {
+    await updateLeadStage(id, stage as LeadStage);
+  }
+
   const supabase = createClient() as any;
   const { data, error } = await supabase
     .from('leads')
-    .update({ ...payload, updated_at: new Date().toISOString() })
+    .update({ ...rest, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single();
@@ -82,16 +132,70 @@ export async function updateLead(id: string, payload: LeadUpdate): Promise<LeadR
 }
 
 export async function updateLeadStage(id: string, stage: LeadStage): Promise<void> {
-  const supabase = createClient() as any;
-  const { error } = await supabase
-    .from('leads')
-    .update({ stage, updated_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) throw error;
+  // Routed through the PATCH API (admin client) rather than a direct table update:
+  // `lead_stage_history` only grants SELECT under RLS (writes are admin-client only,
+  // see migration 074), so recording provenance + the audit-trail row for this manual
+  // move requires the server-side route.
+  const res = await fetch(`/api/leads/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stage }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { error?: string });
+    throw new Error(body.error ?? 'Failed to update lead stage');
+  }
 }
 
 export async function deleteLead(id: string): Promise<void> {
   const supabase = createClient();
   const { error } = await supabase.from('leads').delete().eq('id', id);
   if (error) throw error;
+}
+
+// `lead_stage_history` isn't in the generated Database types (migration 074 added
+// it after the last `supabase gen types` run). The RLS SELECT policy
+// (lead_stage_history_workspace_isolation) allows workspace members to read it
+// directly with the anon/RLS client — no API route needed.
+export async function fetchLeadStageHistory(leadId: string): Promise<LeadStageHistoryRow[]> {
+  const supabase = createClient() as any;
+  const { data, error } = await supabase
+    .from('lead_stage_history')
+    .select('*')
+    .eq('lead_id', leadId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as LeadStageHistoryRow[];
+}
+
+// On-demand re-analyze — POSTs the classify route (Task 4), which runs the same
+// AI classifier the inbound webhook triggers automatically and returns the
+// refreshed lead row. The route can legitimately reply with just `{ ok: true }`
+// (e.g. the lead has no conversation_id yet, or the post-classify re-fetch
+// failed) — that's a benign no-op, not an error, so we resolve with null
+// instead of throwing and surfacing a red error toast for a successful call.
+export async function reclassifyLead(id: string): Promise<LeadRow | null> {
+  const res = await fetch(`/api/leads/${id}/classify`, { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { error?: string });
+    throw new Error(body.error ?? 'Failed to re-analyze lead');
+  }
+  const body = await res.json() as { lead?: LeadRow; ok?: boolean };
+  return body.lead ?? null;
+}
+
+// Confirm/undo an AI-marked conversion via the dedicated conversion route.
+export async function reviewLeadConversion(id: string, action: 'confirm' | 'undo'): Promise<LeadRow> {
+  const res = await fetch(`/api/leads/${id}/conversion`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { error?: string });
+    throw new Error(body.error ?? 'Failed to update conversion review');
+  }
+  const body = await res.json() as { lead?: LeadRow };
+  if (!body.lead) throw new Error('Conversion review did not return a lead');
+  return body.lead;
 }

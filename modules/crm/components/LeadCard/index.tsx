@@ -4,8 +4,9 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { DollarSign, Flame, Thermometer, Snowflake } from 'lucide-react';
+import { DollarSign, Flame, Thermometer, Snowflake, Sparkles, BellRing } from 'lucide-react';
 import type { LeadWithContact } from '../../services/lead.service';
+import { leadNeedsFollowUp } from '../../services/lead.service';
 
 interface LeadCardProps {
   lead: LeadWithContact;
@@ -57,8 +58,32 @@ export function LeadCard({ lead, onClick }: LeadCardProps) {
         <p className="text-xs text-muted-foreground mb-2">{contactName}</p>
       )}
 
+      {/* AI-marked conversion awaiting human review */}
+      {lead.stage === 'converted' && lead.conversion_reviewed === false && (
+        <span
+          className="mb-1.5 inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+          title={lead.converted_signal ?? 'AI marked this lead as converted — please review'}
+        >
+          <Sparkles className="h-2.5 w-2.5" /> AI-marked · review
+        </span>
+      )}
+
       <div className="flex items-center justify-between gap-1.5">
         <div className="flex items-center gap-1.5">
+          {/* AI badge — the last stage move was made by the classifier, not a human */}
+          {lead.stage_source === 'ai' && (
+            <span className="inline-flex items-center gap-0.5 rounded border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700">
+              <Sparkles className="h-2.5 w-2.5" /> AI
+            </span>
+          )}
+          {leadNeedsFollowUp(lead) && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded border border-amber-200 bg-amber-50 px-1 py-0.5 text-amber-600"
+              title={lead.follow_up_reason ?? 'Needs follow-up'}
+            >
+              <BellRing className="h-3 w-3" />
+            </span>
+          )}
           {/* Temperature badge — always visible for ALL leads */}
           {(() => {
             const temp   = ((lead as any).temperature as string) || 'warm';

@@ -57,3 +57,7 @@ next-env.d.ts
 .vercel
 node_modules
 d:/WhatsApp-Automation/.superpowers/sdd/
+
+# Raw logo source uploads (do not ship; trimmed assets are public/agentix-*.png)
+/public/agentix-logo (2).png
+/public/ai agentix logo.png black-01.png
