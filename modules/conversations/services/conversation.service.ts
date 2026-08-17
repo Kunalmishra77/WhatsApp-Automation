@@ -70,6 +70,10 @@ export async function searchConversations(
   }
   // 'all' means "no status filter" — the API treats an absent `status` param that way.
   if (resolvedStatus === 'all') resolvedStatus = undefined;
+  // Same for the channel tab: 'all' is the "no channel filter" sentinel, NOT a real
+  // channel value — send it as absent, or the API would filter `channel = 'all'` and
+  // match zero rows (every conversation is 'whatsapp'/'instagram').
+  if (rest.channel === 'all') rest.channel = undefined;
   // 'spam' is expressed via the `flag=spam` param server-side (is_spam=true), not `status`.
   let flag = rest.flag;
   if (resolvedStatus === 'spam') {

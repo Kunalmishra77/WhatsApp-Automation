@@ -3,10 +3,10 @@ import { SESSION_COOKIE_NAME, SESSION_COOKIE_OPTIONS } from '@/lib/session';
 
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get('t');
-  const next  = request.nextUrl.searchParams.get('next') ?? '/conversations';
+  const next  = request.nextUrl.searchParams.get('next') ?? '/dashboard';
 
   if (!token || !/^[0-9a-f]{64}$/.test(token)) {
-    return NextResponse.redirect(new URL('/conversations', request.url));
+    return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
   const response = NextResponse.redirect(new URL(next, request.url));

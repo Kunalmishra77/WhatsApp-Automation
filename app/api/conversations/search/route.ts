@@ -88,8 +88,13 @@ export async function GET(request: NextRequest) {
       dateRange = { fromUtc: r.fromUtc, toUtc: r.toUtc };
     }
 
-    const channel = sp.get('channel') || undefined;
-    const status = sp.get('status') || undefined;
+    // Treat the 'all' tab sentinel as "no filter" for both channel and status —
+    // defensive against any caller that forwards the literal 'all' (which is not a
+    // real channel/status value and would otherwise match zero rows).
+    const channelParam = sp.get('channel') || undefined;
+    const channel = channelParam === 'all' ? undefined : channelParam;
+    const statusParam = sp.get('status') || undefined;
+    const status = statusParam === 'all' ? undefined : statusParam;
     const assignedAgentId = sp.get('assigned_agent_id') || undefined;
     const sentiment = sp.get('sentiment') || undefined;
     const campaignId = sp.get('campaign_id') || undefined;

@@ -95,8 +95,9 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
         // Limit already hit on another device
         redirect('/session-limit?reason=limit');
       }
-      // Redirect to cookie-setter (Server Components cannot write cookies directly)
-      const encodedNext = encodeURIComponent('/conversations');
+      // Redirect to cookie-setter (Server Components cannot write cookies directly).
+      // Default landing is the Dashboard (overview) so a client's portal opens there.
+      const encodedNext = encodeURIComponent('/dashboard');
       redirect(`/api/session/init?t=${newToken}&next=${encodedNext}`);
     }
   }
