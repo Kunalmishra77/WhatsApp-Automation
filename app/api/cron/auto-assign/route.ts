@@ -23,14 +23,27 @@ async function run(request: NextRequest) {
   const PER_RUN_CAP = 300;
 
   // Assignable team members across all workspaces (excludes solo super_admin owners).
+  // Auto-assign is OPT-IN per workspace (default OFF). Only workspaces whose owner
+  // turned it on (settings.auto_assign_enabled = true) are auto-distributed; the rest
+  // stay fully manual. When off, agents are assigned by hand from the conversation.
+  const { data: enabledWs } = await db
+    .from('workspaces')
+    .select('id')
+    .eq('settings->>auto_assign_enabled', 'true');
+  const enabledIds = new Set(((enabledWs ?? []) as Array<{ id: string }>).map((w) => w.id));
+  if (enabledIds.size === 0) {
+    return NextResponse.json({ assigned: 0, note: 'no workspace has auto-assign enabled' });
+  }
+
   const { data: members } = await db
     .from('workspace_members')
     .select('workspace_id, user_id')
     .in('role', ['admin', 'manager', 'agent']);
 
-  // workspace_id -> agent user_ids
+  // workspace_id -> agent user_ids (only for auto-assign-enabled workspaces)
   const agentsByWs = new Map<string, string[]>();
   for (const m of (members ?? []) as Array<{ workspace_id: string; user_id: string }>) {
+    if (!enabledIds.has(m.workspace_id)) continue;
     const arr = agentsByWs.get(m.workspace_id) ?? [];
     arr.push(m.user_id);
     agentsByWs.set(m.workspace_id, arr);

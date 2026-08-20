@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
+import { Switch } from '@/components/ui/switch';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -107,6 +108,47 @@ export function TeamPage() {
 
   const maxLoad = Math.max(1, ...(workloadData?.agents ?? []).map((a) => a.openCount));
 
+  const { data: workspaceSettings } = useQuery({
+    queryKey: ['workspace-settings', workspaceId],
+    queryFn:  () =>
+      fetch(`/api/settings/workspace?workspaceId=${workspaceId}`)
+        .then((r) => r.json() as Promise<{ workspace?: { settings?: { auto_assign_enabled?: boolean } } }>),
+    enabled: !!workspaceId,
+  });
+  const autoAssignEnabled = workspaceSettings?.workspace?.settings?.auto_assign_enabled ?? false;
+
+  const toggleAutoAssign = useMutation({
+    mutationFn: (enabled: boolean) =>
+      fetch('/api/settings/workspace', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId, settings: { auto_assign_enabled: enabled } }),
+      }).then((r) => {
+        if (!r.ok) throw new Error('Failed to update setting');
+        return r.json() as Promise<{ success?: boolean; error?: string }>;
+      }),
+    onMutate: async (enabled) => {
+      await queryClient.cancelQueries({ queryKey: ['workspace-settings', workspaceId] });
+      const previous = queryClient.getQueryData<{ workspace?: { settings?: Record<string, unknown> } }>(['workspace-settings', workspaceId]);
+      queryClient.setQueryData(['workspace-settings', workspaceId], (old: { workspace?: { settings?: Record<string, unknown> } } | undefined) => ({
+        workspace: { ...old?.workspace, settings: { ...old?.workspace?.settings, auto_assign_enabled: enabled } },
+      }));
+      return { previous };
+    },
+    onError: (_err, _enabled, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['workspace-settings', workspaceId], context.previous);
+      }
+      toast.error('Failed to update auto-assign setting');
+    },
+    onSuccess: () => {
+      toast.success('Auto-assign setting updated');
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['workspace-settings', workspaceId] });
+    },
+  });
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex shrink-0 items-center justify-between flex-wrap gap-3 border-b border-border bg-card px-4 sm:px-6 py-4">
@@ -158,6 +200,24 @@ export function TeamPage() {
               {balance.isPending ? 'Balancing…' : 'Auto Balance'}
             </Button>
           </div>
+
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-3">
+            <div>
+              <Label htmlFor="auto-assign-toggle" className="text-sm font-medium cursor-pointer">
+                Auto-assign new conversations
+              </Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                On: unassigned chats are automatically distributed to the least-busy agent. Off: assign agents manually.
+              </p>
+            </div>
+            <Switch
+              id="auto-assign-toggle"
+              checked={autoAssignEnabled}
+              disabled={toggleAutoAssign.isPending || !workspaceId}
+              onCheckedChange={(v) => toggleAutoAssign.mutate(v)}
+            />
+          </div>
+
           <div className="space-y-3">
             {(workloadData?.agents ?? []).map((agent) => (
               <div key={agent.userId} className="rounded-xl border border-border p-3 space-y-2">
