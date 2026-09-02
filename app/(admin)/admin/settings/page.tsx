@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { CreditCard, Save } from 'lucide-react';
+import { CreditCard, Save, Lock } from 'lucide-react';
+import { ChangePassword } from '@/modules/settings/components/ChangePassword';
 
 const DEFAULT_RATES = { marketing: 0.58, utility: 0.14, auth: 0.14, service: 0.29 };
 
@@ -57,6 +58,20 @@ export default function SettingsPage() {
           onClick={() => toast.success('Rates saved')}>
           <Save className="h-4 w-4" /> Save Rates
         </Button>
+      </div>
+
+      {/* Account Security — change super-admin password */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="h-10 w-10 rounded-xl bg-orange-50 flex items-center justify-center">
+            <Lock className="h-5 w-5" style={{ color: '#F97316' }} />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Account Security</h2>
+            <p className="text-xs text-gray-400">Change your super-admin sign-in password</p>
+          </div>
+        </div>
+        <ChangePassword />
       </div>
     </div>
   );
