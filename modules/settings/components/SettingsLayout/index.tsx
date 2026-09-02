@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProfileSettings } from '../ProfileSettings';
+import { ChangePassword } from '../ChangePassword';
 import { WorkspaceSettings } from '../WorkspaceSettings';
 import { WhatsAppSettings } from '../WhatsAppSettings';
 import { InboxRules } from '../InboxRules';
@@ -38,7 +39,7 @@ import { MetaAdsSettings } from '../MetaAdsSettings';
 import { RetentionSettings } from '../RetentionSettings';
 
 type SettingKey =
-  | 'profile' | 'workspace' | 'branding' | 'billing'
+  | 'profile' | 'security' | 'workspace' | 'branding' | 'billing'
   | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library' | 'chat-widget' | 'wa-forms' | 'whatsapp-forms'
   | 'instagram' | 'meta-ads'
   | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers' | 'auto-triggers'
@@ -55,6 +56,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Account',
     items: [
       { key: 'profile',   label: 'Profile',   icon: User },
+      { key: 'security',  label: 'Security',  icon: Shield },
       { key: 'workspace', label: 'Workspace', icon: Building2 },
       { key: 'branding',  label: 'Branding',  icon: Layers },
       { key: 'billing',   label: 'Billing',   icon: CreditCard },
@@ -109,6 +111,7 @@ const NAV_SECTIONS: NavSection[] = [
 
 const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'profile':        <ProfileSettings />,
+  'security':       <ChangePassword />,
   'workspace':      <WorkspaceSettings />,
   'branding':       <BrandingSettings />,
   'billing':        <BillingSettings />,
