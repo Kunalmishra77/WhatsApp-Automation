@@ -46,6 +46,15 @@ function adminEmails(rows: AdminMemberRow[]): string[] {
   return out;
 }
 
+// Branded, professional shell for the billing emails clients receive.
+function billingEmail(heading: string, lines: string[]): string {
+  return `<div style="font-family:system-ui,Arial,sans-serif;max-width:540px;margin:0 auto;padding:28px;color:#1a2b4a">
+    <h2 style="margin:0 0 14px;color:#0f1e38;font-size:20px">${heading}</h2>
+    ${lines.map((l) => `<p style="margin:0 0 12px;color:#444;line-height:1.55;font-size:15px">${l}</p>`).join('')}
+    <p style="margin:22px 0 0;color:#888;font-size:13px">Warm regards,<br/>Team AGENTiX</p>
+  </div>`;
+}
+
 // POST /api/cron/billing-sweep — external cron (Bearer CRON_SECRET). Schedule lives in
 // migration 065 (pg_cron job 'billing-sweep'); this route is not self-scheduling.
 export async function POST(request: NextRequest) {
@@ -154,9 +163,12 @@ export async function POST(request: NextRequest) {
         if (to.length > 0) {
           const r = await sendMail({
             to,
-            subject: `Recharge reminder — ${wsName}`,
-            html: `<p>Your Agentix subscription (${plan.name}) renews on <strong>${sub.current_period_end}</strong>.</p>`
-              + `<p>Amount due: <strong>₹${rupees(plan.total_paise)}</strong>.</p>`,
+            subject: `Renewal reminder — your AGENTiX subscription (${wsName})`,
+            html: billingEmail('Your subscription is due for renewal', [
+              `Your AGENTiX subscription (<strong>${plan.name}</strong>) is due to renew on <strong>${sub.current_period_end}</strong>.`,
+              `Amount due: <strong>₹${rupees(plan.total_paise)}</strong> (incl. GST).`,
+              `Please complete the payment on time so your WhatsApp automation keeps running without any interruption.`,
+            ]),
           });
           if (!r.ok) console.error('[billing-sweep] reminder email failed:', sub.workspace_id, r.error);
         }
@@ -184,9 +196,13 @@ export async function POST(request: NextRequest) {
         if (to.length > 0) {
           const r = await sendMail({
             to,
-            subject: `Payment overdue — ${wsName}`,
-            html: `<p>Your payment for <strong>${plan.name}</strong> is overdue.</p>`
-              + `<p>Pay within <strong>${graceDays} day(s)</strong> (by ${result.graceUntil}) to avoid suspension.</p>`,
+            subject: `Action required — your AGENTiX subscription has expired (${wsName})`,
+            html: billingEmail('Your subscription has expired — please renew', [
+              `Your AGENTiX subscription (<strong>${plan.name}</strong>) has expired.`,
+              `Amount due: <strong>₹${rupees(plan.total_paise)}</strong> (incl. GST).`,
+              `To keep your WhatsApp automation running, please renew within <strong>${graceDays} day(s)</strong> — by <strong>${result.graceUntil}</strong>.`,
+              `If we don't receive your payment by then, your service will be <strong>temporarily suspended</strong> until you renew. We'd hate for your automation to stop, so kindly complete the payment at the earliest.`,
+            ]),
           });
           if (!r.ok) console.error('[billing-sweep] grace email failed:', sub.workspace_id, r.error);
         }
@@ -227,9 +243,12 @@ export async function POST(request: NextRequest) {
         if (to.length > 0) {
           const r = await sendMail({
             to,
-            subject: `Subscription ended — ${wsName}`,
-            html: `<p>Your Agentix subscription (${plan.name}) has ended due to non-payment.</p>`
-              + `<p>Pay to restart service.</p>`,
+            subject: `Your AGENTiX subscription has been suspended (${wsName})`,
+            html: billingEmail('Your subscription has been suspended', [
+              `Your AGENTiX subscription (<strong>${plan.name}</strong>) has been suspended due to non-payment, and your WhatsApp automation is currently paused.`,
+              `To restore service immediately, please renew your subscription: <strong>₹${rupees(plan.total_paise)}</strong> (incl. GST).`,
+              `Once payment is received, your automation will be reactivated right away. If you have any questions, just reply to this email.`,
+            ]),
           });
           if (!r.ok) console.error('[billing-sweep] suspend email failed:', sub.workspace_id, r.error);
         }
