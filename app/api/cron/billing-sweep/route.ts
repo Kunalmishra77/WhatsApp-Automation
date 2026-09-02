@@ -11,6 +11,7 @@ interface SubscriptionRow {
   id: string;
   workspace_id: string;
   plan_key: string;
+  term: string;
   status: SubStatus;
   current_period_end: string | null;
   grace_until: string | null;
@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
 
   const { data: subs, error: subsError } = await db
     .from('subscriptions')
-    .select('id, workspace_id, plan_key, status, current_period_end, grace_until, reminder_sent_for')
+    .select('id, workspace_id, plan_key, term, status, current_period_end, grace_until, reminder_sent_for')
     .eq('is_comped', false);
 
   if (subsError) {
@@ -122,13 +123,16 @@ export async function POST(request: NextRequest) {
       const workspace = wsData as WorkspaceRow | null;
       if (!workspace) throw new Error(`workspace ${sub.workspace_id} not found`);
 
+      // billing_plans is keyed by (key, term) — the same key has one row per billing
+      // term (monthly/quarterly/…), so both are required to resolve a single plan.
       const { data: planData } = await db
         .from('billing_plans')
         .select('key, name, total_paise')
         .eq('key', sub.plan_key)
+        .eq('term', sub.term)
         .maybeSingle();
       const plan = planData as PlanRow | null;
-      if (!plan) throw new Error(`billing_plans row not found for key ${sub.plan_key}`);
+      if (!plan) throw new Error(`billing_plans row not found for key ${sub.plan_key} term ${sub.term}`);
 
       const { data: memberRows } = await db
         .from('workspace_members')
