@@ -13,8 +13,7 @@ import {
 } from 'lucide-react';
 import { ChangePassword } from '@/modules/settings/components/ChangePassword';
 import { rupees } from '@/lib/billing';
-
-const DEFAULT_RATES = { marketing: 0.58, utility: 0.14, auth: 0.14, service: 0.29 };
+import { DEFAULT_META_RATES, type MetaRates } from '@/lib/meta-rates';
 
 // ── Billing Configuration types (mirrors modules/admin/components/BillingOverview) ──
 interface AdminBillingResponse {
@@ -103,8 +102,44 @@ const AUTOMATION_JOBS: AutomationJob[] = [
 ];
 
 export default function SettingsPage() {
-  const [rates, setRates] = useState(DEFAULT_RATES);
+  const [rates, setRates] = useState<MetaRates>(DEFAULT_META_RATES);
+  const [ratesSeeded, setRatesSeeded] = useState(false);
   const qc = useQueryClient();
+
+  // ── Meta Payment Setup rates — REAL, wired to /api/admin/meta-rates ──
+  const { data: metaRatesData } = useQuery<{ rates: MetaRates }>({
+    queryKey: ['admin', 'meta-rates'],
+    queryFn: () => fetch('/api/admin/meta-rates').then((r) => {
+      if (!r.ok) throw new Error('Failed to load Meta rates');
+      return r.json();
+    }),
+  });
+
+  useEffect(() => {
+    if (metaRatesData && !ratesSeeded) {
+      setRates(metaRatesData.rates);
+      setRatesSeeded(true);
+    }
+  }, [metaRatesData, ratesSeeded]);
+
+  const ratesMut = useMutation({
+    mutationFn: (body: MetaRates) =>
+      fetch('/api/admin/meta-rates', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d?.error ?? 'Failed to save');
+        return d;
+      }),
+    onSuccess: (d: { rates: MetaRates }) => {
+      toast.success('Meta rates saved');
+      setRates(d.rates);
+      qc.invalidateQueries({ queryKey: ['admin', 'meta-rates'] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   // ── Billing Configuration ──
   const [graceDays, setGraceDays] = useState('');
@@ -369,10 +404,10 @@ export default function SettingsPage() {
 
         <div className="flex items-center gap-3 mt-4">
           <Button className="gap-2 text-white" style={{ backgroundColor: '#F97316' }}
-            onClick={() => toast.success('Rates saved (display only — not yet persisted)')}>
-            <Save className="h-4 w-4" /> Save Rates
+            disabled={ratesMut.isPending}
+            onClick={() => ratesMut.mutate(rates)}>
+            <Save className="h-4 w-4" /> {ratesMut.isPending ? 'Saving...' : 'Save Rates'}
           </Button>
-          <p className="text-xs text-gray-400">These reference rates aren&apos;t wired to a backend yet — changes are display only and won&apos;t persist on reload.</p>
         </div>
       </div>
     </div>

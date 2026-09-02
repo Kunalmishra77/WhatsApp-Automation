@@ -1,8 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/services/supabase/server';
 import { createAdminClient } from '@/services/supabase/admin';
-
-const RATES = { marketing: 0.58, utility: 0.14, auth: 0.14, service: 0.29 };
+import { getMetaRates } from '@/lib/meta-rates';
 
 async function checkAdmin() {
   const supabase = await createClient();
@@ -84,6 +83,7 @@ export async function GET(req: NextRequest) {
 
   const autoSync    = req.nextUrl.searchParams.get('sync') === '1';
   const currentMonth = new Date().toISOString().slice(0, 7) + '-01';
+  const RATES = await getMetaRates(db);
 
   if (autoSync) {
     const { data: workspaces } = await db
@@ -161,6 +161,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const db = await checkAdmin();
   if (!db) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  const RATES = await getMetaRates(db);
 
   const body = await req.json() as {
     workspace_id:     string;

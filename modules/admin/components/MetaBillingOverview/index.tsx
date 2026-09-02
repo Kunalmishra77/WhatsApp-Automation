@@ -11,8 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-
-const RATES = { marketing: 0.58, utility: 0.14, auth: 0.14, service: 0.29 };
+import { DEFAULT_META_RATES, type MetaRates } from '@/lib/meta-rates';
 
 interface Snapshot {
   id: string;
@@ -46,6 +45,12 @@ export function MetaBillingOverview() {
     queryKey: ['meta-billing'],
     queryFn:  () => fetch('/api/admin/meta-billing').then(r => r.json()),
   });
+
+  const { data: ratesData } = useQuery<{ rates: MetaRates }>({
+    queryKey: ['admin', 'meta-rates'],
+    queryFn:  () => fetch('/api/admin/meta-rates').then(r => r.json()),
+  });
+  const RATES = ratesData?.rates ?? DEFAULT_META_RATES;
 
   const snapshots  = data?.snapshots ?? [];
   const totalInr   = snapshots.reduce((a, s) => a + (s.total_inr ?? 0), 0);
