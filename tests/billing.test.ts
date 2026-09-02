@@ -36,39 +36,57 @@ describe('dates + invoice + display', () => {
 describe('state machine (grace 3, reminder 3)', () => {
   const base = { graceDays: 3, reminderDaysBefore: 3 };
   it('sends reminder 3 days before end', () => {
-    const r = nextBillingAction({ ...base, status: 'active', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-08-29', reminderSentFor: null });
+    const r = nextBillingAction({ ...base, status: 'active', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-08-29', reminderSentFor: null, graceReminderSentFor: null });
     expect(r.action).toBe('send_reminder'); expect(r.reminderSentFor).toBe('2026-09-01'); expect(r.isActive).toBe(true);
   });
   it('does not resend reminder for same cycle', () => {
-    const r = nextBillingAction({ ...base, status: 'active', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-08-30', reminderSentFor: '2026-09-01' });
+    const r = nextBillingAction({ ...base, status: 'active', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-08-30', reminderSentFor: '2026-09-01', graceReminderSentFor: null });
     expect(r.action).toBe('none');
   });
   it('enters grace at period end', () => {
-    const r = nextBillingAction({ ...base, status: 'active', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-01', reminderSentFor: '2026-09-01' });
+    const r = nextBillingAction({ ...base, status: 'active', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-01', reminderSentFor: '2026-09-01', graceReminderSentFor: null });
     expect(r.action).toBe('enter_grace'); expect(r.status).toBe('past_due'); expect(r.graceUntil).toBe('2026-09-04'); expect(r.isActive).toBe(true);
+    // (d) enter_grace stamps graceReminderSentFor with today (the expiry day) so a
+    // grace_reminder can't also fire the same day as the enter_grace email.
+    expect(r.graceReminderSentFor).toBe('2026-09-01');
   });
   it('suspends after grace', () => {
-    const r = nextBillingAction({ ...base, status: 'past_due', currentPeriodEnd: '2026-09-01', graceUntil: '2026-09-04', today: '2026-09-04', reminderSentFor: '2026-09-01' });
+    const r = nextBillingAction({ ...base, status: 'past_due', currentPeriodEnd: '2026-09-01', graceUntil: '2026-09-04', today: '2026-09-04', reminderSentFor: '2026-09-01', graceReminderSentFor: null });
+    expect(r.action).toBe('suspend'); expect(r.status).toBe('suspended'); expect(r.isActive).toBe(false);
+  });
+  it('(a) sends a daily grace countdown reminder while inside the grace window', () => {
+    const r = nextBillingAction({ ...base, status: 'past_due', currentPeriodEnd: '2026-09-01', graceUntil: '2026-09-04', today: '2026-09-02', reminderSentFor: '2026-09-01', graceReminderSentFor: '2026-09-01' });
+    expect(r.action).toBe('grace_reminder');
+    expect(r.daysUntilSuspend).toBe(2);
+    expect(r.graceReminderSentFor).toBe('2026-09-02');
+    expect(r.isActive).toBe(true);
+  });
+  it('(b) does not resend the grace reminder twice on the same day', () => {
+    const r = nextBillingAction({ ...base, status: 'past_due', currentPeriodEnd: '2026-09-01', graceUntil: '2026-09-04', today: '2026-09-02', reminderSentFor: '2026-09-01', graceReminderSentFor: '2026-09-02' });
+    expect(r.action).toBe('none');
+  });
+  it('(c) suspend takes priority over grace_reminder once graceUntil is reached', () => {
+    const r = nextBillingAction({ ...base, status: 'past_due', currentPeriodEnd: '2026-09-01', graceUntil: '2026-09-04', today: '2026-09-04', reminderSentFor: '2026-09-01', graceReminderSentFor: '2026-09-03' });
     expect(r.action).toBe('suspend'); expect(r.status).toBe('suspended'); expect(r.isActive).toBe(false);
   });
   it('active mid-cycle → none', () => {
-    const r = nextBillingAction({ ...base, status: 'active', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-08-15', reminderSentFor: null });
+    const r = nextBillingAction({ ...base, status: 'active', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-08-15', reminderSentFor: null, graceReminderSentFor: null });
     expect(r.action).toBe('none'); expect(r.isActive).toBe(true);
   });
   it('pending subscription is never active and takes no action', () => {
-    const r = nextBillingAction({ ...base, status: 'pending', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-05', reminderSentFor: null });
+    const r = nextBillingAction({ ...base, status: 'pending', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-05', reminderSentFor: null, graceReminderSentFor: null });
     expect(r.action).toBe('none'); expect(r.isActive).toBe(false);
   });
   it('cancelled subscription keeps access before period end', () => {
-    const r = nextBillingAction({ ...base, status: 'cancelled', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-08-15', reminderSentFor: null });
+    const r = nextBillingAction({ ...base, status: 'cancelled', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-08-15', reminderSentFor: null, graceReminderSentFor: null });
     expect(r.action).toBe('none'); expect(r.isActive).toBe(true);
   });
   it('cancelled subscription suspends at period end', () => {
-    const r = nextBillingAction({ ...base, status: 'cancelled', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-01', reminderSentFor: null });
+    const r = nextBillingAction({ ...base, status: 'cancelled', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-01', reminderSentFor: null, graceReminderSentFor: null });
     expect(r.action).toBe('suspend'); expect(r.status).toBe('suspended'); expect(r.isActive).toBe(false);
   });
   it('cancelled subscription stays suspended after period end', () => {
-    const r = nextBillingAction({ ...base, status: 'cancelled', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-05', reminderSentFor: null });
+    const r = nextBillingAction({ ...base, status: 'cancelled', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-05', reminderSentFor: null, graceReminderSentFor: null });
     expect(r.action).toBe('suspend'); expect(r.status).toBe('suspended'); expect(r.isActive).toBe(false);
   });
 });

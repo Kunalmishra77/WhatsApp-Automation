@@ -75,14 +75,17 @@ export interface NextBillingActionInput {
   graceDays: number;
   reminderDaysBefore: number;
   reminderSentFor: string | null;
+  graceReminderSentFor: string | null;
 }
 
 export interface NextBillingActionResult {
-  action: 'none' | 'send_reminder' | 'enter_grace' | 'suspend';
+  action: 'none' | 'send_reminder' | 'enter_grace' | 'suspend' | 'grace_reminder';
   status: SubStatus;
   isActive: boolean;
   graceUntil: string | null;
   reminderSentFor: string | null;
+  graceReminderSentFor: string | null;
+  daysUntilSuspend: number;
 }
 
 export function nextBillingAction(i: NextBillingActionInput): NextBillingActionResult {
@@ -92,25 +95,46 @@ export function nextBillingAction(i: NextBillingActionInput): NextBillingActionR
     Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
 
   if (status === 'suspended' || status === 'pending') {
-    return { action: 'none', status, isActive: false, graceUntil, reminderSentFor: i.reminderSentFor };
+    return { action: 'none', status, isActive: false, graceUntil, reminderSentFor: i.reminderSentFor, graceReminderSentFor: i.graceReminderSentFor, daysUntilSuspend: 0 };
   }
 
   // A cancelled subscription keeps access until its current period ends —
   // only then does the sweep suspend it (which flips workspaces.is_active=false).
   if (status === 'cancelled') {
     if (today >= currentPeriodEnd) {
-      return { action: 'suspend', status: 'suspended', isActive: false, graceUntil, reminderSentFor: i.reminderSentFor };
+      return { action: 'suspend', status: 'suspended', isActive: false, graceUntil, reminderSentFor: i.reminderSentFor, graceReminderSentFor: i.graceReminderSentFor, daysUntilSuspend: 0 };
     }
-    return { action: 'none', status, isActive: true, graceUntil, reminderSentFor: i.reminderSentFor };
+    return { action: 'none', status, isActive: true, graceUntil, reminderSentFor: i.reminderSentFor, graceReminderSentFor: i.graceReminderSentFor, daysUntilSuspend: 0 };
   }
 
   if (status === 'active' && today >= currentPeriodEnd) {
     const g = addDaysStr(currentPeriodEnd, i.graceDays);
-    return { action: 'enter_grace', status: 'past_due', isActive: true, graceUntil: g, reminderSentFor: i.reminderSentFor };
+    // graceReminderSentFor is stamped with today (the expiry day) so the daily
+    // grace_reminder check below doesn't also fire a countdown email same-day
+    // as this enter_grace email.
+    return { action: 'enter_grace', status: 'past_due', isActive: true, graceUntil: g, reminderSentFor: i.reminderSentFor, graceReminderSentFor: today, daysUntilSuspend: 0 };
   }
 
   if (status === 'past_due' && graceUntil && today >= graceUntil) {
-    return { action: 'suspend', status: 'suspended', isActive: false, graceUntil, reminderSentFor: i.reminderSentFor };
+    return { action: 'suspend', status: 'suspended', isActive: false, graceUntil, reminderSentFor: i.reminderSentFor, graceReminderSentFor: i.graceReminderSentFor, daysUntilSuspend: 0 };
+  }
+
+  // daily grace countdown: past_due, still inside the grace window, not yet sent today
+  if (
+    status === 'past_due' &&
+    graceUntil &&
+    today < graceUntil &&
+    i.graceReminderSentFor !== today
+  ) {
+    return {
+      action: 'grace_reminder',
+      status,
+      isActive: true,
+      graceUntil,
+      reminderSentFor: i.reminderSentFor,
+      graceReminderSentFor: today,
+      daysUntilSuspend: daysBetween(today, graceUntil),
+    };
   }
 
   // reminder window: still active, within reminderDaysBefore of end, not yet sent this cycle
@@ -120,7 +144,7 @@ export function nextBillingAction(i: NextBillingActionInput): NextBillingActionR
     daysBetween(today, currentPeriodEnd) >= 0 &&
     i.reminderSentFor !== currentPeriodEnd
   ) {
-    return { action: 'send_reminder', status, isActive: true, graceUntil, reminderSentFor: currentPeriodEnd };
+    return { action: 'send_reminder', status, isActive: true, graceUntil, reminderSentFor: currentPeriodEnd, graceReminderSentFor: i.graceReminderSentFor, daysUntilSuspend: 0 };
   }
 
   // Only 'active' | 'past_due' can reach here (suspended/pending returned above;
@@ -131,6 +155,8 @@ export function nextBillingAction(i: NextBillingActionInput): NextBillingActionR
     isActive: true,
     graceUntil,
     reminderSentFor: i.reminderSentFor,
+    graceReminderSentFor: i.graceReminderSentFor,
+    daysUntilSuspend: 0,
   };
 }
 

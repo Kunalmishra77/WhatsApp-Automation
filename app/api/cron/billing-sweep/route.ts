@@ -16,6 +16,7 @@ interface SubscriptionRow {
   current_period_end: string | null;
   grace_until: string | null;
   reminder_sent_for: string | null;
+  grace_reminder_sent_for: string | null;
 }
 interface PlanRow {
   key: string;
@@ -81,7 +82,7 @@ export async function POST(request: NextRequest) {
 
   const { data: subs, error: subsError } = await db
     .from('subscriptions')
-    .select('id, workspace_id, plan_key, term, status, current_period_end, grace_until, reminder_sent_for')
+    .select('id, workspace_id, plan_key, term, status, current_period_end, grace_until, reminder_sent_for, grace_reminder_sent_for')
     .eq('is_comped', false);
 
   if (subsError) {
@@ -94,6 +95,7 @@ export async function POST(request: NextRequest) {
   let processed = 0;
   let reminded = 0;
   let graced = 0;
+  let graceReminded = 0;
   let suspended = 0;
   let failed = 0;
 
@@ -111,6 +113,7 @@ export async function POST(request: NextRequest) {
         graceDays,
         reminderDaysBefore,
         reminderSentFor: sub.reminder_sent_for,
+        graceReminderSentFor: sub.grace_reminder_sent_for,
       });
 
       if (result.action === 'none') continue;
@@ -180,7 +183,7 @@ export async function POST(request: NextRequest) {
       } else if (result.action === 'enter_grace') {
         const { error: updErr } = await db
           .from('subscriptions')
-          .update({ status: 'past_due', grace_until: result.graceUntil })
+          .update({ status: 'past_due', grace_until: result.graceUntil, grace_reminder_sent_for: result.graceReminderSentFor })
           .eq('id', sub.id);
         if (updErr) throw updErr;
 
@@ -211,6 +214,40 @@ export async function POST(request: NextRequest) {
           if (!r.ok) console.error('[billing-sweep] grace email failed:', sub.workspace_id, r.error);
         }
         graced++;
+      } else if (result.action === 'grace_reminder') {
+        const { error: updErr } = await db
+          .from('subscriptions')
+          .update({ grace_reminder_sent_for: result.graceReminderSentFor })
+          .eq('id', sub.id);
+        if (updErr) throw updErr;
+
+        if (admins.length > 0) {
+          await db.from('notifications').insert(
+            admins.map((a) => ({
+              workspace_id: sub.workspace_id,
+              user_id: a.user_id,
+              type: 'billing_grace',
+              title: 'Payment overdue',
+              body: `Renew within ${result.daysUntilSuspend} day(s) to avoid suspension.`,
+              data: { plan_key: plan.key, grace_until: sub.grace_until, days_until_suspend: result.daysUntilSuspend },
+            })),
+          );
+        }
+
+        if (to.length > 0) {
+          const r = await sendMail({
+            to,
+            subject: `Reminder — renew to avoid suspension (${wsName})`,
+            html: billingEmail('Your subscription is still overdue', [
+              `Your AGENTiX subscription (<strong>${plan.name}</strong>) has expired and is awaiting renewal.`,
+              `You have <strong>${result.daysUntilSuspend} day(s) left</strong> before suspension (by <strong>${sub.grace_until ?? ''}</strong>).`,
+              `Amount due: <strong>₹${rupees(plan.total_paise)}</strong> (incl. GST).`,
+              `To keep your WhatsApp automation running without interruption, please renew at the earliest.`,
+            ]),
+          });
+          if (!r.ok) console.error('[billing-sweep] grace reminder email failed:', sub.workspace_id, r.error);
+        }
+        graceReminded++;
       } else if (result.action === 'suspend') {
         // Write workspaces FIRST, subscriptions LAST: subscriptions.status='suspended' is
         // the sentinel nextBillingAction checks to decide whether to act again. If the
@@ -264,5 +301,5 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ processed, reminded, graced, suspended, failed });
+  return NextResponse.json({ processed, reminded, graced, graceReminded, suspended, failed });
 }
