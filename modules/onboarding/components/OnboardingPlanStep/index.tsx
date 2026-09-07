@@ -3,10 +3,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Camera, MessageSquare } from 'lucide-react';
+import { Camera, CheckCircle2, MessageSquare } from 'lucide-react';
 import { rupees, TERMS, type Term } from '@/lib/billing';
 import { CheckoutButton } from '@/modules/settings/components/BillingSettings/CheckoutButton';
 import { TermSelector, type PriceMatrixRow } from '@/modules/settings/components/BillingSettings/TermSelector';
@@ -21,6 +23,7 @@ interface StatusPlan {
 interface StatusResponse {
   plans: StatusPlan[];
   price_matrix: PriceMatrixRow[];
+  payments_enabled: boolean;
 }
 
 interface OnboardingPlanStepProps {
@@ -36,6 +39,7 @@ export function OnboardingPlanStep({ workspaceId }: OnboardingPlanStepProps) {
 
   const [hasInstagram, setHasInstagram] = useState(false);
   const [selectedTerm, setSelectedTerm] = useState<Term>('monthly');
+  const [activating, setActivating] = useState(false);
   // True once checkout has failed to even start (e.g. the payment gateway isn't
   // configured yet). Razorpay Live keys are pending — until they land, checkout
   // reliably 4xx/5xxs before the modal opens, so this is expected right now.
@@ -53,6 +57,27 @@ export function OnboardingPlanStep({ workspaceId }: OnboardingPlanStepProps) {
 
   function clearPending() {
     setCheckoutPending(false);
+  }
+
+  async function handleFreeActivate() {
+    setActivating(true);
+    try {
+      const res = await fetch('/api/onboarding/activate-free', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId }),
+      });
+      const result = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || !result.ok) {
+        toast.error(result.error ?? 'Could not activate your workspace — please try again');
+        setActivating(false);
+        return;
+      }
+      router.push('/conversations');
+    } catch {
+      toast.error('Network error — please try again');
+      setActivating(false);
+    }
   }
 
   if (isLoading) {
@@ -76,6 +101,46 @@ export function OnboardingPlanStep({ workspaceId }: OnboardingPlanStepProps) {
           <button type="button" onClick={() => void refetch()} className="underline font-medium">
             Retry
           </button>
+        </div>
+      </Shell>
+    );
+  }
+
+  // Payments are switched off globally (e.g. the payment gateway isn't live yet):
+  // activate the workspace for free instead of asking for money. No plan/term/
+  // checkout — one button that provisions the workspace and heads to the inbox.
+  if (data.payments_enabled === false) {
+    return (
+      <Shell>
+        <div className="space-y-5">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 flex items-start gap-3">
+            <CheckCircle2 className="h-5 w-5 mt-0.5 text-emerald-600 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-emerald-900">No payment needed right now</p>
+              <p className="text-xs text-emerald-800 mt-0.5">
+                Your workspace is ready to activate — get started free and explore everything. We'll let
+                you know when it's time to choose a plan.
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border p-4 flex items-start gap-3">
+            <MessageSquare className="h-4 w-4 mt-0.5 text-brand-500 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">WhatsApp CRM</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                AI-powered inbox, campaigns, chatbot flows, and analytics on your own WhatsApp number.
+              </p>
+            </div>
+          </div>
+
+          <Button
+            className="w-full bg-brand-500 hover:bg-brand-600"
+            onClick={() => void handleFreeActivate()}
+            disabled={activating}
+          >
+            {activating ? 'Activating…' : 'Activate & Get Started'}
+          </Button>
         </div>
       </Shell>
     );

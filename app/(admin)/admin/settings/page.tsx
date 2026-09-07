@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import {
   CreditCard, Save, Lock, Settings2, Package, Zap,
@@ -17,7 +18,7 @@ import { DEFAULT_META_RATES, type MetaRates } from '@/lib/meta-rates';
 
 // ── Billing Configuration types (mirrors modules/admin/components/BillingOverview) ──
 interface AdminBillingResponse {
-  config: { grace_days: number; reminder_days_before: number };
+  config: { grace_days: number; reminder_days_before: number; payments_enabled: boolean };
 }
 
 // ── Plans & Pricing types ──
@@ -164,7 +165,7 @@ export default function SettingsPage() {
   }, [billingData, seeded]);
 
   const configMut = useMutation({
-    mutationFn: (body: { grace_days: number; reminder_days_before: number }) =>
+    mutationFn: (body: { grace_days?: number; reminder_days_before?: number; payments_enabled?: boolean }) =>
       fetch('/api/admin/billing/config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -180,6 +181,8 @@ export default function SettingsPage() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const paymentsEnabled = billingData?.config.payments_enabled ?? true;
 
   // ── Plans & Pricing ──
   const { data: plansData, isLoading: plansLoading, isError: plansError } = useQuery<PlansResponse>({
@@ -228,6 +231,25 @@ export default function SettingsPage() {
             <h2 className="text-base font-semibold text-gray-900">Billing Configuration</h2>
             <p className="text-xs text-gray-400">Grace period and renewal reminder timing used by the daily billing sweep</p>
           </div>
+        </div>
+
+        {/* Global payments switch — when OFF, new self-serve signups activate free
+            (no checkout) and no one is asked to pay. Turn ON once the payment
+            gateway / website is verified. */}
+        <div className="mb-5 flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+          <div className="pr-4">
+            <p className="text-sm font-semibold text-gray-900">Accept payments</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {paymentsEnabled
+                ? 'New clients are asked to pay to activate their workspace.'
+                : 'Payments are OFF — new signups activate for free, and no client is asked to pay.'}
+            </p>
+          </div>
+          <Switch
+            checked={paymentsEnabled}
+            disabled={billingLoading || configMut.isPending}
+            onCheckedChange={(v) => configMut.mutate({ payments_enabled: v })}
+          />
         </div>
 
         {billingError ? (

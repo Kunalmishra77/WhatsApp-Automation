@@ -64,6 +64,15 @@ export async function GET(request: NextRequest) {
     }
     const subscription = (subData as SubscriptionRow | null) ?? null;
 
+    // Global payments kill-switch — when false, the onboarding plan step drops the
+    // paid checkout and offers free activation instead (Razorpay website review, etc.).
+    const { data: cfg } = await db
+      .from('billing_config')
+      .select('payments_enabled')
+      .eq('id', 1)
+      .maybeSingle();
+    const paymentsEnabled = (cfg as { payments_enabled: boolean } | null)?.payments_enabled ?? true;
+
     // No subscription yet -> default to the base WhatsApp-only monthly plan so the
     // UI can still show an accurate "what you'd pay" preview before first checkout.
     const planKey = subscription?.plan_key ?? planKeyFor(false);
@@ -132,6 +141,7 @@ export async function GET(request: NextRequest) {
     const payments = (paymentsData as PaymentRow[] | null) ?? [];
 
     return NextResponse.json({
+      payments_enabled: paymentsEnabled,
       subscription: subscription
         ? {
             plan_key: subscription.plan_key,

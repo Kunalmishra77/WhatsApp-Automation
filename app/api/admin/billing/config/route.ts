@@ -8,6 +8,7 @@ export const runtime = 'nodejs';
 interface ConfigPatchBody {
   grace_days?: unknown;
   reminder_days_before?: unknown;
+  payments_enabled?: unknown;
 }
 
 // PATCH /api/admin/billing/config — update the singleton billing_config row
@@ -18,8 +19,14 @@ export async function PATCH(request: NextRequest) {
     await requirePlatformAdmin();
 
     const body = (await request.json().catch(() => ({}))) as ConfigPatchBody;
-    const patch: Record<string, number> = {};
+    const patch: Record<string, number | boolean> = {};
 
+    if (body.payments_enabled !== undefined) {
+      if (typeof body.payments_enabled !== 'boolean') {
+        return NextResponse.json({ error: 'payments_enabled must be true or false' }, { status: 400 });
+      }
+      patch.payments_enabled = body.payments_enabled;
+    }
     if (body.grace_days !== undefined) {
       const v = Number(body.grace_days);
       if (!Number.isInteger(v) || v <= 0) {
@@ -35,7 +42,7 @@ export async function PATCH(request: NextRequest) {
       patch.reminder_days_before = v;
     }
     if (Object.keys(patch).length === 0) {
-      return NextResponse.json({ error: 'Provide grace_days and/or reminder_days_before' }, { status: 400 });
+      return NextResponse.json({ error: 'Provide grace_days, reminder_days_before and/or payments_enabled' }, { status: 400 });
     }
 
     const db = createAdminClient() as any;
@@ -43,7 +50,7 @@ export async function PATCH(request: NextRequest) {
       .from('billing_config')
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq('id', 1)
-      .select('grace_days, reminder_days_before')
+      .select('grace_days, reminder_days_before, payments_enabled')
       .single();
 
     if (error) {

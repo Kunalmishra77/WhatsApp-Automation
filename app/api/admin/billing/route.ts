@@ -259,7 +259,7 @@ export async function GET() {
     // ── Grace/reminder config ──
     const { data: configData } = await db
       .from('billing_config')
-      .select('grace_days, reminder_days_before')
+      .select('grace_days, reminder_days_before, payments_enabled')
       .eq('id', 1)
       .maybeSingle();
 
@@ -278,7 +278,7 @@ export async function GET() {
       overdue,
       failed_payments: failedPayments,
       reconciliation_mismatches: reconciliationMismatches,
-      config: configData ?? { grace_days: 3, reminder_days_before: 3 },
+      config: configData ?? { grace_days: 3, reminder_days_before: 3, payments_enabled: true },
     });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);
