@@ -46,12 +46,21 @@ export async function GET(
         completed_at: string | null; created_at: string;
         templates: { name: string; body: string } | null;
       }>).map(async (v) => {
-        const { data: recipientStats } = await db
-          .from('campaign_recipients')
-          .select('status')
-          .eq('campaign_id', v.id);
-
-        const stats = (recipientStats ?? []) as Array<{ status: string }>;
+        // Paginate — an unbounded select caps at 1000, silently skewing the rates and
+        // the declared A/B winner for variants with >1000 recipients.
+        const stats: Array<{ status: string }> = [];
+        let abOff = 0;
+        while (true) {
+          const { data: pg } = await db
+            .from('campaign_recipients')
+            .select('status')
+            .eq('campaign_id', v.id)
+            .range(abOff, abOff + 999);
+          if (!pg?.length) break;
+          stats.push(...(pg as Array<{ status: string }>));
+          if (pg.length < 1000) break;
+          abOff += 1000;
+        }
         const total     = stats.length;
         const delivered = stats.filter((r) => ['delivered', 'read', 'replied'].includes(r.status)).length;
         const read      = stats.filter((r) => ['read', 'replied'].includes(r.status)).length;

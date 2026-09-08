@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
       live_sent:      c.sent_count       ?? 0,   // API-accepted (excludes failed + filtered)
       live_delivered: c.delivered_count  ?? 0,
       live_read:      c.read_count       ?? 0,
-      live_replied:   0,
+      live_replied:   c.replied_count    ?? 0,
       live_failed:    c.failed_count     ?? 0,
       live_filtered:  c.filtered_count   ?? 0,
     }));

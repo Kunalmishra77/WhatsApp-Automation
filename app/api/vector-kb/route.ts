@@ -12,14 +12,23 @@ export async function GET(request: NextRequest) {
 
     const db = createAdminClient() as any;
 
-    // Get grouped counts
-    const { data, error } = await db
-      .from('vector_documents')
-      .select('filename, file_type, chunk_index, created_at')
-      .eq('workspace_id', workspaceId)
-      .order('created_at', { ascending: false });
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // Get grouped counts — paginate: a single large KB file can produce thousands of
+    // chunks, so an unbounded select would drop files/chunks past PostgREST's 1000-row cap.
+    const data: Array<{ filename: string; file_type: string | null; chunk_index: number; created_at: string }> = [];
+    let vkOff = 0;
+    while (true) {
+      const { data: pg, error } = await db
+        .from('vector_documents')
+        .select('filename, file_type, chunk_index, created_at')
+        .eq('workspace_id', workspaceId)
+        .order('created_at', { ascending: false })
+        .range(vkOff, vkOff + 999);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (!pg?.length) break;
+      data.push(...(pg as typeof data));
+      if (pg.length < 1000) break;
+      vkOff += 1000;
+    }
 
     // Group by filename
     const grouped: Record<string, { filename: string; file_type: string; chunks: number; created_at: string }> = {};

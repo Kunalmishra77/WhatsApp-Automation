@@ -243,18 +243,26 @@ export async function GET(request: NextRequest) {
 
     // ── 11. CSAT — ranged via fromUtc/toUtc (was the old `${from}T00:00:00.000Z` /
     //       `${to}T23:59:59.999Z` string pattern) ────────────────────────────────
-    const { data: csatRaw } = await db
-      .from('csat_responses')
-      .select('score')
-      .eq('workspace_id', workspaceId)
-      .not('score', 'is', null)
-      .gte('responded_at', fromUtc)
-      .lt('responded_at', toUtc);
-
-    const csatRows = (csatRaw ?? []) as Array<{ score: number }>;
-    const csatResponseCount = csatRows.length;
+    // Paginated so the count/avg cover ALL responses in range, not PostgREST's first 1000.
+    const csatScores: number[] = [];
+    let csatOff = 0;
+    while (true) {
+      const { data: pg } = await db
+        .from('csat_responses')
+        .select('score')
+        .eq('workspace_id', workspaceId)
+        .not('score', 'is', null)
+        .gte('responded_at', fromUtc)
+        .lt('responded_at', toUtc)
+        .range(csatOff, csatOff + 999);
+      if (!pg?.length) break;
+      for (const r of pg as Array<{ score: number }>) csatScores.push(r.score);
+      if (pg.length < 1000) break;
+      csatOff += 1000;
+    }
+    const csatResponseCount = csatScores.length;
     const csatAvgScore: number | null = csatResponseCount > 0
-      ? Math.round((csatRows.reduce((s, r) => s + r.score, 0) / csatResponseCount) * 10) / 10
+      ? Math.round((csatScores.reduce((s, r) => s + r, 0) / csatResponseCount) * 10) / 10
       : null;
 
     return NextResponse.json({

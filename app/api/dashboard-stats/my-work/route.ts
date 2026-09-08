@@ -21,15 +21,26 @@ export async function GET(request: NextRequest) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    const [convRes, leadRes, resolvedTodayRes] = await Promise.all([
-      db.from('conversations')
-        .select('status')
-        .eq('workspace_id', workspaceId)
-        .eq('assigned_agent_id', auth.userId),
-      db.from('leads')
-        .select('stage')
-        .eq('workspace_id', workspaceId)
-        .eq('assigned_agent_id', auth.userId),
+    // Paginate the per-agent lists so the status/stage breakdown + totals stay accurate
+    // beyond PostgREST's 1000-row default (a long-tenured agent can exceed it).
+    const pageAll = async (table: string, col: string): Promise<any[]> => {
+      const out: any[] = [];
+      let off = 0;
+      while (true) {
+        const { data } = await db.from(table).select(col)
+          .eq('workspace_id', workspaceId).eq('assigned_agent_id', auth.userId)
+          .range(off, off + 999);
+        if (!data?.length) break;
+        out.push(...data);
+        if (data.length < 1000) break;
+        off += 1000;
+      }
+      return out;
+    };
+
+    const [conversations, leads, resolvedTodayRes] = await Promise.all([
+      pageAll('conversations', 'status') as Promise<Array<{ status: string }>>,
+      pageAll('leads', 'stage') as Promise<Array<{ stage: string }>>,
       db.from('conversations')
         .select('id', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId)
@@ -37,9 +48,6 @@ export async function GET(request: NextRequest) {
         .eq('status', 'resolved')
         .gte('resolved_at', todayStart.toISOString()),
     ]);
-
-    const conversations: Array<{ status: string }> = convRes.data ?? [];
-    const leads: Array<{ stage: string }> = leadRes.data ?? [];
 
     const convByStatus = conversations.reduce<Record<string, number>>((acc, c) => {
       acc[c.status] = (acc[c.status] ?? 0) + 1;

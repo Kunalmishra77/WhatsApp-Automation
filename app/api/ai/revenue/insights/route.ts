@@ -24,13 +24,21 @@ export async function GET(request: NextRequest) {
       .order('lead_score', { ascending: false })
       .limit(20);
 
-    // Summary stats
-    const { data: stats } = await db
-      .from('contact_insights')
-      .select('lead_score, hot_lead, best_send_hour')
-      .eq('workspace_id', workspaceId);
-
-    const rows = (stats ?? []) as Array<{ lead_score: number; hot_lead: boolean; best_send_hour: number | null }>;
+    // Summary stats — paginate so totals cover ALL analyzed contacts, not just the first
+    // 1000 (contact_insights accumulates over time via /api/ai/revenue/analyze).
+    const rows: Array<{ lead_score: number; hot_lead: boolean; best_send_hour: number | null }> = [];
+    let riOff = 0;
+    while (true) {
+      const { data: pg } = await db
+        .from('contact_insights')
+        .select('lead_score, hot_lead, best_send_hour')
+        .eq('workspace_id', workspaceId)
+        .range(riOff, riOff + 999);
+      if (!pg?.length) break;
+      rows.push(...(pg as Array<{ lead_score: number; hot_lead: boolean; best_send_hour: number | null }>));
+      if (pg.length < 1000) break;
+      riOff += 1000;
+    }
     const totalAnalyzed   = rows.length;
     const totalHotLeads   = rows.filter((r) => r.hot_lead).length;
     const avgScore        = totalAnalyzed

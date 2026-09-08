@@ -22,17 +22,27 @@ export async function GET(request: NextRequest) {
 
     const agentIds = (members as Array<{ user_id: string }>).map((m) => m.user_id);
 
-    // Count open conversations per agent
-    const { data: assigned } = await db
-      .from('conversations')
-      .select('assigned_agent_id')
-      .eq('workspace_id', workspaceId)
-      .in('status', ['open', 'assigned', 'pending'])
-      .not('assigned_agent_id', 'is', null);
+    // Count open conversations per agent — paginate so busy workspaces (>1000 open
+    // conversations) don't silently undercount agent load.
+    const assigned: Array<{ assigned_agent_id: string }> = [];
+    let wOff = 0;
+    while (true) {
+      const { data: pg } = await db
+        .from('conversations')
+        .select('assigned_agent_id')
+        .eq('workspace_id', workspaceId)
+        .in('status', ['open', 'assigned', 'pending'])
+        .not('assigned_agent_id', 'is', null)
+        .range(wOff, wOff + 999);
+      if (!pg?.length) break;
+      assigned.push(...(pg as Array<{ assigned_agent_id: string }>));
+      if (pg.length < 1000) break;
+      wOff += 1000;
+    }
 
     const loadMap: Record<string, number> = {};
     for (const id of agentIds) loadMap[id] = 0;
-    for (const c of (assigned ?? []) as Array<{ assigned_agent_id: string }>) {
+    for (const c of assigned) {
       if (c.assigned_agent_id && loadMap[c.assigned_agent_id] !== undefined) {
         loadMap[c.assigned_agent_id] = (loadMap[c.assigned_agent_id] ?? 0) + 1;
       }

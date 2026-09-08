@@ -95,6 +95,7 @@ export async function GET(request: NextRequest) {
 
     // ── CSAT responses ──────────────────────────────────────────────────────
     if (type === 'csat') {
+      // Display list: most-recent 200 (with contact/agent joins).
       const { data } = await db
         .from('csat_responses')
         .select(`
@@ -109,10 +110,26 @@ export async function GET(request: NextRequest) {
         .order('responded_at', { ascending: false })
         .limit(200);
 
-      // Score distribution
-      const rows  = (data ?? []) as Array<{ score: number }>;
-      const dist  = [1,2,3,4,5].map((s) => ({ score: s, count: rows.filter((r) => r.score === s).length }));
-      const avg   = rows.length > 0 ? Math.round((rows.reduce((a, r) => a + r.score, 0) / rows.length) * 10) / 10 : null;
+      // avg + distribution over ALL responses in range (paginated) — deriving them from
+      // the capped 200-row display list would understate both for busy workspaces.
+      const scores: number[] = [];
+      let cOff = 0;
+      while (true) {
+        const { data: pg } = await db
+          .from('csat_responses')
+          .select('score')
+          .eq('workspace_id', workspaceId)
+          .not('score', 'is', null)
+          .gte('responded_at', fromUtc)
+          .lt('responded_at', toUtc)
+          .range(cOff, cOff + 999);
+        if (!pg?.length) break;
+        for (const r of pg as Array<{ score: number }>) scores.push(r.score);
+        if (pg.length < 1000) break;
+        cOff += 1000;
+      }
+      const dist = [1, 2, 3, 4, 5].map((s) => ({ score: s, count: scores.filter((x) => x === s).length }));
+      const avg  = scores.length > 0 ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10 : null;
 
       return NextResponse.json({ rows: data ?? [], scoreDist: dist, avg });
     }
@@ -162,19 +179,32 @@ export async function GET(request: NextRequest) {
 
     // ── Delivery breakdown ──────────────────────────────────────────────────
     if (type === 'delivery') {
+      // Buckets via exact per-status counts (accurate for any volume). Deriving them from
+      // a bare .select() would silently cap at PostgREST's 1000-row default.
+      const countFor = (status: string) =>
+        db.from('messages').select('id', { count: 'exact', head: true })
+          .eq('workspace_id', workspaceId).eq('direction', 'outbound')
+          .gte('created_at', fromUtc).lt('created_at', toUtc)
+          .eq('status', status);
+      const [sent, delivered, read, failed, queued] = await Promise.all([
+        countFor('sent'), countFor('delivered'), countFor('read'), countFor('failed'), countFor('queued'),
+      ]);
+      const buckets = {
+        sent: sent.count ?? 0, delivered: delivered.count ?? 0, read: read.count ?? 0,
+        failed: failed.count ?? 0, queued: queued.count ?? 0,
+      };
+
+      // A capped sample of rows for the drill-down list (the headline numbers are `buckets`).
       const { data } = await db
         .from('messages')
         .select('status, delivered_at, read_at, created_at')
         .eq('workspace_id', workspaceId)
         .eq('direction', 'outbound')
         .gte('created_at', fromUtc)
-        .lt('created_at', toUtc);
+        .lt('created_at', toUtc)
+        .order('created_at', { ascending: false })
+        .limit(500);
 
-      const buckets: Record<string, number> = { sent: 0, delivered: 0, read: 0, failed: 0, queued: 0 };
-      for (const r of (data ?? []) as Array<{ status: string }>) {
-        const s = r.status ?? 'queued';
-        if (s in buckets) (buckets as any)[s]++;
-      }
       return NextResponse.json({ buckets, rows: data ?? [] });
     }
 
