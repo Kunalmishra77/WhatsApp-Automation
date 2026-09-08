@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createAdminClient } from '@/services/supabase/admin';
 import { getRequiredSecret } from '@/lib/supabase-env';
+import { chooseRecipientForReply, type RecipientCandidate } from '@/lib/campaign-reply-attribution';
 import { applyInboxRules } from '@/lib/inbox-rules-engine';
 import { processFlowForMessage } from '@/lib/flow-engine';
 import { dispatchWebhookEvent } from '@/lib/outbound-webhook';
@@ -433,33 +434,39 @@ async function handleIncomingMessage(
   // `return` early — any inbound message should still count as a campaign reply
   // regardless of what other feature also handles it.
   {
-    // Primary lookup: by contact_id — fetch sent_at + whatsapp_msg_id to save campaign msg retroactively
-    let { data: pendingCr, error: crFindErr } = await (supabase as any)
-      .from('campaign_recipients')
-      .select('id, sent_at, whatsapp_msg_id, campaign_id, conversation_id')
-      .eq('contact_id', contactId)
-      .eq('workspace_id', workspaceId)
-      .not('status', 'in', '(replied,filtered)')
-      .order('sent_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // Which campaign (if any) this inbound message is a reply to. We fetch ALL of this
+    // contact's recipient rows and let the shared rule pick the one whose send actually
+    // preceded this reply (latest such, or an exact quoted-template match) — never a send
+    // that happened after the reply. This is what stops yesterday's replies from being
+    // counted under a campaign sent today.
+    const replyIso = createdAt;
+    const quotedWaMsgId: string | null = (msg as any).context?.id ?? null;
 
-    if (crFindErr) console.error('[Webhook] Campaign reply lookup error:', crFindErr.message);
-
-    // Fallback: by phone (covers CSV/manual campaigns where contact_id is NULL in campaign_recipients)
-    if (!pendingCr && waId) {
-      const { data: phoneCr, error: phoneCrErr } = await (supabase as any)
+    let candidates: RecipientCandidate[] = [];
+    {
+      const { data: byContact, error: crFindErr } = await (supabase as any)
         .from('campaign_recipients')
-        .select('id, sent_at, whatsapp_msg_id, campaign_id, conversation_id')
-        .eq('phone', waId)
-        .eq('workspace_id', workspaceId)
-        .not('status', 'in', '(replied,filtered)')
-        .order('sent_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (phoneCrErr) console.error('[Webhook] Campaign reply phone-lookup error:', phoneCrErr.message);
-      if (phoneCr) pendingCr = phoneCr;
+        .select('id, campaign_id, sent_at, whatsapp_msg_id, status, conversation_id')
+        .eq('contact_id', contactId)
+        .eq('workspace_id', workspaceId);
+      if (crFindErr) console.error('[Webhook] Campaign reply lookup error:', crFindErr.message);
+      candidates = (byContact ?? []) as RecipientCandidate[];
+
+      // Fallback by phone (CSV/manual campaigns where contact_id is NULL on the recipient).
+      if (candidates.length === 0 && waId) {
+        const { data: byPhone, error: phoneCrErr } = await (supabase as any)
+          .from('campaign_recipients')
+          .select('id, campaign_id, sent_at, whatsapp_msg_id, status, conversation_id')
+          .eq('phone', waId)
+          .eq('workspace_id', workspaceId);
+        if (phoneCrErr) console.error('[Webhook] Campaign reply phone-lookup error:', phoneCrErr.message);
+        candidates = (byPhone ?? []) as RecipientCandidate[];
+      }
     }
+
+    const chosen = chooseRecipientForReply(candidates, replyIso, quotedWaMsgId);
+    // Resolve back to the full row (need conversation_id for the retroactive save below).
+    const pendingCr: any = chosen ? candidates.find((c) => c.id === chosen.id) : null;
 
     if (pendingCr) {
       // ── Retroactively save the campaign outbound message to messages table ───
@@ -485,6 +492,7 @@ async function handleIncomingMessage(
             type:            'text',
             content:         campaignBody,
             whatsapp_msg_id: pendingCr.whatsapp_msg_id ?? null,
+            campaign_id:     pendingCr.campaign_id,
             status:          'delivered',
             created_at:      sentAt,
           });
@@ -502,34 +510,47 @@ async function handleIncomingMessage(
         ? (msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? content)
         : content;
 
-      const { error: crUpdateErr } = await (supabase as any)
-        .from('campaign_recipients')
-        .update({
-          status:          'replied',
-          replied_at:      new Date().toISOString(),
-          reply_type:      isButton ? 'button' : 'text',
-          reply_text:      replyText ?? null,
-          conversation_id: conversation?.id ?? null,
-        })
-        .eq('id', pendingCr.id);
-
-      // Fire-and-forget, fail-open: stamp the conversation's originating campaign for
-      // filtering (only if not already set). Never awaited — must not delay the reply.
-      void (supabase as any).from('conversations').update({ source_campaign_id: pendingCr.campaign_id }).eq('id', conversation.id).is('source_campaign_id', null).then(()=>{},()=>{});
-
-      if (crUpdateErr) {
-        console.error('[Webhook] Campaign reply update error:', crUpdateErr.message, 'cr_id:', pendingCr.id);
-      } else {
-        // Re-aggregate replied count on campaigns table so header stays in sync
-        const db2 = supabase as any;
-        const { count: repliedCount } = await db2
+      // Attribute-once: only flip a row that isn't already 'replied'. The .neq guard makes
+      // this race-safe against the batch syncs writing the same row concurrently.
+      if (pendingCr.status !== 'replied') {
+        const { error: crUpdateErr } = await (supabase as any)
           .from('campaign_recipients')
-          .select('id', { count: 'exact', head: true })
-          .eq('campaign_id', pendingCr.campaign_id)
-          .eq('status', 'replied');
-        void db2.from('campaigns')
-          .update({ replied_count: repliedCount ?? 0 })
-          .eq('id', pendingCr.campaign_id);
+          .update({
+            status:          'replied',
+            replied_at:      replyIso,
+            reply_type:      isButton ? 'button' : 'text',
+            reply_text:      replyText ?? null,
+            conversation_id: conversation?.id ?? null,
+          })
+          .eq('id', pendingCr.id)
+          .neq('status', 'replied');
+
+        if (crUpdateErr) {
+          console.error('[Webhook] Campaign reply update error:', crUpdateErr.message, 'cr_id:', pendingCr.id);
+        } else {
+          // Stamp the inbound reply itself with the campaign it belongs to — powers the
+          // campaign-scoped chat view. Best-effort, never blocks the pipeline.
+          if (insertedMessage?.id) {
+            void (supabase as any).from('messages')
+              .update({ campaign_id: pendingCr.campaign_id })
+              .eq('id', insertedMessage.id)
+              .then(() => {}, () => {});
+          }
+          // First-touch denormalized campaign on the conversation (only if not already set).
+          void (supabase as any).from('conversations')
+            .update({ source_campaign_id: pendingCr.campaign_id })
+            .eq('id', conversation.id).is('source_campaign_id', null).then(() => {}, () => {});
+
+          // Canonical replied_count = count of replied recipients.
+          const { count: repliedCount } = await (supabase as any)
+            .from('campaign_recipients')
+            .select('id', { count: 'exact', head: true })
+            .eq('campaign_id', pendingCr.campaign_id)
+            .eq('status', 'replied');
+          void (supabase as any).from('campaigns')
+            .update({ replied_count: repliedCount ?? 0 })
+            .eq('id', pendingCr.campaign_id);
+        }
       }
     }
   }
