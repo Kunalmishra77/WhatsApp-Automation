@@ -65,6 +65,7 @@ export async function POST(
         .from('leads')
         .update({ conversion_reviewed: true, updated_at: new Date().toISOString() })
         .eq('id', leadId)
+        .eq('workspace_id', workspaceId)
         .select('*, contacts(name, phone, avatar_url)')
         .single();
 
@@ -97,6 +98,7 @@ export async function POST(
         updated_at: new Date().toISOString(),
       })
       .eq('id', leadId)
+      .eq('workspace_id', workspaceId)
       .select('*, contacts(name, phone, avatar_url)')
       .single();
 

@@ -145,7 +145,8 @@ export async function POST(request: NextRequest) {
 
     await db.from('conversations')
       .update({ last_message: contentLabel, last_message_at: new Date().toISOString() })
-      .eq('id', conversationId);
+      .eq('id', conversationId)
+      .eq('workspace_id', conversation.workspace_id);
 
     return NextResponse.json({ success: true, waMessageId });
   } catch (error) {

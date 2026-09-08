@@ -165,7 +165,7 @@ export async function POST(request: NextRequest) {
       metadata:        { media_id: mediaId, mime_type: mimeType },
     });
 
-    await db.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', conversationId);
+    await db.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', conversationId).eq('workspace_id', conversation.workspace_id);
 
     return NextResponse.json({ success: true, mediaId, waMessageId });
   } catch (error) {

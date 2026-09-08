@@ -219,7 +219,8 @@ export async function POST(request: NextRequest) {
         last_message: body.trim(),
         last_message_at: new Date().toISOString(),
       })
-      .eq('id', conversationId);
+      .eq('id', conversationId)
+      .eq('workspace_id', conversation.workspace_id);
 
     return NextResponse.json({ success: true, messageId: message.id, waMessageId });
   } catch (error) {

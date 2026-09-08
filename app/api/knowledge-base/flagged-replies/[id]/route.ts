@@ -21,7 +21,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { error } = await (supabase as any)
       .from('bot_reply_feedback')
       .update({ resolved_at: new Date().toISOString() })
-      .eq('id', id);
+      .eq('id', id)
+      .eq('workspace_id', flag.workspace_id);
 
     if (error) throw error;
 

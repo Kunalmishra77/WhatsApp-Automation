@@ -57,6 +57,7 @@ export async function PATCH(
       .from('conversations')
       .update(patch)
       .eq('id', conversationId)
+      .eq('workspace_id', conversation.workspace_id)
       .select(`*, contacts(id, name, phone, avatar_url)`)
       .single();
 

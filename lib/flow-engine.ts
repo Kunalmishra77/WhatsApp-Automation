@@ -105,7 +105,7 @@ async function saveOutboundMessage(
   await (supabase as any).from('conversations').update({
     last_message:    text,
     last_message_at: now,
-  }).eq('id', conversationId);
+  }).eq('id', conversationId).eq('workspace_id', workspaceId);
 }
 
 function findNextNode(
@@ -489,7 +489,7 @@ async function executeNode(
         await saveOutboundMessage(supabase, workspaceId, conversationId, text, waId);
       }
       // Set conversation to pending (human handoff)
-      await (supabase as any).from('conversations').update({ status: 'pending' }).eq('id', conversationId);
+      await (supabase as any).from('conversations').update({ status: 'pending' }).eq('id', conversationId).eq('workspace_id', workspaceId);
       await endSession(supabase, sessionId);
       // Notify Google Sheets if workspace has a webhook configured (fire-and-forget)
       notifyGoogleSheets(supabase, workspaceId, conversationId, contactPhone, context).catch(() => {});
@@ -550,6 +550,7 @@ export async function processFlowForMessage(
       .from('flow_sessions')
       .select('*, chatbot_flows(*)')
       .eq('conversation_id', conversationId)
+      .eq('workspace_id', workspaceId)
       .eq('status', 'active')
       .order('started_at', { ascending: false })
       .limit(1)
@@ -654,6 +655,7 @@ export async function processFlowForMessage(
       .from('messages')
       .select('id', { count: 'exact', head: true })
       .eq('conversation_id', conversationId)
+      .eq('workspace_id', workspaceId)
       .eq('direction', 'inbound');
 
     const isFirstMessage = (msgCount ?? 0) <= 1;

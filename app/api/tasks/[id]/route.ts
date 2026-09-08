@@ -29,7 +29,7 @@ export async function PATCH(
       patch.completed_at = completedAtForStatus(body.status, new Date().toISOString());
     }
 
-    const { data: task, error } = await db.from('tasks').update(patch).eq('id', id).select('*').single();
+    const { data: task, error } = await db.from('tasks').update(patch).eq('id', id).eq('workspace_id', existing.workspace_id).select('*').single();
     if (error) { console.error('[Tasks PATCH]', error); return NextResponse.json({ error: 'Failed to update task' }, { status: 500 }); }
 
     // Notify on (re)assignment to someone new (and not self).
@@ -58,7 +58,7 @@ export async function DELETE(
     if (!existing) return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     await requireWorkspacePermission(existing.workspace_id, 'handle_conversations');
 
-    const { error } = await db.from('tasks').delete().eq('id', id);
+    const { error } = await db.from('tasks').delete().eq('id', id).eq('workspace_id', existing.workspace_id);
     if (error) return NextResponse.json({ error: 'Failed to delete task' }, { status: 500 });
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -185,7 +185,8 @@ export async function POST(request: NextRequest) {
       await adminDb
         .from('conversations')
         .update({ first_replied_at: new Date().toISOString() })
-        .eq('id', conversationId);
+        .eq('id', conversationId)
+        .eq('workspace_id', conversation.workspace_id);
     }
 
     return NextResponse.json({ success: true, messageId: message.id });

@@ -66,14 +66,16 @@ export async function POST(request: NextRequest) {
       await db
         .from('conversations')
         .update({ last_message: lastMsg.content, last_message_at: lastMsg.created_at })
-        .eq('id', primaryId);
+        .eq('id', primaryId)
+        .eq('workspace_id', workspaceId);
     }
 
     // Resolve the secondary conversation (soft merge)
     await db
       .from('conversations')
       .update({ status: 'resolved', resolved_at: new Date().toISOString() })
-      .eq('id', secondaryId);
+      .eq('id', secondaryId)
+      .eq('workspace_id', workspaceId);
 
     return NextResponse.json({ success: true, primaryId });
   } catch (error) {

@@ -88,7 +88,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     score = Math.max(0, Math.min(100, score));
 
     // Save to DB
-    await db.from('leads').update({ ai_score: score }).eq('id', leadId);
+    await db.from('leads').update({ ai_score: score }).eq('id', leadId).eq('workspace_id', workspaceId);
 
     return NextResponse.json({ score });
   } catch (error) {

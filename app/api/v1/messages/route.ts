@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
       content:         message.trim(),
       status:          'sent',
     });
-    await db.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', convId);
+    await db.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', convId).eq('workspace_id', auth.workspaceId);
   }
 
   return NextResponse.json({ success: true, waMessageId, to: phone });

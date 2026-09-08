@@ -83,6 +83,7 @@ export async function PATCH(
       .from('leads')
       .update(patch)
       .eq('id', leadId)
+      .eq('workspace_id', workspaceId)
       .select('*, contacts(name, phone, avatar_url)')
       .single();
 
@@ -141,7 +142,8 @@ export async function DELETE(
     const { error } = await (supabase as any)
       .from('leads')
       .delete()
-      .eq('id', leadId);
+      .eq('id', leadId)
+      .eq('workspace_id', workspaceId);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

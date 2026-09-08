@@ -173,7 +173,8 @@ export async function POST(request: NextRequest) {
       const { count } = await db
         .from('messages')
         .delete({ count: 'exact' })
-        .in('conversation_id', batchIds);
+        .in('conversation_id', batchIds)
+        .eq('workspace_id', workspaceId);
       deletedMsgs += count ?? 0;
     }
 
@@ -184,7 +185,8 @@ export async function POST(request: NextRequest) {
       const { count } = await db
         .from('conversations')
         .delete({ count: 'exact' })
-        .in('id', batchIds);
+        .in('id', batchIds)
+        .eq('workspace_id', workspaceId);
       deletedConvs += count ?? 0;
     }
 

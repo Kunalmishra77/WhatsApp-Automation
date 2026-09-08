@@ -64,6 +64,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       .from('contacts')
       .update(allowed)
       .eq('id', id)
+      .eq('workspace_id', existing.workspace_id)
       .select()
       .single();
 
@@ -96,7 +97,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
 
     await requireWorkspacePermission(existing.workspace_id as string, 'manage_contacts');
 
-    const { error } = await db.from('contacts').delete().eq('id', id);
+    const { error } = await db.from('contacts').delete().eq('id', id).eq('workspace_id', existing.workspace_id);
     if (error) {
       return NextResponse.json({ error: 'Failed to delete contact' }, { status: 500 });
     }

@@ -110,7 +110,8 @@ async function executeAction(
       await db
         .from('conversations')
         .update({ assigned_agent_id: action.value, status: 'assigned' })
-        .eq('id', conversationId);
+        .eq('id', conversationId)
+        .eq('workspace_id', workspaceId);
       break;
     }
 
@@ -118,7 +119,8 @@ async function executeAction(
       await db
         .from('conversations')
         .update({ status: action.value })
-        .eq('id', conversationId);
+        .eq('id', conversationId)
+        .eq('workspace_id', workspaceId);
       break;
     }
 
@@ -127,6 +129,7 @@ async function executeAction(
         .from('contacts')
         .select('phone')
         .eq('id', contactId)
+        .eq('workspace_id', workspaceId)
         .single();
 
       if (contactError || !contact?.phone) {
@@ -159,7 +162,8 @@ async function executeAction(
       await db
         .from('conversations')
         .update({ last_message: action.value, last_message_at: now })
-        .eq('id', conversationId);
+        .eq('id', conversationId)
+        .eq('workspace_id', workspaceId);
 
       break;
     }

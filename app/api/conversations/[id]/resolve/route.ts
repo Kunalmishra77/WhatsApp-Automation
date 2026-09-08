@@ -37,7 +37,8 @@ export async function POST(
     const { error: updateError } = await db
       .from('conversations')
       .update({ status: 'resolved', resolved_at: new Date().toISOString() })
-      .eq('id', conversationId);
+      .eq('id', conversationId)
+      .eq('workspace_id', conversation.workspace_id);
 
     if (updateError) {
       return NextResponse.json({ error: 'Failed to resolve conversation' }, { status: 500 });

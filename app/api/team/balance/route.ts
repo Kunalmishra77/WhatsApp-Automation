@@ -53,7 +53,8 @@ export async function POST(request: NextRequest) {
       await db
         .from('conversations')
         .update({ assigned_agent_id: agentId, status: 'assigned' })
-        .eq('id', (unassigned[i] as { id: string }).id);
+        .eq('id', (unassigned[i] as { id: string }).id)
+        .eq('workspace_id', workspaceId);
       assigned++;
     }
 

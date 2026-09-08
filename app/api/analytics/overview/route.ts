@@ -119,7 +119,10 @@ export async function GET(request: NextRequest) {
         }
         if (c.first_replied_at && c.created_at) {
           const mins = (new Date(c.first_replied_at).getTime() - new Date(c.created_at).getTime()) / 60_000;
-          if (mins > 0 && mins < 10_080) { respTotal += mins; respCount++; }
+          // Positive-only, NO upper cap — matches the dashboard RPC's avg (migration 067)
+          // so "avg response time" reads the same on the Dashboard and Analytics pages.
+          // (Previously capped at 7 days here, which biased Analytics lower than Dashboard.)
+          if (mins > 0) { respTotal += mins; respCount++; }
         }
       }
     }

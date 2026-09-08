@@ -13,7 +13,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     await requireWorkspacePermission(existing.workspace_id as string, 'manage_workspace');
     const { data, error } = await db.from('chat_widgets')
       .update({ ...body, updated_at: new Date().toISOString() })
-      .eq('id', id).select().single();
+      .eq('id', id).eq('workspace_id', existing.workspace_id).select().single();
     if (error) throw error;
     return NextResponse.json({ widget: data });
   } catch (e) {
@@ -30,7 +30,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     const { data: existing } = await db.from('chat_widgets').select('workspace_id').eq('id', id).single();
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     await requireWorkspacePermission(existing.workspace_id as string, 'manage_workspace');
-    await db.from('chat_widgets').delete().eq('id', id);
+    await db.from('chat_widgets').delete().eq('id', id).eq('workspace_id', existing.workspace_id);
     return NextResponse.json({ success: true });
   } catch (e) {
     if (e instanceof AuthzError) return authzResponse(e);

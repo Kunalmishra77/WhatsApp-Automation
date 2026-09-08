@@ -22,7 +22,8 @@ export async function PATCH(
     const { error } = await db
       .from('conversations')
       .update({ labels })
-      .eq('id', conversationId);
+      .eq('id', conversationId)
+      .eq('workspace_id', conv.workspace_id);
 
     if (error) throw error;
     return NextResponse.json({ success: true, labels });

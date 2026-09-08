@@ -27,7 +27,8 @@ export async function POST(
     await db
       .from('conversations')
       .update({ unread_count: 0 } as never)
-      .eq('id', conversationId);
+      .eq('id', conversationId)
+      .eq('workspace_id', conv.workspace_id);
 
     // Get the latest inbound message with a WhatsApp message ID
     const { data: latestMsg } = await db
