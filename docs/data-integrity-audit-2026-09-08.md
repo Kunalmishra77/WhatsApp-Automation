@@ -1,5 +1,7 @@
 # AGENTiX Data-Integrity & Tenant-Isolation Audit — 2026-09-08
 
+> **Remediation status (2026-09-08):** FIXED & pushed (commits f607227→17c7ba1) — Tier 1 (all 4 debug endpoints deleted) ✅; Tier 2 IDOR: daily-stats, queue-status, smart-assign, ai/translate, wa-forms/send, widget page ✅; Tier 3: funnel note, analytics/extended + admin/analytics/client caps, campaign-executor total_recipients, usage-tracker ✅. **STILL QUEUED:** reports/export parity (IST + filters + spam + is_deleted), export-defaults-to-today, birthday-cron pagination, contacts/[id]/360 totals+spend caps, analytics/detail CSAT 200-cap + delivery buckets, analytics/overview CSAT cap, ab-comparison, my-work/team-workload/revenue-insights/vector-kb caps, contacts/bulk + meta-leads silent-error, 3-way response-time unification, remaining Tier-2 webhook signature hardening (abandoned-cart, shopify), Tier-4 defense-in-depth re-scoping.
+
 Whole-codebase audit (app/api, modules, lib) for: data-accuracy bugs, cross-tenant/IDOR leaks, unauthenticated endpoints, artificial caps that undercount, and fabricated/demo data. `createAdminClient()` uses the service role and **bypasses RLS**, so every finding below is a real gap, not caught by row-level security.
 
 **Good news first:** the sweep found **zero fabricated/demo/random data** presented as real business metrics anywhere — dashboards, charts, invoices, and lists all read from real queries. The problems are (a) security/tenant-isolation gaps and (b) specific calculation/cap bugs.
