@@ -52,7 +52,7 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
   // Fetch workspace status fields in a single query
   const { data: ws } = await db
     .from('workspaces')
-    .select('onboarding_complete, is_active, subscription_status, settings')
+    .select('onboarding_complete, is_active, subscription_status, settings, phone_number_id')
     .eq('id', activeWorkspace.id)
     .single();
 
@@ -66,6 +66,14 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
     if (ws?.onboarding_complete === false || ws?.subscription_status === 'incomplete') redirect('/onboarding');
     redirect('/payment-required');
   }
+
+  // Active but WhatsApp not connected yet → guide the client through the WhatsApp setup
+  // instead of dropping them on an empty dashboard. Once phone_number_id is saved (via the
+  // wizard's /api/onboarding/complete), this passes and they land on the real dashboard.
+  // Every live client already has phone_number_id set, so this only affects new/unconnected
+  // workspaces. The setup page is in the (onboarding) group (no gate) so there's no loop.
+  const phoneId = (ws?.phone_number_id as string | null | undefined) ?? '';
+  if (!phoneId.trim()) redirect('/onboarding/whatsapp');
 
   // ── Session Gate (super_admin / admin only) ───────────────────────────────
   // max_sessions stored in workspaces.settings.max_sessions.
