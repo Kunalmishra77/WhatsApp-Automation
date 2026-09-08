@@ -4,8 +4,9 @@
 > - **Batch 1** (17c7ba1): Tier 1 — all 4 debug endpoints deleted ✅; Tier 2 IDOR — daily-stats, queue-status, smart-assign, ai/translate, wa-forms/send, widget page ✅; Tier 3 — analytics/extended + admin/analytics/client caps, campaign-executor total_recipients, usage-tracker ✅.
 > - **Batch 2** (d3cf8bd): reports/export IST + spam + is_deleted; conversations/export is_deleted + 'all' + nullsFirst; birthday-cron pagination; contacts/[id]/360 totals+spend; contacts/bulk + meta-leads silent-error ✅.
 > - **Batch 3** (5104b64): analytics/detail CSAT + delivery buckets; analytics/overview CSAT; ab-comparison; campaigns/list live_replied; my-work; team/workload; revenue/insights; vector-kb ✅.
-> - **STILL OPEN (decisions needed):** (a) 3-way "avg response time" unification — needs a canonical definition; (b) webhook signature hardening (abandoned-cart, shopify) — behavior change, needs confirmation no client relies on secret-less webhooks; (c) Tier-4 defense-in-depth re-scoping (~20 low-risk, not-exploitable spots) — mechanical, can batch anytime.
-> - **fetchMessageFunnel** (analytics.service.ts) direction bug: confirmed **dead code** (not imported); left as-is, flagged.
+> - **Batch 4** (811674e): webhook signature hardening — abandoned-cart + shopify now require a configured secret (fail closed) ✅.
+> - **Batch 5** (f1420d1): avg-response-time unified to the dashboard definition (no 7-day cap); Tier-4 defense-in-depth — `.eq('workspace_id', …)` added to ~23 dependent write/read queries across inbox-rules-engine, flow-engine, retention bulk deletes, tasks, team/balance, chat-widgets, flagged-replies, conversations/[id]/*, merge, leads/[id]/*, contacts/[id], messages/*, v1/messages ✅.
+> - **ALL AUDIT ITEMS RESOLVED.** Only known residual: `fetchMessageFunnel` (analytics.service.ts) direction bug — confirmed **dead code** (not imported anywhere); left as-is, flagged for cleanup if the service is ever revived.
 
 Whole-codebase audit (app/api, modules, lib) for: data-accuracy bugs, cross-tenant/IDOR leaks, unauthenticated endpoints, artificial caps that undercount, and fabricated/demo data. `createAdminClient()` uses the service role and **bypasses RLS**, so every finding below is a real gap, not caught by row-level security.
 
