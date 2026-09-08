@@ -61,9 +61,10 @@ export function useMessages(conversationId: string, campaignId?: string | null) 
         },
       )
       .subscribe((status) => {
-        // Realtime can fail silently (CHANNEL_ERROR/TIMED_OUT) with no other signal —
-        // log it and refetch once so the conversation doesn't appear stuck.
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        // Only a genuine failure needs a recovery refetch. CLOSED is also emitted on
+        // normal teardown (navigating between conversations, tab backgrounded), so it's
+        // expected churn — don't log or refetch on it.
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           console.warn(`[useMessages] realtime channel ${status} for conversation ${conversationId}`);
           void queryClient.invalidateQueries({ queryKey: messagesKey });
         }

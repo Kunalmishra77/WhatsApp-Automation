@@ -66,7 +66,9 @@ export function useConversations(filters: ConversationQueryFilters) {
         filter: `workspace_id=eq.${workspaceId}`,
       }, refresh)
       .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        // CLOSED is normal teardown churn (navigation / tab backgrounded) — only a real
+        // failure warrants a recovery refresh.
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
           console.warn(`[useConversations] realtime channel ${status} for workspace ${workspaceId}`);
           refresh();
         }
