@@ -9,16 +9,22 @@ const PAGE_SIZE = 50;
 export async function fetchMessages(
   conversationId: string,
   page = 0,
+  campaignId?: string | null,
 ): Promise<MessageRow[]> {
   const supabase = createClient();
   const from = page * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const { data, error } = await supabase
+  let q = supabase
     .from('messages')
     .select('*')
     .eq('conversation_id', conversationId)
-    .eq('is_deleted', false)
+    .eq('is_deleted', false);
+  // Campaign-scoped view: only this campaign's send + the replies attributed to it,
+  // so opening a chat from a campaign never shows another campaign's messages.
+  if (campaignId) q = q.eq('campaign_id', campaignId);
+
+  const { data, error } = await q
     .order('created_at', { ascending: false })
     .range(from, to);
 

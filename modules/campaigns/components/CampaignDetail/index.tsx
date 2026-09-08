@@ -256,8 +256,8 @@ function RecipientTable({ recipients, loading, tab, router, campaignId, workspac
               )}
               <TableCell>
                 {r.conversation_id && (
-                  <Button variant="ghost" size="icon" className="h-6 w-6" title="Open conversation"
-                    onClick={() => router.push(`/conversations/${r.conversation_id}`)}>
+                  <Button variant="ghost" size="icon" className="h-6 w-6" title="Open conversation (this campaign only)"
+                    onClick={() => router.push(`/conversations/${r.conversation_id}?campaign=${campaignId}`)}>
                     <MessageSquare className="h-3.5 w-3.5" />
                   </Button>
                 )}

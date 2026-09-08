@@ -10,12 +10,15 @@ import { useConversationStore } from '@/store/conversation.store';
 import { useAuthStore } from '@/store/auth.store';
 import { useWorkspaceStore } from '@/store/workspace.store';
 
-export function useMessages(conversationId: string) {
+export function useMessages(conversationId: string, campaignId?: string | null) {
   const queryClient = useQueryClient();
+  // Scoped views keep their own cache entry so the campaign filter never bleeds into
+  // the full-thread view (or vice-versa).
+  const messagesKey = ['messages', conversationId, campaignId ?? 'all'] as const;
 
   const query = useQuery<MessageRow[]>({
-    queryKey: ['messages', conversationId],
-    queryFn: () => fetchMessages(conversationId),
+    queryKey: messagesKey,
+    queryFn: () => fetchMessages(conversationId, 0, campaignId ?? undefined),
     enabled: !!conversationId,
     staleTime: 30_000,            // 30s — realtime INSERT subscription handles new messages live
     refetchInterval: false,       // Realtime is primary; no polling needed
@@ -33,8 +36,14 @@ export function useMessages(conversationId: string) {
         { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` },
         (payload) => {
           const newMsg = payload.new as MessageRow;
+          // In a campaign-scoped view a new message's campaign_id may be stamped a beat
+          // later than its INSERT, so if it doesn't match yet, refetch instead of guessing.
+          if (campaignId && newMsg.campaign_id !== campaignId) {
+            void queryClient.invalidateQueries({ queryKey: messagesKey });
+            return;
+          }
           queryClient.setQueryData<MessageRow[]>(
-            ['messages', conversationId],
+            messagesKey,
             (old = []) => old.some((m) => m.id === newMsg.id) ? old : [...old, newMsg],
           );
         },
@@ -46,7 +55,7 @@ export function useMessages(conversationId: string) {
         (payload) => {
           const updated = payload.new as MessageRow;
           queryClient.setQueryData<MessageRow[]>(
-            ['messages', conversationId],
+            messagesKey,
             (old = []) => old.map((m) => m.id === updated.id ? { ...m, ...updated } : m),
           );
         },
@@ -56,12 +65,14 @@ export function useMessages(conversationId: string) {
         // log it and refetch once so the conversation doesn't appear stuck.
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           console.warn(`[useMessages] realtime channel ${status} for conversation ${conversationId}`);
-          void queryClient.invalidateQueries({ queryKey: ['messages', conversationId] });
+          void queryClient.invalidateQueries({ queryKey: messagesKey });
         }
       });
 
     return () => { supabase.removeChannel(channel); };
-  }, [conversationId, queryClient]);
+    // messagesKey is derived from conversationId + campaignId
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId, campaignId, queryClient]);
 
   return query;
 }

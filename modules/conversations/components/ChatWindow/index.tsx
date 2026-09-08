@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useMemo } from 'react';
+import Link from 'next/link';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useShallow } from 'zustand/react/shallow';
 import { useQueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -35,7 +37,14 @@ export function ChatWindow({ conversationId, panelToggle, onBack }: ChatWindowPr
     enabled: !!conversationId,
   });
 
-  const { data: messages = [], isLoading } = useMessages(conversationId);
+  // When opened from a campaign ("?campaign=<id>"), scope the thread to that campaign's
+  // messages only — the send + the replies attributed to it — so a contact messaged by
+  // several campaigns doesn't show every campaign's history at once.
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const campaignId = searchParams.get('campaign');
+
+  const { data: messages = [], isLoading } = useMessages(conversationId, campaignId);
 
   // WhatsApp 24-hour session: check if last inbound message was within 24 hrs
   const sessionOpen = useMemo(() => {
@@ -70,6 +79,16 @@ export function ChatWindow({ conversationId, panelToggle, onBack }: ChatWindowPr
               ? <><strong>New conversation.</strong> Use a WhatsApp template to send the first message — free-form messages require the customer to reply first.</>
               : <><strong>Session window closed.</strong> The customer hasn&apos;t replied in 24+ hours. Send a template to re-open the chat window.</>}
           </p>
+        </div>
+      )}
+
+      {/* Campaign-scoped banner — shown only when opened from a campaign */}
+      {campaignId && (
+        <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+          <span>Showing messages for this campaign only.</span>
+          <Link href={pathname} className="font-medium underline hover:text-amber-900 whitespace-nowrap">
+            View full conversation
+          </Link>
         </div>
       )}
 
