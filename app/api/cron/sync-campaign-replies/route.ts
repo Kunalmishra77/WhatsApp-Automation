@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse } from '@/lib/authz';
+import { backfillCampaignReplies } from '@/lib/campaign-reply-sync';
 
 export const maxDuration = 60;
 
@@ -45,103 +46,13 @@ export async function GET(request: NextRequest) {
   let totalSynced = 0;
 
   for (const camp of campaigns) {
-    const campStart = camp.completed_at
-      ? new Date(new Date(camp.completed_at).getTime() - 24 * 60 * 60 * 1000).toISOString()
-      : since;
-
-    // Get all non-replied recipients for this campaign
-    const allNotReplied: Array<{ id: string; phone: string }> = [];
-    let offset = 0;
-    while (true) {
-      const { data: page } = await db
-        .from('campaign_recipients')
-        .select('id, phone')
-        .eq('campaign_id', camp.id)
-        .not('status', 'in', '(replied,filtered,failed)')
-        .range(offset, offset + 999);
-      if (!page?.length) break;
-      allNotReplied.push(...page);
-      if (page.length < 1000) break;
-      offset += 1000;
+    try {
+      const n = await backfillCampaignReplies(db, camp.id, camp.workspace_id);
+      if (n > 0) console.log(`[SyncReplies] Campaign "${camp.name}": +${n} replies linked`);
+      totalSynced += n;
+    } catch (e) {
+      console.error(`[SyncReplies] Campaign "${camp.name}" failed:`, e);
     }
-
-    if (!allNotReplied.length) continue;
-
-    const BATCH = 200;
-    let campSynced = 0;
-
-    for (let i = 0; i < allNotReplied.length; i += BATCH) {
-      const batch = allNotReplied.slice(i, i + BATCH);
-      const phones = batch.map((r) => r.phone);
-
-      const { data: ctcts } = await db
-        .from('contacts')
-        .select('id, phone')
-        .eq('workspace_id', camp.workspace_id)
-        .in('phone', phones);
-      if (!ctcts?.length) continue;
-
-      const ctctIds = ctcts.map((c: { id: string }) => c.id);
-      const { data: convs } = await db
-        .from('conversations')
-        .select('id, contact_id')
-        .eq('workspace_id', camp.workspace_id)
-        .in('contact_id', ctctIds);
-      if (!convs?.length) continue;
-
-      const convIds = convs.map((c: { id: string }) => c.id);
-      const phoneMap = new Map(ctcts.map((c: { id: string; phone: string }) => [c.id, c.phone]));
-
-      const { data: msgs } = await db
-        .from('messages')
-        .select('conversation_id, content, type, created_at, metadata')
-        .eq('workspace_id', camp.workspace_id)
-        .eq('direction', 'inbound')
-        .gte('created_at', campStart)
-        .in('conversation_id', convIds)
-        .order('created_at', { ascending: true });
-      if (!msgs?.length) continue;
-
-      // Keep earliest inbound per conversation
-      const firstMsgMap = new Map<string, typeof msgs[0]>();
-      for (const m of msgs) {
-        if (!firstMsgMap.has(m.conversation_id)) firstMsgMap.set(m.conversation_id, m);
-      }
-
-      for (const [convId, m] of firstMsgMap) {
-        const conv = convs.find((c: { id: string }) => c.id === convId);
-        if (!conv) continue;
-        const phone = phoneMap.get(conv.contact_id);
-        if (!phone) continue;
-        const cr = batch.find((r) => r.phone === phone);
-        if (!cr) continue;
-
-        const isBtn = m.type === 'text' && m.metadata?.button_reply;
-        await db.from('campaign_recipients').update({
-          status: 'replied',
-          replied_at: m.created_at,
-          reply_type: isBtn ? 'button' : 'text',
-          reply_text: (isBtn ? m.metadata.button_reply.text : m.content)?.slice(0, 500) ?? null,
-          conversation_id: convId,
-        }).eq('id', cr.id);
-
-        campSynced++;
-      }
-    }
-
-    if (campSynced > 0) {
-      const { count: repliedCount } = await db
-        .from('campaign_recipients')
-        .select('id', { count: 'exact', head: true })
-        .eq('campaign_id', camp.id)
-        .eq('status', 'replied');
-      await db.from('campaigns')
-        .update({ replied_count: repliedCount ?? 0 })
-        .eq('id', camp.id);
-      console.log(`[SyncReplies] Campaign "${camp.name}": +${campSynced} replies linked`);
-    }
-
-    totalSynced += campSynced;
   }
 
   return NextResponse.json({
