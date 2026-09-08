@@ -56,12 +56,15 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
     .eq('id', activeWorkspace.id)
     .single();
 
-  if (ws?.onboarding_complete === false) redirect('/onboarding');
+  // Route by workspace state. An ACTIVE workspace is fully live and always passes through:
+  // its `onboarding_complete` flag can legitimately lag behind (admin-approved / comped /
+  // free-activated clients don't always flip it), and gating an active workspace on it here
+  // caused an infinite redirect loop — /conversations → /onboarding (which sends an active
+  // workspace straight back to /conversations) → repeat.
   if (ws?.is_active === false) {
-    if (ws?.subscription_status === 'incomplete') redirect('/onboarding');
-    redirect(ws?.subscription_status === 'pending_approval'
-      ? '/pending-approval'
-      : '/payment-required');
+    if (ws?.subscription_status === 'pending_approval') redirect('/pending-approval');
+    if (ws?.onboarding_complete === false || ws?.subscription_status === 'incomplete') redirect('/onboarding');
+    redirect('/payment-required');
   }
 
   // ── Session Gate (super_admin / admin only) ───────────────────────────────
