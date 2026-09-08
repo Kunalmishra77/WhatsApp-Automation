@@ -89,9 +89,14 @@ export async function POST(request: NextRequest) {
   const shopifyEvents  = (settings.shopify_events as Record<string, boolean>) ?? {};
   const shopifyMsgs    = (settings.shopify_messages as Record<string, string>) ?? {};
 
-  // Verify HMAC
+  // HMAC verification is REQUIRED — without a configured secret, anyone who knows the
+  // workspaceId could POST fake Shopify events (fabricated orders + WhatsApp sends from
+  // this tenant's number). A store enabling this integration must set shopify_webhook_secret.
   const { valid, body } = await verifyShopifyWebhook(request, shopifySecret ?? '');
-  if (shopifySecret && !valid) return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+  if (!shopifySecret) {
+    return NextResponse.json({ error: 'Shopify webhook secret not configured' }, { status: 401 });
+  }
+  if (!valid) return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
 
   let payload: Record<string, unknown>;
   try { payload = JSON.parse(body); } catch { return NextResponse.json({ ok: true }); }

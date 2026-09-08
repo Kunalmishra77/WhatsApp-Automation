@@ -49,16 +49,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No active abandoned-cart trigger found' }, { status: 404 });
     }
 
-    // Validate webhook secret if configured
+    // Webhook secret is REQUIRED. This is a public endpoint that trusts a payload-supplied
+    // trigger_id / workspace_id, so the secret IS the authentication — without it, anyone
+    // who knows or guesses a trigger/workspace id could send WhatsApp from that tenant's
+    // number. A client enabling this integration must configure a secret (as Shopify does).
     const configuredSecret = trigger.config?.webhook_secret as string | undefined;
-    if (configuredSecret) {
-      const incoming = request.headers.get('x-webhook-secret') ?? request.nextUrl.searchParams.get('secret') ?? '';
-      const valid = crypto.timingSafeEqual(
-        Buffer.from(incoming),
-        Buffer.from(configuredSecret),
+    if (!configuredSecret) {
+      return NextResponse.json(
+        { error: 'Webhook secret not configured — set a secret on this trigger to enable the webhook.' },
+        { status: 401 },
       );
-      if (!valid) return NextResponse.json({ error: 'Invalid secret' }, { status: 401 });
     }
+    const incoming = request.headers.get('x-webhook-secret') ?? request.nextUrl.searchParams.get('secret') ?? '';
+    const a = Buffer.from(incoming);
+    const b = Buffer.from(configuredSecret);
+    // timingSafeEqual throws on length mismatch — guard it so a wrong secret is 401, not 500.
+    const valid = a.length === b.length && crypto.timingSafeEqual(a, b);
+    if (!valid) return NextResponse.json({ error: 'Invalid secret' }, { status: 401 });
 
     const ws = trigger.workspaces as { phone_number_id?: string; access_token?: string } | null;
     if (!ws?.phone_number_id || !ws?.access_token) {
