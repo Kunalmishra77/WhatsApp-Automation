@@ -118,7 +118,7 @@ export interface Database {
           media_filename: string | null; caption: string | null;
           whatsapp_msg_id: string | null; status: MessageStatus;
           is_deleted: boolean; reply_to_id: string | null;
-          reactions: Json; metadata: Json;
+          reactions: Json; metadata: Json; campaign_id: string | null;
           delivered_at: string | null; read_at: string | null; created_at: string;
         };
         Insert: {
@@ -130,7 +130,7 @@ export interface Database {
           media_filename?: string | null; caption?: string | null;
           whatsapp_msg_id?: string | null; status?: MessageStatus;
           is_deleted?: boolean; reply_to_id?: string | null;
-          reactions?: Json; metadata?: Json;
+          reactions?: Json; metadata?: Json; campaign_id?: string | null;
           delivered_at?: string | null; read_at?: string | null; created_at?: string;
         };
         Update: Partial<Database['public']['Tables']['messages']['Insert']>;

@@ -96,6 +96,7 @@ export function useSendMessage() {
       whatsapp_msg_id: null,
       reactions: {},
       metadata: {},
+      campaign_id: null,
       delivered_at: null,
       read_at: null,
       created_at: new Date().toISOString(),
