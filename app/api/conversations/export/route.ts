@@ -87,8 +87,12 @@ export async function GET(request: NextRequest) {
       dateRange = { fromUtc: r.fromUtc, toUtc: r.toUtc };
     }
 
-    const status = sp.get('status') || undefined;
-    const channel = sp.get('channel') || undefined;
+    // Normalize the 'all' sentinel to "no filter" server-side (mirrors search route) so a
+    // caller that passes status=all / channel=all gets everything, not zero rows.
+    const statusRaw = sp.get('status') || undefined;
+    const status = statusRaw === 'all' ? undefined : statusRaw;
+    const channelRaw = sp.get('channel') || undefined;
+    const channel = channelRaw === 'all' ? undefined : channelRaw;
     const assignedAgentId = sp.get('assigned_agent_id') || undefined;
     const sentiment = sp.get('sentiment') || undefined;
     const campaignId = sp.get('campaign_id') || undefined;
@@ -135,7 +139,7 @@ export async function GET(request: NextRequest) {
       `;
       const pages = paginateAll<ConvRow>((offset, pageSize) =>
         applyConvFilters(db.from('conversations').select(summarySelect))
-          .order('last_message_at', { ascending: false })
+          .order('last_message_at', { ascending: false, nullsFirst: false })
           .order('id', { ascending: true })
           .range(offset, offset + pageSize - 1),
       );
@@ -171,7 +175,7 @@ export async function GET(request: NextRequest) {
       (needsLeadsJoin ? ', leads!inner(temperature, stage)' : '');
     for await (const page of paginateAll<ConvRow>((offset, pageSize) =>
       applyConvFilters(db.from('conversations').select(metaSelect))
-        .order('last_message_at', { ascending: false })
+        .order('last_message_at', { ascending: false, nullsFirst: false })
         .order('id', { ascending: true })
         .range(offset, offset + pageSize - 1),
     )) {
@@ -195,6 +199,7 @@ export async function GET(request: NextRequest) {
           db.from('messages')
             .select('conversation_id, direction, content, message_type, created_at, status')
             .eq('workspace_id', workspaceId)
+            .eq('is_deleted', false)
             .in('conversation_id', batch)
             .order('created_at', { ascending: true })
             .order('id', { ascending: true })

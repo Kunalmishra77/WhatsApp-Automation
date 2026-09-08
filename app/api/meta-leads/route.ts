@@ -74,25 +74,32 @@ export async function GET(req: NextRequest) {
   const todayStr = now.toISOString().slice(0, 10);
   const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-  const { count: totalCount } = await (supabase as any)
+  const { count: totalCount, error: totalErr } = await (supabase as any)
     .from('conversations')
     .select('id', { count: 'exact', head: true })
     .eq('workspace_id', workspaceId)
     .contains('labels', ['Meta Ad Lead']);
 
-  const { count: todayCount } = await (supabase as any)
+  const { count: todayCount, error: todayErr } = await (supabase as any)
     .from('conversations')
     .select('id', { count: 'exact', head: true })
     .eq('workspace_id', workspaceId)
     .contains('labels', ['Meta Ad Lead'])
     .gte('created_at', todayStr);
 
-  const { count: monthCount } = await (supabase as any)
+  const { count: monthCount, error: monthErr } = await (supabase as any)
     .from('conversations')
     .select('id', { count: 'exact', head: true })
     .eq('workspace_id', workspaceId)
     .contains('labels', ['Meta Ad Lead'])
     .gte('created_at', `${monthStr}-01`);
+
+  // Surface a query failure instead of rendering it as "0 leads", which is
+  // indistinguishable from a workspace that genuinely has none.
+  if (totalErr || todayErr || monthErr) {
+    console.error('[meta-leads] KPI count failed', totalErr || todayErr || monthErr);
+    return NextResponse.json({ error: 'Failed to load lead stats' }, { status: 500 });
+  }
 
   // ── Per-ad breakdown (Top Ads) ────────────────────────────────────────────
   // Uncapped: paginate through ALL ad-lead conversations (not a single capped

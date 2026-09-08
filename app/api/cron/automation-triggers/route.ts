@@ -62,15 +62,26 @@ async function processBirthdayTrigger(
   const todayMMDD = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const fieldKey  = (trigger.config?.custom_field_key as string) ?? 'birthday';
 
-  // Fetch contacts and filter in-app (Postgres JSONB date comparison is tricky cross-year)
-  const { data: contacts } = await db
-    .from('contacts')
-    .select('id, phone, name, custom_fields')
-    .eq('workspace_id', trigger.workspace_id)
-    .eq('opted_out', false)
-    .eq('is_blocked', false);
+  // Fetch contacts and filter in-app (Postgres JSONB date comparison is tricky cross-year).
+  // Paginate — an unbounded select is capped at 1000 rows by PostgREST, which would silently
+  // skip every contact past row 1000 (their birthday message would never send, every day).
+  const contacts: any[] = [];
+  let bOff = 0;
+  while (true) {
+    const { data: page } = await db
+      .from('contacts')
+      .select('id, phone, name, custom_fields')
+      .eq('workspace_id', trigger.workspace_id)
+      .eq('opted_out', false)
+      .eq('is_blocked', false)
+      .range(bOff, bOff + 999);
+    if (!page?.length) break;
+    contacts.push(...page);
+    if (page.length < 1000) break;
+    bOff += 1000;
+  }
 
-  const todayBirthdays = (contacts ?? []).filter((c: any) => {
+  const todayBirthdays = contacts.filter((c: any) => {
     const val = c.custom_fields?.[fieldKey] as string | undefined;
     if (!val) return false;
     // Accept YYYY-MM-DD, MM-DD, or DD/MM/YYYY formats

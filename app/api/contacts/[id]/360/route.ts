@@ -79,14 +79,37 @@ export async function GET(
     const notes              = notesRes.data              ?? [];
     const customFieldDefs    = customFieldDefsRes.data    ?? [];
 
-    // Stats
-    const totalConversations  = conversations.length;
-    const resolvedConversations = (conversations as Array<{ status: string }>).filter((c) => c.status === 'resolved').length;
+    // Stats — computed from exact counts / a full order scan, NOT the capped display lists
+    // above (which cap at 20 conversations / 10 orders). Deriving totals from those would
+    // silently understate a repeat customer's true conversation count and lifetime spend.
+    const [totalConvRes, resolvedConvRes, totalOrdersRes] = await Promise.all([
+      db.from('conversations').select('id', { count: 'exact', head: true }).eq('contact_id', contactId).eq('workspace_id', workspaceId),
+      db.from('conversations').select('id', { count: 'exact', head: true }).eq('contact_id', contactId).eq('workspace_id', workspaceId).eq('status', 'resolved'),
+      db.from('orders').select('id', { count: 'exact', head: true }).eq('contact_id', contactId).eq('workspace_id', workspaceId),
+    ]);
+    const totalConversations    = totalConvRes.count ?? 0;
+    const resolvedConversations = resolvedConvRes.count ?? 0;
+    const totalOrders           = totalOrdersRes.count ?? 0;
+
+    // Lifetime spend — sum every order (a contact's orders are few; paginate to be safe).
+    let totalSpent = 0;
+    let oOff = 0;
+    while (true) {
+      const { data: pg } = await db
+        .from('orders')
+        .select('total_amount')
+        .eq('contact_id', contactId)
+        .eq('workspace_id', workspaceId)
+        .range(oOff, oOff + 999);
+      if (!pg?.length) break;
+      for (const o of pg as Array<{ total_amount: number | null }>) totalSpent += (o.total_amount ?? 0);
+      if (pg.length < 1000) break;
+      oOff += 1000;
+    }
+
     const avgCsat = csatResponses.length > 0
       ? Math.round((csatResponses as Array<{ score: number }>).reduce((s, r) => s + r.score, 0) / csatResponses.length * 10) / 10
       : null;
-    const totalOrders = orders.length;
-    const totalSpent  = (orders as Array<{ total_amount: number | null }>).reduce((s, o) => s + (o.total_amount ?? 0), 0);
 
     return NextResponse.json({
       contact,

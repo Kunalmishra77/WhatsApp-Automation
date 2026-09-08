@@ -86,7 +86,10 @@ export async function GET(request: NextRequest) {
       if (ids && ids.length) q = q.in('id', ids);
       // Agent scope: restrict to assigned contacts only
       if (agentContactIds) q = q.in('id', agentContactIds);
-      const { data: chunk } = await q;
+      const { data: chunk, error } = await q;
+      // Surface a mid-export DB error instead of silently returning a truncated CSV as if
+      // it were the complete list.
+      if (error) { console.error('[contacts/bulk export] page fetch failed', error); throw error; }
       if (!chunk || chunk.length === 0) break;
       allRows = allRows.concat(chunk as Array<Record<string, unknown>>);
       if (chunk.length < CHUNK) break;
