@@ -16,6 +16,16 @@ export async function POST(request: NextRequest, { params }: Params) {
     await requireWorkspacePermission(workspaceId, 'handle_conversations');
     const db = createAdminClient() as any;
 
+    // Ownership: the conversation must belong to the authorized workspace, else a member
+    // of one workspace could read + reassign another workspace's conversation by id.
+    const { data: conv } = await db
+      .from('conversations')
+      .select('last_message, labels')
+      .eq('id', conversationId)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    if (!conv) return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
+
     // Fetch online agents in this workspace
     const { data: members } = await db
       .from('workspace_members')
@@ -53,13 +63,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (c.assigned_agent_id) loadMap[c.assigned_agent_id] = (loadMap[c.assigned_agent_id] ?? 0) + 1;
     }
 
-    // Get the current conversation's last message to match expertise
-    const { data: conv } = await db
-      .from('conversations')
-      .select('last_message, labels')
-      .eq('id', conversationId)
-      .single();
-
+    // Match expertise against the current conversation (fetched + ownership-checked above).
     const convText = ((conv?.last_message ?? '') + ' ' + ((conv?.labels ?? []) as string[]).join(' ')).toLowerCase();
 
     // Score each agent: lower load = higher score, expertise match = bonus
@@ -84,11 +88,12 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     if (!bestAgentId) return NextResponse.json({ error: 'No suitable agent found' }, { status: 422 });
 
-    // Assign
+    // Assign (scoped by workspace_id as defense-in-depth)
     await db
       .from('conversations')
       .update({ assigned_agent_id: bestAgentId, status: 'assigned' })
-      .eq('id', conversationId);
+      .eq('id', conversationId)
+      .eq('workspace_id', workspaceId);
 
     const assignedAgent = (members as Array<{ user_id: string; profiles?: { full_name?: string } }>)
       .find((m) => m.user_id === bestAgentId);

@@ -30,10 +30,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       console.error('[WA Forms send] billing guard check failed unexpectedly, allowing through:', e);
     }
 
+    // Scope the conversation to the FORM's workspace — otherwise a caller authorized on
+    // their own form could pass another tenant's conversationId and send that contact a
+    // message (leaking its phone number) using their own credentials.
     const { data: conversation } = await db
       .from('conversations')
       .select('id, contact_id, contacts(phone, name), workspace_id')
       .eq('id', conversationId)
+      .eq('workspace_id', form.workspace_id)
       .single();
 
     if (!conversation) return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });

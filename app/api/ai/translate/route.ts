@@ -55,9 +55,10 @@ export async function POST(request: NextRequest) {
       translated = raw || text;
     }
 
-    // Non-blocking: save detected language to contact (fire-and-forget)
+    // Non-blocking: save detected language to contact (fire-and-forget). Gated by the
+    // caller's membership of the conversation's workspace (see saveContactLanguage).
     if (conversationId && detectedLang !== 'en' && detectedLang !== 'unknown') {
-      void saveContactLanguage(conversationId, detectedLang);
+      void saveContactLanguage(conversationId, detectedLang, user.id);
     }
 
     return NextResponse.json({ translated, detectedLang });
@@ -70,20 +71,33 @@ export async function POST(request: NextRequest) {
 async function saveContactLanguage(
   conversationId: string,
   lang: string,
+  userId: string,
 ) {
   try {
     const { createAdminClient } = await import('@/services/supabase/admin');
     const db = createAdminClient() as any;
     const { data: conv } = await db
       .from('conversations')
-      .select('contact_id')
+      .select('contact_id, workspace_id')
       .eq('id', conversationId)
       .single();
-    if (conv?.contact_id) {
-      await db
-        .from('contacts')
-        .update({ language: lang })
-        .eq('id', conv.contact_id);
-    }
+    if (!conv?.contact_id || !conv.workspace_id) return;
+
+    // Only write if the caller actually belongs to this conversation's workspace —
+    // this route has no per-workspace permission gate, so verify membership here before
+    // touching another tenant's contact.
+    const { data: member } = await db
+      .from('workspace_members')
+      .select('user_id')
+      .eq('workspace_id', conv.workspace_id)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (!member) return;
+
+    await db
+      .from('contacts')
+      .update({ language: lang })
+      .eq('id', conv.contact_id)
+      .eq('workspace_id', conv.workspace_id);
   } catch { /* silent — non-critical */ }
 }

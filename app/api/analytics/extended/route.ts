@@ -64,15 +64,29 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Campaign summary counts
-    const allCampaigns = campaigns ?? [] as CampaignRow[];
+    // Campaign summary counts — computed over ALL campaigns (paginated), NOT the 10-row
+    // display list above, which would silently undercount every total for workspaces
+    // with >10 campaigns. Campaigns per workspace are modest, so a full lightweight scan.
+    const summaryRows: Array<{ status: string; sent_count: number | null }> = [];
+    let cOff = 0;
+    while (true) {
+      const { data: pg } = await db
+        .from('campaigns')
+        .select('status, sent_count')
+        .eq('workspace_id', workspaceId)
+        .range(cOff, cOff + 999);
+      if (!pg?.length) break;
+      summaryRows.push(...pg);
+      if (pg.length < 1000) break;
+      cOff += 1000;
+    }
     const campaignSummary = {
-      total:     allCampaigns.length,
-      completed: allCampaigns.filter((c: CampaignRow) => c.status === 'completed').length,
-      running:   allCampaigns.filter((c: CampaignRow) => c.status === 'running').length,
-      failed:    allCampaigns.filter((c: CampaignRow) => c.status === 'failed').length,
-      draft:     allCampaigns.filter((c: CampaignRow) => c.status === 'draft' || c.status === 'scheduled').length,
-      totalSent: allCampaigns.reduce((s: number, c: CampaignRow) => s + (c.sent_count ?? 0), 0),
+      total:     summaryRows.length,
+      completed: summaryRows.filter((c) => c.status === 'completed').length,
+      running:   summaryRows.filter((c) => c.status === 'running').length,
+      failed:    summaryRows.filter((c) => c.status === 'failed').length,
+      draft:     summaryRows.filter((c) => c.status === 'draft' || c.status === 'scheduled').length,
+      totalSent: summaryRows.reduce((s: number, c) => s + (c.sent_count ?? 0), 0),
     };
 
     // ── 2. Lead Funnel (by stage/temperature) — via the analytics_lead_breakdown SQL

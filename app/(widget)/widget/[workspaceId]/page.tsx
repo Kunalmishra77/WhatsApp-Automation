@@ -7,6 +7,16 @@ export default async function WidgetPage({ params }: Props) {
   const { workspaceId } = await params;
   const db = createAdminClient() as any;
 
+  // Only expose workspace details for a workspace that has actually enabled a public
+  // chat widget — otherwise any workspace UUID would leak name/phone_number_id/branding.
+  const { data: widget } = await db
+    .from('chat_widgets')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('is_active', true)
+    .maybeSingle();
+  if (!widget) notFound();
+
   const { data: ws } = await db
     .from('workspaces')
     .select('name, phone_number_id, brand_color, logo_url')

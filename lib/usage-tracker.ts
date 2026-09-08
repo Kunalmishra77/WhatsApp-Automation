@@ -44,12 +44,19 @@ async function incrementColumn(
 ): Promise<void> {
   await ensureRow(db, workspaceId, month);
 
-  const { data } = await db
+  const { data, error } = await db
     .from('platform_usage_logs')
     .select(column)
     .eq('workspace_id', workspaceId)
     .eq('month', month)
     .single();
+
+  // Never overwrite on a transient read error — falling back to 0 here would reset a real
+  // count (e.g. 500 → 1), corrupting usage and letting plan limits be bypassed. Skip instead.
+  if (error) {
+    console.error('[usage-tracker] read failed; skipping increment to avoid resetting count:', workspaceId, month, column, error.message);
+    return;
+  }
 
   const currentValue: number = (data as any)?.[column] ?? 0;
 

@@ -14,6 +14,16 @@ export async function GET(request: NextRequest, { params }: Params) {
     await requireWorkspacePermission(workspaceId, 'create_campaigns');
     const db = createAdminClient() as any;
 
+    // Ownership: the campaign must belong to the authorized workspace, else a member of
+    // one workspace could poll another workspace's queue by passing a foreign campaignId.
+    const { data: camp } = await db
+      .from('campaigns')
+      .select('id')
+      .eq('id', campaignId)
+      .eq('workspace_id', workspaceId)
+      .maybeSingle();
+    if (!camp) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
+
     const { data } = await db
       .from('campaign_queue')
       .select('status, progress, total, sent, failed, started_at, completed_at, error_message')

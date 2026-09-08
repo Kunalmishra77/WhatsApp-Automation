@@ -933,9 +933,21 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   }
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+  // Recompute total_recipients + filtered_count from the authoritative campaign_recipients
+  // rows (which accumulate across runs). On a Resume/retry, `audienceSize`/`filteredCount`
+  // reflect only the remaining slice, so writing them directly would permanently undercount
+  // these two columns (they have no other recompute path, unlike sent/delivered/replied
+  // which self-heal via the webhook COUNT).
+  const { count: crTotal } = await db.from('campaign_recipients')
+    .select('id', { count: 'exact', head: true }).eq('campaign_id', campaignId);
+  const { count: crFiltered } = await db.from('campaign_recipients')
+    .select('id', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'filtered');
+
   await db.from('campaigns').update({
     status: 'completed', completed_at: new Date().toISOString(),
-    sent_count: sentCount, failed_count: failedCount, filtered_count: filteredCount,
+    sent_count: sentCount, failed_count: failedCount,
+    total_recipients: crTotal ?? undefined,
+    filtered_count: crFiltered ?? filteredCount,
   }).eq('id', campaignId);
 
   // ── Post-completion reply sync (backstop) ─────────────────────────────────────

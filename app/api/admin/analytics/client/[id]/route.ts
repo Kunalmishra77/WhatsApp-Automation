@@ -134,17 +134,32 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     created_at: c.created_at,
   }));
 
-  // Totals from campaigns
-  const totalSent      = camps.reduce((a: number, c: any) => a + (c.sent_count ?? 0), 0);
-  const totalDelivered = camps.reduce((a: number, c: any) => a + (c.delivered_count ?? 0), 0);
-  const totalReplied   = camps.reduce((a: number, c: any) => a + (c.replied_count ?? 0), 0);
+  // Totals from ALL campaigns (paginated). `camps` above is capped at 20 for the display
+  // table and must NOT be used for lifetime totals, or every KPI silently caps at 20.
+  const aggRows: Array<{ status: string; sent_count: number | null; delivered_count: number | null; replied_count: number | null }> = [];
+  let acOff = 0;
+  while (true) {
+    const { data: pg } = await db
+      .from('campaigns')
+      .select('status, sent_count, delivered_count, replied_count')
+      .eq('workspace_id', workspaceId)
+      .range(acOff, acOff + 999);
+    if (!pg?.length) break;
+    aggRows.push(...pg);
+    if (pg.length < 1000) break;
+    acOff += 1000;
+  }
+  const campaignsTotal = aggRows.length;
+  const totalSent      = aggRows.reduce((a: number, c) => a + (c.sent_count ?? 0), 0);
+  const totalDelivered = aggRows.reduce((a: number, c) => a + (c.delivered_count ?? 0), 0);
+  const totalReplied   = aggRows.reduce((a: number, c) => a + (c.replied_count ?? 0), 0);
 
   return NextResponse.json({
     kpis: {
       messages_this_month: msgThisMonth,   // all-time conversation messages
       contacts_total:      contactsTotal,
       conversations_total: conversationsTotal,
-      campaigns_total:     camps.length,
+      campaigns_total:     campaignsTotal,
       campaign_sent_total: totalSent,      // total campaign messages sent
       campaign_delivered:  totalDelivered,
       campaign_replied:    totalReplied,
