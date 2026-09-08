@@ -1,6 +1,11 @@
 # AGENTiX Data-Integrity & Tenant-Isolation Audit — 2026-09-08
 
-> **Remediation status (2026-09-08):** FIXED & pushed (commits f607227→17c7ba1) — Tier 1 (all 4 debug endpoints deleted) ✅; Tier 2 IDOR: daily-stats, queue-status, smart-assign, ai/translate, wa-forms/send, widget page ✅; Tier 3: funnel note, analytics/extended + admin/analytics/client caps, campaign-executor total_recipients, usage-tracker ✅. **STILL QUEUED:** reports/export parity (IST + filters + spam + is_deleted), export-defaults-to-today, birthday-cron pagination, contacts/[id]/360 totals+spend caps, analytics/detail CSAT 200-cap + delivery buckets, analytics/overview CSAT cap, ab-comparison, my-work/team-workload/revenue-insights/vector-kb caps, contacts/bulk + meta-leads silent-error, 3-way response-time unification, remaining Tier-2 webhook signature hardening (abandoned-cart, shopify), Tier-4 defense-in-depth re-scoping.
+> **Remediation status (2026-09-08):** FIXED & pushed across 3 batches (f607227→5104b64).
+> - **Batch 1** (17c7ba1): Tier 1 — all 4 debug endpoints deleted ✅; Tier 2 IDOR — daily-stats, queue-status, smart-assign, ai/translate, wa-forms/send, widget page ✅; Tier 3 — analytics/extended + admin/analytics/client caps, campaign-executor total_recipients, usage-tracker ✅.
+> - **Batch 2** (d3cf8bd): reports/export IST + spam + is_deleted; conversations/export is_deleted + 'all' + nullsFirst; birthday-cron pagination; contacts/[id]/360 totals+spend; contacts/bulk + meta-leads silent-error ✅.
+> - **Batch 3** (5104b64): analytics/detail CSAT + delivery buckets; analytics/overview CSAT; ab-comparison; campaigns/list live_replied; my-work; team/workload; revenue/insights; vector-kb ✅.
+> - **STILL OPEN (decisions needed):** (a) 3-way "avg response time" unification — needs a canonical definition; (b) webhook signature hardening (abandoned-cart, shopify) — behavior change, needs confirmation no client relies on secret-less webhooks; (c) Tier-4 defense-in-depth re-scoping (~20 low-risk, not-exploitable spots) — mechanical, can batch anytime.
+> - **fetchMessageFunnel** (analytics.service.ts) direction bug: confirmed **dead code** (not imported); left as-is, flagged.
 
 Whole-codebase audit (app/api, modules, lib) for: data-accuracy bugs, cross-tenant/IDOR leaks, unauthenticated endpoints, artificial caps that undercount, and fabricated/demo data. `createAdminClient()` uses the service role and **bypasses RLS**, so every finding below is a real gap, not caught by row-level security.
 
