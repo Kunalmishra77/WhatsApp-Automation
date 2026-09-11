@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils';
 import { useTemplates } from '@/modules/templates/hooks/useTemplates';
 import { useCreateCampaign } from '../../hooks/useCampaigns';
 import { useWorkspaceStore } from '@/store/workspace.store';
+import { createClient } from '@/services/supabase/client';
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { WhatsAppPreview } from '@/modules/templates/components/WhatsAppPreview';
@@ -170,10 +171,29 @@ function MediaUrlInput({ headerType, workspaceId, value, onChange, allowUrl = fa
     setUploading(true);
     const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('workspaceId', workspaceId);
-      const res  = await fetch('/api/campaigns/upload-media', { method: 'POST', body: fd });
+      // Larger files (esp. video headers) were 502-ing because the raw upload crossed the
+      // reverse proxy. Instead: (1) ask the server for a signed upload URL, (2) upload the
+      // file DIRECTLY to Supabase Storage (bypassing our server/proxy entirely), (3) have
+      // the server pull it from Storage and register it with WhatsApp.
+      const signRes = await fetch('/api/campaigns/upload-media/sign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId, fileName: file.name, fileType: file.type, fileSize: file.size }),
+      });
+      const sign = await signRes.json() as { path?: string; token?: string; error?: string };
+      if (!signRes.ok || !sign.path || !sign.token) { toast.error(sign.error ?? 'Upload failed'); return; }
+
+      const supabase = createClient();
+      const { error: upErr } = await supabase.storage
+        .from('media-uploads')
+        .uploadToSignedUrl(sign.path, sign.token, file);
+      if (upErr) { toast.error('Upload failed — please try again'); return; }
+
+      const res  = await fetch('/api/campaigns/upload-media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId, path: sign.path, fileName: file.name, fileType: file.type }),
+      });
       const data = await res.json() as { mediaId?: string; mediaType?: string; fileName?: string; error?: string };
       if (!res.ok) { toast.error(data.error ?? 'Upload failed'); return; }
       onChange(data.mediaId!, data.mediaType!, data.fileName!, previewUrl);

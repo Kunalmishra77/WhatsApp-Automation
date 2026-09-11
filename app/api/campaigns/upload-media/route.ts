@@ -46,9 +46,49 @@ export async function GET(request: NextRequest) {
 // Returns: { mediaId, mediaType, fileName, libraryId }
 export async function POST(request: NextRequest) {
   try {
-    const formData    = await request.formData();
-    const file        = formData.get('file') as File | null;
-    const workspaceId = formData.get('workspaceId') as string | null;
+    // Two entry modes:
+    //  • JSON { workspaceId, path, fileName, fileType } — the file was already uploaded
+    //    straight to Supabase Storage from the browser (via /upload-media/sign), so the
+    //    large body never crossed our reverse proxy (which 502s on big uploads). We just
+    //    pull it from Storage and register it with WhatsApp.
+    //  • multipart/form-data { file, workspaceId } — legacy direct upload (small files).
+    const contentType = request.headers.get('content-type') ?? '';
+    let file: File | null = null;
+    let workspaceId: string | null = null;
+    let tempStoragePath: string | null = null;
+
+    if (contentType.includes('application/json')) {
+      const body = (await request.json().catch(() => ({}))) as {
+        workspaceId?: string; path?: string; fileName?: string; fileType?: string;
+      };
+      workspaceId = body.workspaceId ?? null;
+      const { path, fileName, fileType } = body;
+      if (!workspaceId || !path || !fileName || !fileType) {
+        return NextResponse.json({ error: 'workspaceId, path, fileName and fileType required' }, { status: 400 });
+      }
+      // Ownership: the temp path must be under this workspace (matches /sign).
+      if (!path.startsWith(`campaign-tmp/${workspaceId}/`)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      await requireWorkspacePermission(workspaceId, 'create_campaigns');
+
+      const sdb = createAdminClient() as any;
+      const { data: blob, error: dlErr } = await sdb.storage.from('media-uploads').download(path);
+      if (dlErr || !blob) {
+        return NextResponse.json({ error: 'Could not read the uploaded file — please retry.' }, { status: 400 });
+      }
+      const buf = Buffer.from(await blob.arrayBuffer());
+      if (buf.byteLength > 16 * 1024 * 1024) {
+        void sdb.storage.from('media-uploads').remove([path]);
+        return NextResponse.json({ error: 'Max 16 MB' }, { status: 400 });
+      }
+      file = new File([buf], fileName, { type: fileType });
+      tempStoragePath = path;
+    } else {
+      const formData = await request.formData();
+      file        = formData.get('file') as File | null;
+      workspaceId = formData.get('workspaceId') as string | null;
+    }
 
     if (!file || !workspaceId) {
       return NextResponse.json({ error: 'file and workspaceId required' }, { status: 400 });
@@ -63,7 +103,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Max 16 MB' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'create_campaigns');
+    // The JSON path already ran requireWorkspacePermission above; the form-data path checks here.
+    if (!tempStoragePath) {
+      await requireWorkspacePermission(workspaceId, 'create_campaigns');
+    }
 
     const db = createAdminClient() as any;
     const { data: ws } = await db
@@ -73,6 +116,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (!ws?.phone_number_id || !ws?.access_token) {
+      if (tempStoragePath) void db.storage.from('media-uploads').remove([tempStoragePath]);
       return NextResponse.json({ error: 'Workspace WhatsApp credentials missing' }, { status: 400 });
     }
 
@@ -90,6 +134,9 @@ export async function POST(request: NextRequest) {
         body: uploadForm,
       },
     );
+
+    // The temp Storage copy has served its purpose once WhatsApp has (or hasn't) taken it.
+    if (tempStoragePath) void db.storage.from('media-uploads').remove([tempStoragePath]);
 
     if (!uploadRes.ok) {
       let err: { error?: { message?: string } } = {};
