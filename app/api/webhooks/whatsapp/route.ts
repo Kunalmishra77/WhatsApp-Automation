@@ -556,6 +556,31 @@ async function handleIncomingMessage(
   }
   // ─────────────────────────────────────────────────────────────────────────────
 
+  // ── Unsupported message type (WhatsApp couldn't parse it) ───────────────────
+  // Meta delivers these as type 'unsupported' (error 131051) with NO content — the
+  // customer's text (often a forwarded code/OTP or a newer WhatsApp message type) never
+  // reaches us. Ask them to resend as plain text so we actually receive it, and
+  // short-circuit before the AI reply (which would only see the '[unsupported]'
+  // placeholder). Skips when a human has the conversation (bot_paused) — the agent asks.
+  if (msg.type === 'unsupported') {
+    const at = ws.access_token ? (ws.access_token as string).replace(/﻿/g, '').trim() : null;
+    if (at && (conversation as any).bot_paused !== true) {
+      void fetch(`https://graph.facebook.com/v19.0/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${at}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: waId,
+          type: 'text',
+          text: { preview_url: false, body: "Sorry, we couldn't read your last message 🙏 If it was a code or OTP, please type it here as a normal text message so we can help you." },
+        }),
+      }).catch(() => {});
+    }
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────────────────────
+
   // ── Inbound cart order (Meta `order` message type) ──────────────────────────
   // Customer checked out a cart from a product-list message. Capture line items,
   // persist an order, log a thread summary and acknowledge. Fully fail-open: any
@@ -2636,6 +2661,10 @@ function extractMessageContent(msg: WAMessage): string {
       if (ir?.type === 'list_reply')   return `[Selected: "${ir.list_reply?.title ?? 'option'}"]`;
       return '[Interactive]';
     }
+    // WhatsApp delivers these with NO text (error 131051) — often a forwarded code/OTP or a
+    // newer message type. Show the agent a clear note instead of a cryptic "[unsupported]".
+    case 'unsupported':
+      return "⚠️ Customer sent a message WhatsApp couldn't read (e.g. a forwarded code/OTP). Ask them to type it as plain text.";
     default: return `[${msg.type}]`;
   }
 }
