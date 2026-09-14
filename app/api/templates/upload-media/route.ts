@@ -19,15 +19,49 @@ const ALLOWED_TYPES: Record<string, true> = {
 // Returns: { handle }  where handle is used as header_handle in template creation
 export async function POST(request: NextRequest) {
   try {
-    const formData    = await request.formData();
-    const file        = formData.get('file') as File | null;
-    const workspaceId = formData.get('workspaceId') as string | null;
+    // Two modes (same as campaigns/upload-media): JSON { workspaceId, path, fileName,
+    // fileType } means the file was already uploaded straight to Supabase Storage via
+    // /upload-media/sign (so the large body never crossed our reverse proxy, which 502s on
+    // big videos) — we just pull it. Legacy multipart { file, workspaceId } still works.
+    const contentType = request.headers.get('content-type') ?? '';
+    let file: File | null = null;
+    let workspaceId: string | null = null;
+    let tempStoragePath: string | null = null;
+
+    if (contentType.includes('application/json')) {
+      const body = (await request.json().catch(() => ({}))) as {
+        workspaceId?: string; path?: string; fileName?: string; fileType?: string;
+      };
+      workspaceId = body.workspaceId ?? null;
+      const { path, fileName, fileType } = body;
+      if (!workspaceId || !path || !fileName || !fileType) {
+        return NextResponse.json({ error: 'workspaceId, path, fileName and fileType required' }, { status: 400 });
+      }
+      if (!path.startsWith(`template-tmp/${workspaceId}/`)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+      await requireWorkspacePermission(workspaceId, 'manage_templates');
+
+      const sdb = createAdminClient() as any;
+      const { data: blob, error: dlErr } = await sdb.storage.from('media-uploads').download(path);
+      if (dlErr || !blob) {
+        return NextResponse.json({ error: 'Could not read the uploaded file — please retry.' }, { status: 400 });
+      }
+      const buf = Buffer.from(await blob.arrayBuffer());
+      file = new File([buf], fileName, { type: fileType });
+      tempStoragePath = path;
+    } else {
+      const formData = await request.formData();
+      file        = formData.get('file') as File | null;
+      workspaceId = formData.get('workspaceId') as string | null;
+    }
 
     if (!file || !workspaceId) {
       return NextResponse.json({ error: 'file and workspaceId required' }, { status: 400 });
     }
 
     if (!ALLOWED_TYPES[file.type]) {
+      if (tempStoragePath) { const sdb = createAdminClient() as any; void sdb.storage.from('media-uploads').remove([tempStoragePath]); }
       return NextResponse.json(
         { error: `Unsupported type: ${file.type}. Use JPEG/PNG/WebP/MP4/PDF.` },
         { status: 400 },
@@ -35,10 +69,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (file.size > 16 * 1024 * 1024) {
+      if (tempStoragePath) { const sdb = createAdminClient() as any; void sdb.storage.from('media-uploads').remove([tempStoragePath]); }
       return NextResponse.json({ error: 'Max file size is 16 MB' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_templates');
+    // JSON path already checked permission above; form-data path checks here.
+    if (!tempStoragePath) {
+      await requireWorkspacePermission(workspaceId, 'manage_templates');
+    }
 
     const db = createAdminClient() as any;
     const { data: ws } = await db
@@ -78,6 +116,7 @@ export async function POST(request: NextRequest) {
     if (!sessionRes.ok || !sessionData.id) {
       const msg = sessionData?.error?.error_user_msg ?? sessionData?.error?.message ?? 'Failed to create upload session';
       console.error('[TemplateUpload] Session error:', JSON.stringify(sessionData));
+      if (tempStoragePath) void db.storage.from('media-uploads').remove([tempStoragePath]);
       return NextResponse.json({ error: msg }, { status: 400 });
     }
 
@@ -97,6 +136,9 @@ export async function POST(request: NextRequest) {
     });
 
     const uploadData = await uploadRes.json() as { h?: string; error?: { message?: string; error_user_msg?: string } };
+
+    // The temp Storage copy has served its purpose (Meta has the bytes now).
+    if (tempStoragePath) void db.storage.from('media-uploads').remove([tempStoragePath]);
 
     if (!uploadRes.ok || !uploadData.h) {
       const msg = uploadData?.error?.error_user_msg ?? uploadData?.error?.message ?? 'File upload failed';

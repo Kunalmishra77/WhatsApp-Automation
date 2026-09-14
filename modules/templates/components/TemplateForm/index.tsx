@@ -24,6 +24,35 @@ import { extractVariables } from '../../services/template.service';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import type { TemplateRow } from '../../services/template.service';
 import { toast } from 'sonner';
+import { createClient } from '@/services/supabase/client';
+
+// Uploads a template header/sample file via Supabase Storage (browser → Storage directly,
+// bypassing our reverse proxy which 502s on large videos), then has the server pull it and
+// run Meta's Resumable Upload. Returns the header_handle.
+async function uploadTemplateMediaFile(file: File, workspaceId: string): Promise<{ handle: string; fileName: string }> {
+  const signRes = await fetch('/api/templates/upload-media/sign', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspaceId, fileName: file.name, fileType: file.type, fileSize: file.size }),
+  });
+  const sign = await signRes.json() as { path?: string; token?: string; error?: string };
+  if (!signRes.ok || !sign.path || !sign.token) throw new Error(sign.error ?? 'Upload failed');
+
+  const supabase = createClient();
+  const { error: upErr } = await supabase.storage
+    .from('media-uploads')
+    .uploadToSignedUrl(sign.path, sign.token, file);
+  if (upErr) throw new Error('Upload failed — please try again');
+
+  const res  = await fetch('/api/templates/upload-media', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspaceId, path: sign.path, fileName: file.name, fileType: file.type }),
+  });
+  const data = await res.json() as { handle?: string; fileName?: string; error?: string };
+  if (!res.ok) throw new Error(data.error ?? 'Upload failed');
+  return { handle: data.handle ?? '', fileName: data.fileName ?? file.name };
+}
 import { cn } from '@/lib/utils';
 
 type HeaderType    = 'NONE' | 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT';
@@ -227,14 +256,9 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
     // Blob URL for instant local preview; revoked when dialog closes
     if (file.type.startsWith('image/')) setMediaPreviewUrl(URL.createObjectURL(file));
     try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('workspaceId', workspaceId);
-      const res  = await fetch('/api/templates/upload-media', { method: 'POST', body: form });
-      const data = await res.json() as { handle?: string; fileName?: string; error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
-      setMediaHandle(data.handle ?? '');
-      setMediaFileName(data.fileName ?? file.name);
+      const data = await uploadTemplateMediaFile(file, workspaceId);
+      setMediaHandle(data.handle);
+      setMediaFileName(data.fileName);
       toast.success('Media uploaded');
     } catch (err) {
       setMediaPreviewUrl('');
@@ -248,12 +272,7 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
   const handleCardMediaUpload = async (ci: number, file: File) => {
     setCardUploading((u) => ({ ...u, [ci]: true }));
     try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('workspaceId', workspaceId);
-      const res  = await fetch('/api/templates/upload-media', { method: 'POST', body: form });
-      const data = await res.json() as { handle?: string; fileName?: string; error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
+      await uploadTemplateMediaFile(file, workspaceId);
       updateCard(ci, { header_type: file.type.startsWith('video/') ? 'VIDEO' : 'IMAGE' });
       toast.success(`Card ${ci + 1} sample uploaded`);
     } catch (err) {
