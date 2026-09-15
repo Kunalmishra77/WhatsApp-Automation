@@ -1,78 +1,113 @@
 import type { Metadata } from 'next';
 
-export const metadata: Metadata = { title: 'Privacy Policy — V4TOU Tech' };
+export const metadata: Metadata = { title: 'Privacy Policy — AGENTiX' };
 
 export default function PrivacyPolicyPage() {
   return (
     <div className="min-h-screen bg-white py-12 px-4">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center gap-3 mb-8">
-          <div className="h-10 w-10 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-lg">V</div>
-          <span className="text-xl font-bold text-gray-900">V4TOU Tech</span>
+          <div className="h-10 w-10 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-lg">A</div>
+          <span className="text-xl font-bold text-gray-900">AGENTiX</span>
         </div>
 
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Privacy Policy</h1>
-        <p className="text-gray-500 mb-8">Last updated: May 30, 2026</p>
+        <p className="text-gray-500 mb-8">Last updated: September 15, 2026</p>
 
         <div className="prose prose-gray max-w-none space-y-6 text-gray-700">
 
           <section>
             <h2 className="text-xl font-semibold text-gray-900 mb-2">1. Introduction</h2>
-            <p>V4TOU Tech (&quot;we&quot;, &quot;our&quot;, or &quot;us&quot;) operates a WhatsApp-based business communication platform. This Privacy Policy explains how we collect, use, and protect your personal information when you interact with us via WhatsApp or our web application.</p>
+            <p>AGENTiX (&quot;AGENTiX&quot;, &quot;we&quot;, &quot;our&quot;, or &quot;us&quot;), operated by AI Agentix, provides a multi-channel marketing and customer-communication platform for businesses. Our platform helps businesses manage customer conversations on WhatsApp and Instagram, run campaigns, manage leads, and — where a business connects the relevant account — manage their Google Business Profile and Google Ads activity from one place. This Privacy Policy explains what information we collect, how we use it, how we handle data obtained through Google APIs, and the choices you have.</p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">2. Information We Collect</h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">2. Who This Policy Covers</h2>
             <ul className="list-disc pl-6 space-y-1">
-              <li><strong>WhatsApp Phone Number</strong> — when you message us on WhatsApp</li>
-              <li><strong>Display Name</strong> — your WhatsApp profile name</li>
-              <li><strong>Message Content</strong> — messages you send to us for support or inquiries</li>
-              <li><strong>Business Information</strong> — name, email, company details you share with us</li>
+              <li><strong>Business users</strong> — the businesses (and their team members) who use the AGENTiX dashboard to manage their marketing and customer communication.</li>
+              <li><strong>End customers</strong> — people who contact a business through a channel connected to AGENTiX (e.g. WhatsApp, Instagram).</li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">3. How We Use Your Information</h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">3. Information We Collect</h2>
             <ul className="list-disc pl-6 space-y-1">
-              <li>To respond to your inquiries and provide customer support</li>
-              <li>To send automated acknowledgment messages via WhatsApp</li>
-              <li>To improve our services and communication</li>
-              <li>To send relevant updates about our services (with your consent)</li>
+              <li><strong>Account information</strong> — name, email, phone number, business details, and login credentials of business users.</li>
+              <li><strong>Messaging data</strong> — WhatsApp/Instagram phone numbers, profile names, and message content exchanged between a business and its customers.</li>
+              <li><strong>CRM data</strong> — contacts, leads, notes, tags, orders, and related business records a user stores in the platform.</li>
+              <li><strong>Google account data (only if you connect it)</strong> — see Section 4.</li>
+              <li><strong>Usage &amp; technical data</strong> — log data, device/browser information, and analytics needed to operate and secure the service.</li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">4. WhatsApp Data</h2>
-            <p>We use the WhatsApp Business API provided by Meta Platforms, Inc. Messages sent through WhatsApp are subject to <a href="https://www.whatsapp.com/legal/privacy-policy" className="text-blue-600 underline" target="_blank">WhatsApp&apos;s Privacy Policy</a> in addition to this policy. We do not share your WhatsApp data with third parties except as required to operate our services.</p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">5. Data Storage & Security</h2>
-            <p>Your data is stored securely using Supabase (PostgreSQL) with industry-standard encryption. We implement appropriate technical and organizational measures to protect your personal information against unauthorized access, alteration, disclosure, or destruction.</p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">6. Data Retention</h2>
-            <p>We retain your conversation data for up to 12 months. You may request deletion of your data at any time by contacting us.</p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">7. Your Rights</h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">4. Google User Data (Google Business Profile &amp; Google Ads)</h2>
+            <p>If a business user chooses to connect their Google account to AGENTiX, we request access — through Google&apos;s official OAuth 2.0 consent flow — only to the data needed to provide the features they enable. We never see your Google password; access is granted by you and can be revoked by you at any time.</p>
+            <p className="mt-2"><strong>What we access, and why:</strong></p>
             <ul className="list-disc pl-6 space-y-1">
-              <li>Access your personal data we hold</li>
-              <li>Request correction of inaccurate data</li>
-              <li>Request deletion of your data</li>
-              <li>Opt out of marketing communications</li>
+              <li><strong>Google Business Profile</strong> (scope <code>business.manage</code>) — to read your business locations, reviews, questions, posts, and performance insights, and (where you enable it) to publish posts, reply to reviews, and answer questions on your behalf.</li>
+              <li><strong>Google Ads</strong> (scope <code>adwords</code>) — to read your ad campaigns, spend, and performance metrics, and to receive leads generated by your Google Ads lead forms, so we can show reporting and route those leads into your CRM.</li>
+            </ul>
+            <p className="mt-2"><strong>How we use it:</strong> solely to provide the features you enable inside AGENTiX (dashboards, reporting, review management, posting, and lead routing). We do <strong>not</strong> use Google user data for advertising, and we do <strong>not</strong> sell it.</p>
+            <p className="mt-2"><strong>Limited Use disclosure:</strong> AGENTiX&apos;s use and transfer of information received from Google APIs adheres to the{' '}
+              <a href="https://developers.google.com/terms/api-services-user-data-policy" className="text-blue-600 underline" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements. We do not transfer or disclose Google user data to third parties except as necessary to provide or improve the features you use, to comply with applicable law, or as part of a merger/acquisition with appropriate notice.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">5. WhatsApp &amp; Meta Data</h2>
+            <p>We use the WhatsApp Business Platform and Instagram Messaging APIs provided by Meta Platforms, Inc. Messages sent through these channels are also subject to{' '}
+              <a href="https://www.whatsapp.com/legal/privacy-policy" className="text-blue-600 underline" target="_blank" rel="noopener noreferrer">WhatsApp&apos;s Privacy Policy</a>. We use this data only to operate the messaging, automation, and CRM features a business enables.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">6. How We Use Information</h2>
+            <ul className="list-disc pl-6 space-y-1">
+              <li>Operate the platform: conversations, campaigns, CRM, analytics, and the integrations you connect.</li>
+              <li>Provide automation and AI-assisted replies grounded in the business&apos;s own content.</li>
+              <li>Generate reporting and insights for the business user.</li>
+              <li>Maintain security, prevent abuse, and comply with legal obligations.</li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">8. Contact Us</h2>
-            <p>For any privacy-related questions or requests:</p>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">7. Data Sharing</h2>
+            <p>We do not sell personal data. We share data only with the service providers needed to run the platform — Meta (WhatsApp/Instagram), Google (Business Profile/Ads, only for connected accounts), Supabase (database/storage), Razorpay (payments), and email/AI providers — each processing data only to provide their service to us, and only to the extent required.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">8. Data Storage &amp; Security</h2>
+            <p>Data is stored using Supabase (PostgreSQL) with encryption in transit and at rest. Access tokens for connected accounts (including Google) are stored encrypted and scoped to the authorizing business. We apply role-based access controls and tenant isolation so each business can access only its own data.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">9. Data Retention &amp; Deletion</h2>
+            <p>We retain data for as long as a business uses the platform, and conversation history for up to 12 months unless a longer period is required. A business user may disconnect a Google (or other) account at any time — from AGENTiX or from their{' '}
+              <a href="https://myaccount.google.com/permissions" className="text-blue-600 underline" target="_blank" rel="noopener noreferrer">Google Account permissions page</a> — which stops further access. You may request deletion of your data by contacting us (Section 12); we delete or anonymize it unless retention is legally required.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">10. Your Rights</h2>
+            <ul className="list-disc pl-6 space-y-1">
+              <li>Access the personal data we hold about you.</li>
+              <li>Request correction of inaccurate data.</li>
+              <li>Request deletion of your data.</li>
+              <li>Disconnect connected accounts and revoke access.</li>
+              <li>Opt out of marketing communications.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">11. Children&apos;s Privacy</h2>
+            <p>AGENTiX is a business tool and is not directed to children under 16. We do not knowingly collect personal data from children.</p>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">12. Contact Us</h2>
+            <p>For any privacy-related questions, access, or deletion requests:</p>
             <ul className="list-none pl-0 space-y-1 mt-2">
-              <li>📧 Email: <a href="mailto:kunal.mishra.50999@gmail.com" className="text-blue-600">kunal.mishra.50999@gmail.com</a></li>
-              <li>💬 WhatsApp: +91 80764 80965</li>
-              <li>🌐 Website: <a href="https://app.aiagentixdev.com" className="text-blue-600">Agentix Platform</a></li>
+              <li>📧 Email: <a href="mailto:aiagentix2025@gmail.com" className="text-blue-600">aiagentix2025@gmail.com</a></li>
+              <li>🌐 Website: <a href="https://ai-agentix.com" className="text-blue-600" target="_blank" rel="noopener noreferrer">ai-agentix.com</a></li>
+              <li>🖥️ Platform: <a href="https://app.aiagentixdev.com" className="text-blue-600" target="_blank" rel="noopener noreferrer">app.aiagentixdev.com</a></li>
             </ul>
           </section>
 
