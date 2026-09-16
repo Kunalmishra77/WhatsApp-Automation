@@ -6,7 +6,7 @@ import {
   MessageSquare, Users, Kanban, Megaphone, FileText,
   BarChart3, Settings, UserCircle, ChevronLeft, ChevronRight,
   Users2, GitBranch, BookOpen, TrendingUp, LifeBuoy, CalendarCheck,
-  LayoutDashboard, LogOut, Brain, CheckSquare, Receipt, Radar,
+  LayoutDashboard, LogOut, Brain, CheckSquare, Receipt, Radar, Store,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -45,6 +45,7 @@ const NAV_ITEMS: Array<{
   { href: '/campaigns',     icon: Megaphone,       label: 'Campaigns',       agentPageKey: 'campaigns' },
   { href: '/leads',         icon: Radar,           label: 'Unified Leads',   agentPageKey: 'unified-leads' },
   { href: '/meta-leads',    icon: Brain,           label: 'Meta Leads',      agentPageKey: 'meta-leads' },
+  { href: '/google-business', icon: Store,         label: 'Google Business', agentPageKey: 'google-business' },
   { href: '/templates',     icon: FileText,        label: 'Templates',       agentPageKey: 'templates' },
   { href: '/flows',         icon: GitBranch,       label: 'Flows',           requiredFeature: 'flows', requiredPlan: 'Pro', agentPageKey: 'flows' },
   { href: '/team',          icon: Users2,          label: 'Team',            agentPageKey: 'team' },
