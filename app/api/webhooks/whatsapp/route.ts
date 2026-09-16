@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { createAdminClient } from '@/services/supabase/admin';
 import { getRequiredSecret } from '@/lib/supabase-env';
 import { chooseRecipientForReply, type RecipientCandidate } from '@/lib/campaign-reply-attribution';
+import { recordTouchpoint } from '@/lib/lead-touchpoint';
 import { applyInboxRules } from '@/lib/inbox-rules-engine';
 import { processFlowForMessage } from '@/lib/flow-engine';
 import { dispatchWebhookEvent } from '@/lib/outbound-webhook';
@@ -317,6 +318,21 @@ async function handleIncomingMessage(
   // Button content is stored as "[Tapped button: "Book Demo"]" in the content field.
   const messageType = msg.type === 'button' ? 'text' : toMessageType(msg.type);
   const createdAt = new Date(parseInt(msg.timestamp, 10) * 1000).toISOString();
+
+  // Phase 1 (Unified Lead Hub): record the WhatsApp first-touch exactly once —
+  // only when there was no prior conversation for this contact. Fail-open; a
+  // later Meta-ad (CTWA) detection may add a meta_ads touchpoint on top.
+  if (!existingConv) {
+    void recordTouchpoint(supabase, {
+      workspaceId,
+      contactId: contact.id,
+      channel: 'whatsapp',
+      sourceDetail: 'WhatsApp inbound',
+      refType: 'conversation',
+      refId: conversation.id as string,
+      occurredAt: createdAt,
+    });
+  }
 
   // For inbound media, save proxy URL so the UI can display it directly.
   // The proxy fetches fresh download URLs from Meta on each request (media IDs are permanent).
@@ -888,12 +904,30 @@ async function handleIncomingMessage(
         p_label: 'Meta Ad Lead',
       });
 
-      // Update lead source if a lead was just created
+      // Update lead source if a lead was just created. Phase 1: also stamp the
+      // normalized channel so CTWA leads show as `meta_ads` in the Unified Lead Hub.
       await (supabase as any)
         .from('leads')
-        .update({ source: 'meta_ad', tags: ['meta', 'facebook_ad'] })
+        .update({
+          source: 'meta_ad',
+          tags: ['meta', 'facebook_ad'],
+          channel: 'meta_ads',
+          source_detail: adSource.headline ?? 'Meta Ad',
+        })
         .eq('contact_id', contact.id)
         .eq('workspace_id', workspaceId);
+
+      // Phase 1: record the Meta-ad touchpoint on the contact journey (fail-open).
+      void recordTouchpoint(supabase, {
+        workspaceId,
+        contactId: contact.id,
+        channel: 'meta_ads',
+        sourceDetail: String(adSource.headline ?? 'Meta Ad'),
+        refType: 'meta_lead',
+        refId: adSource.ad_id ? String(adSource.ad_id) : null,
+        occurredAt: String(adSource.detected_at),
+        metadata: { platform: adSource.platform, ctwa_clid: adSource.ctwa_clid, source: adSource.source },
+      });
 
       console.log(`[AdLead] Detected ad conversation ${conversation.id} via ${adSource.source}`);
     } catch (e) {
@@ -1342,7 +1376,7 @@ async function autoCreateOrUpdateLead(
     const displayName = contactRow?.name ?? contactRow?.phone ?? 'Unknown Contact';
 
     // Create new lead automatically
-    await db.from('leads').insert({
+    const { data: newLead } = await db.from('leads').insert({
       workspace_id:    workspaceId,
       contact_id:      contactId,
       conversation_id: conversationId,
@@ -1352,7 +1386,20 @@ async function autoCreateOrUpdateLead(
       priority:        'medium',
       tags:            [],
       custom_fields:   {},
-    });
+    }).select('id').single();
+
+    // Phase 1 (Unified Lead Hub): attribute the auto-created lead (WhatsApp).
+    if (newLead?.id) {
+      void recordTouchpoint(db, {
+        workspaceId,
+        contactId,
+        leadId: newLead.id as string,
+        channel: 'whatsapp',
+        sourceDetail: 'WhatsApp conversation',
+        refType: 'conversation',
+        refId: conversationId,
+      });
+    }
 
     console.log(`[AutoLead] Created lead for contact ${contactId} — temperature: ${temperature}`);
   } catch {
@@ -2156,12 +2203,22 @@ async function handleNativeFlowReply(
           : summaryLine;
         await db
           .from('leads')
-          .update({ source: 'whatsapp_flow', notes: appendedNotes })
+          .update({ source: 'whatsapp_flow', notes: appendedNotes, source_detail: 'WhatsApp form' })
           .eq('id', existingLead.id)
           .eq('workspace_id', sessWorkspaceId);
+        // Phase 1 (Unified Lead Hub): record the form-submission touchpoint.
+        void recordTouchpoint(db, {
+          workspaceId: sessWorkspaceId,
+          contactId: sessContactId,
+          leadId: existingLead.id,
+          channel: 'whatsapp',
+          sourceDetail: 'WhatsApp form',
+          refType: 'form',
+          refId: sessConversationId,
+        });
       } else {
         const displayName = fields.full_name || customerName || contactPhone;
-        await db.from('leads').insert({
+        const { data: flowLead } = await db.from('leads').insert({
           workspace_id:    sessWorkspaceId,
           contact_id:      sessContactId,
           conversation_id: sessConversationId,
@@ -2169,10 +2226,24 @@ async function handleNativeFlowReply(
           stage:           'new',
           priority:        'medium',
           source:          'whatsapp_flow',
+          source_detail:   'WhatsApp form',
+          channel:         'whatsapp',
           notes:           summaryLine,
           tags:            [],
           custom_fields:   {},
-        });
+        }).select('id').single();
+        // Phase 1 (Unified Lead Hub): record the form-submission touchpoint.
+        if (flowLead?.id) {
+          void recordTouchpoint(db, {
+            workspaceId: sessWorkspaceId,
+            contactId: sessContactId,
+            leadId: flowLead.id as string,
+            channel: 'whatsapp',
+            sourceDetail: 'WhatsApp form',
+            refType: 'form',
+            refId: sessConversationId,
+          });
+        }
       }
     } catch (e) {
       console.error('[NativeFlowReply] Lead enrichment failed (non-fatal):', e);

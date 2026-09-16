@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { getRequiredSecret } from '@/lib/supabase-env';
+import { recordTouchpoint } from '@/lib/lead-touchpoint';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -132,6 +133,15 @@ async function handleIncomingDM(
 
   if (!contact) throw new Error('Failed to upsert Instagram contact');
 
+  // Phase 1 (Unified Lead Hub): detect a genuinely-new contact (no prior
+  // conversation) so we record the Instagram first-touch exactly once.
+  const { data: priorConv } = await db
+    .from('conversations')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('contact_id', contact.id)
+    .maybeSingle();
+
   // ── Upsert conversation ──────────────────────────────────────────────────
   const { data: conversation } = await db
     .from('conversations')
@@ -150,6 +160,18 @@ async function handleIncomingDM(
     .single();
 
   if (!conversation) throw new Error('Failed to upsert Instagram conversation');
+
+  if (!priorConv) {
+    void recordTouchpoint(db, {
+      workspaceId,
+      contactId: contact.id as string,
+      channel: 'instagram',
+      sourceDetail: 'Instagram DM',
+      refType: 'conversation',
+      refId: conversation.id as string,
+      occurredAt: new Date(ev.timestamp).toISOString(),
+    });
+  }
 
   // ── Build message content ─────────────────────────────────────────────────
   const text = ev.message?.text ?? '';

@@ -4,6 +4,7 @@
 export const AGENT_RESTRICTABLE_PAGES = [
   { key: 'crm',            label: 'CRM Pipeline',      href: '/crm' },
   { key: 'campaigns',      label: 'Campaigns',          href: '/campaigns' },
+  { key: 'unified-leads',  label: 'Unified Leads',      href: '/leads' },
   { key: 'meta-leads',     label: 'Meta Leads',         href: '/meta-leads' },
   { key: 'templates',      label: 'Templates',          href: '/templates' },
   { key: 'flows',          label: 'Flows',               href: '/flows' },

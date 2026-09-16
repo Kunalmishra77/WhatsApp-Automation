@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Phone, Mail, Building2, Globe, Tag, Pencil, Trash2, Ban, X, ListChecks, Star, TrendingUp } from 'lucide-react';
+import { Phone, Mail, Building2, Globe, Tag, Pencil, Trash2, Ban, X, ListChecks, Star, TrendingUp, Route } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { format } from 'date-fns';
 import { useContact, useUpdateContact, useDeleteContact } from '../../hooks/useContacts';
@@ -270,6 +271,9 @@ export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
           )}
 
           <Separator />
+          <ContactJourney contactId={contactId} />
+
+          <Separator />
           <Button
             variant="ghost" size="sm"
             className="w-full gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
@@ -291,6 +295,73 @@ export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
         onConfirm={() => void handleDelete()}
         onCancel={() => setConfirmDelete(false)}
       />
+    </div>
+  );
+}
+
+// ── Journey timeline (Phase 1 — Unified Lead Hub) ───────────────────────────
+const JOURNEY_CHANNEL_LABELS: Record<string, string> = {
+  whatsapp: 'WhatsApp', instagram: 'Instagram', meta_ads: 'Meta Ads',
+  google_ads: 'Google Ads', gbp: 'Google Business', website: 'Website',
+  chat_widget: 'Chat Widget', campaign: 'Campaign', api: 'API',
+  referral: 'Referral', manual: 'Manual', other: 'Other',
+};
+
+interface Touchpoint {
+  id: string;
+  channel: string;
+  source_detail: string | null;
+  ref_type: string | null;
+  occurred_at: string;
+}
+
+function ContactJourney({ contactId }: { contactId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['contact-journey', contactId],
+    queryFn: () => fetch(`/api/contacts/${contactId}/journey`).then((r) => r.json()),
+    staleTime: 30_000,
+  });
+
+  const touchpoints: Touchpoint[] = data?.touchpoints ?? [];
+  const firstChannel: string | null = data?.contact?.first_touch_channel ?? null;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+        <Route className="h-3.5 w-3.5" /> Journey
+      </p>
+
+      {firstChannel && (
+        <p className="text-[11px] text-muted-foreground">
+          First touch: <span className="font-medium text-foreground">{JOURNEY_CHANNEL_LABELS[firstChannel] ?? firstChannel}</span>
+        </p>
+      )}
+
+      {isLoading ? (
+        <Skeleton className="h-12 w-full" />
+      ) : touchpoints.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">No touchpoints recorded yet.</p>
+      ) : (
+        <div className="space-y-2.5 pt-1">
+          {touchpoints.map((t, i) => (
+            <div key={t.id} className="flex gap-2.5">
+              <div className="flex flex-col items-center">
+                <div className="h-2 w-2 rounded-full bg-brand-500 mt-1" />
+                {i < touchpoints.length - 1 && <div className="w-px flex-1 bg-border" />}
+              </div>
+              <div className="pb-1 -mt-0.5">
+                <p className="text-xs font-medium text-foreground">
+                  {JOURNEY_CHANNEL_LABELS[t.channel] ?? t.channel}
+                </p>
+                {t.source_detail && <p className="text-[11px] text-muted-foreground">{t.source_detail}</p>}
+                <p className="text-[10px] text-muted-foreground/70">
+                  {format(new Date(t.occurred_at), 'MMM d, yyyy · h:mm a')}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -57,6 +57,8 @@ export async function POST(request: NextRequest) {
   if (!phone) return NextResponse.json({ error: 'phone is invalid' }, { status: 400 });
 
   const db = createAdminClient() as any;
+  // Phase 1 (Unified Lead Hub): attribute API-created contacts to the `api` channel.
+  const nowIso = new Date().toISOString();
   const { data, error } = await db
     .from('contacts')
     .upsert({
@@ -65,6 +67,12 @@ export async function POST(request: NextRequest) {
       name:  body.name?.trim() ?? null,
       email: body.email?.trim() ?? null,
       tags:  body.tags ?? [],
+      channel: 'api',
+      source_detail: 'Public API',
+      first_touch_channel: 'api',
+      first_touch_at: nowIso,
+      last_touch_channel: 'api',
+      last_touch_at: nowIso,
     }, { onConflict: 'workspace_id,phone' })
     .select()
     .single();

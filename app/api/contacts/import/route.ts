@@ -39,6 +39,8 @@ export async function POST(request: NextRequest) {
 
     // Normalize phone numbers — strip non-digits, add country code if needed
     // Use String() to handle cases where phone arrives as a number (large numbers in CSV/JSON)
+    // Phase 1 (Unified Lead Hub): stamp CSV-imported contacts with attribution inline.
+    const nowIso = new Date().toISOString();
     const rows = contacts
       .filter((c) => String(c.phone ?? '').trim())
       .map((c) => ({
@@ -47,6 +49,12 @@ export async function POST(request: NextRequest) {
         name:   c.name ? String(c.name).trim() || null : null,
         email:  c.email ? String(c.email).trim() || null : null,
         tags:   Array.isArray(c.tags) ? c.tags.filter(Boolean) : [],
+        channel: 'manual',
+        source_detail: 'CSV import',
+        first_touch_channel: 'manual',
+        first_touch_at: nowIso,
+        last_touch_channel: 'manual',
+        last_touch_at: nowIso,
       }))
       .filter((r) => r.phone.length >= 7);
 

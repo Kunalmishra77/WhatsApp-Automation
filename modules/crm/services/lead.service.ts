@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from '@/services/supabase/client';
 import type { Database } from '@/types/database.types';
+import { recordTouchpoint } from '@/lib/lead-touchpoint';
+import { normalizeChannel } from '@/lib/lead-attribution';
 
 export type LeadRow = Database['public']['Tables']['leads']['Row'];
 export type LeadStage = Database['public']['Tables']['leads']['Row']['stage'];
@@ -104,6 +106,19 @@ export async function createLead(
     .select()
     .single();
   if (error) throw error;
+
+  // Phase 1 (Unified Lead Hub): attribute the manual lead + seed its journey.
+  // Fail-open — never let attribution break lead creation.
+  const lead = data as LeadRow & { contact_id?: string | null; source?: string | null };
+  await recordTouchpoint(supabase, {
+    workspaceId,
+    contactId: lead.contact_id ?? null,
+    leadId: lead.id,
+    channel: normalizeChannel(lead.source, 'manual'),
+    sourceDetail: lead.source ?? 'Manually added',
+    refType: 'manual',
+  });
+
   return data as LeadRow;
 }
 

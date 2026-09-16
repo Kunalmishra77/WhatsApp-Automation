@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from '@/services/supabase/client';
 import { normalizePhone } from '@/lib/phone';
+import { recordTouchpoint } from '@/lib/lead-touchpoint';
 import type { Database } from '@/types/database.types';
 
 export type ContactRow = Database['public']['Tables']['contacts']['Row'];
@@ -73,6 +74,16 @@ export async function createContact(
     .select()
     .single();
   if (error) throw error;
+
+  // Phase 1 (Unified Lead Hub): attribute the manually-added contact. Fail-open.
+  await recordTouchpoint(supabase, {
+    workspaceId,
+    contactId: (data as ContactRow).id,
+    channel: 'manual',
+    sourceDetail: 'Manually added',
+    refType: 'manual',
+  });
+
   return data as ContactRow;
 }
 
@@ -116,9 +127,22 @@ export async function bulkImportContacts(
     .in('phone', phones);
   const existingPhones = new Set(((existing ?? []) as Array<{ phone: string }>).map((e) => e.phone));
 
+  // Phase 1: stamp bulk-imported contacts with attribution inline (efficient —
+  // no per-row DB round trip; we skip individual journey rows for bulk imports).
+  const nowIso = new Date().toISOString();
   const toInsert = normalizedRows
     .filter((r) => !existingPhones.has(r.phone))
-    .map((r) => ({ ...r, workspace_id: workspaceId, tags: r.tags ?? [] }));
+    .map((r) => ({
+      ...r,
+      workspace_id: workspaceId,
+      tags: r.tags ?? [],
+      channel: 'manual',
+      source_detail: 'Bulk import',
+      first_touch_channel: 'manual',
+      first_touch_at: nowIso,
+      last_touch_channel: 'manual',
+      last_touch_at: nowIso,
+    }));
 
   if (toInsert.length === 0) return { inserted: 0, skipped: rows.length };
 
