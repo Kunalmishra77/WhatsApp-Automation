@@ -6,7 +6,7 @@ import {
   MessageSquare, Users, Kanban, Megaphone, FileText,
   BarChart3, Settings, UserCircle, ChevronLeft, ChevronRight,
   Users2, GitBranch, BookOpen, TrendingUp, LifeBuoy, CalendarCheck,
-  LayoutDashboard, LogOut, Brain, CheckSquare, Receipt, Radar, Store, MousePointerClick, PieChart, Lightbulb, Boxes, HeartHandshake, Gift,
+  LayoutDashboard, LogOut, Brain, CheckSquare, Receipt, Radar, Store, MousePointerClick, PieChart, Lightbulb, Boxes, HeartHandshake, Gift, MapPin,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -52,6 +52,7 @@ const NAV_ITEMS: Array<{
   { href: '/referrals',     icon: Gift,            label: 'Referrals',       agentPageKey: 'referrals' },
   { href: '/meta-leads',    icon: Brain,           label: 'Meta Leads',      agentPageKey: 'meta-leads' },
   { href: '/google-business', icon: Store,         label: 'Google Business', agentPageKey: 'google-business' },
+  { href: '/local-rank',    icon: MapPin,          label: 'Local Rank',      agentPageKey: 'local-rank' },
   { href: '/google-ads',    icon: MousePointerClick, label: 'Google Ads',    agentPageKey: 'google-ads' },
   { href: '/templates',     icon: FileText,        label: 'Templates',       agentPageKey: 'templates' },
   { href: '/flows',         icon: GitBranch,       label: 'Flows',           requiredFeature: 'flows', requiredPlan: 'Pro', agentPageKey: 'flows' },

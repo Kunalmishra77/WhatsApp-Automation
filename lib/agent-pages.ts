@@ -12,6 +12,7 @@ export const AGENT_RESTRICTABLE_PAGES = [
   { key: 'referrals',      label: 'Referrals',          href: '/referrals' },
   { key: 'meta-leads',     label: 'Meta Leads',         href: '/meta-leads' },
   { key: 'google-business', label: 'Google Business',   href: '/google-business' },
+  { key: 'local-rank',     label: 'Local Rank',         href: '/local-rank' },
   { key: 'google-ads',     label: 'Google Ads',         href: '/google-ads' },
   { key: 'templates',      label: 'Templates',          href: '/templates' },
   { key: 'flows',          label: 'Flows',               href: '/flows' },

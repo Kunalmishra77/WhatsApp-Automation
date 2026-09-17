@@ -3,6 +3,7 @@ import { createAdminClient } from '@/services/supabase/admin';
 import { syncWorkspaceGbp } from '@/lib/gbp-sync';
 import { syncWorkspaceAds } from '@/lib/google-ads-sync';
 import { syncWorkspaceMetaAds } from '@/lib/meta-ads-sync';
+import { runWorkspaceRankCheck } from '@/lib/local-rank';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -17,7 +18,12 @@ export async function POST(request: NextRequest) {
   }
 
   const db = createAdminClient() as any;
-  const result = { gbp: { synced: 0, failed: 0 }, ads: { synced: 0, failed: 0 }, meta_ads: { synced: 0, failed: 0 } };
+  const result = {
+    gbp: { synced: 0, failed: 0 },
+    ads: { synced: 0, failed: 0 },
+    meta_ads: { synced: 0, failed: 0 },
+    local_rank: { workspaces: 0, keywords: 0 },
+  };
 
   // GBP connections
   const { data: gbpConns } = await db
@@ -48,6 +54,23 @@ export async function POST(request: NextRequest) {
   for (const w of (metaWs ?? []) as Array<{ id: string }>) {
     const r = await syncWorkspaceMetaAds(db, w.id);
     if (r.ok) result.meta_ads.synced++; else result.meta_ads.failed++;
+  }
+
+  // Local rank tracker — refresh ranks for every workspace with tracked keywords.
+  if (process.env.GOOGLE_PLACES_API_KEY?.trim()) {
+    const { data: rankRows } = await db
+      .from('local_rank_keywords')
+      .select('workspace_id');
+    const rankWsIds = [...new Set(((rankRows ?? []) as Array<{ workspace_id: string }>).map((r) => r.workspace_id))];
+    for (const wsId of rankWsIds) {
+      try {
+        const r = await runWorkspaceRankCheck(db, wsId);
+        result.local_rank.workspaces++;
+        result.local_rank.keywords += r.checked;
+      } catch (err) {
+        console.error('[cron google-sync] local-rank failed for', wsId, err);
+      }
+    }
   }
 
   return NextResponse.json(result);
