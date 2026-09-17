@@ -130,17 +130,23 @@ export async function POST(request: NextRequest) {
     let synced = 0;
     let updated = 0;
 
-    // Mark local templates as 'deleted' if they no longer exist on Meta
+    // Mark local templates as 'deleted' if they no longer exist on Meta.
+    // NEVER touch 'pending' templates — Meta's list may not include a
+    // just-submitted template yet, and deleting a pending one is wrong.
     const metaNames = new Set(allTemplates.map((t) => t.name));
     const { data: localTemplates } = await db
       .from('templates')
       .select('id, name')
       .eq('workspace_id', workspaceId)
-      .neq('status', 'deleted');
+      .not('status', 'in', '("deleted","pending")');
 
-    for (const local of (localTemplates ?? [])) {
-      if (!metaNames.has(local.name)) {
-        await db.from('templates').update({ status: 'deleted', updated_at: new Date().toISOString() }).eq('id', local.id);
+    // Safety: only run the deletion sweep when Meta actually returned templates.
+    // If the fetch came back empty (API hiccup), do NOT wipe all local templates.
+    if (allTemplates.length > 0) {
+      for (const local of (localTemplates ?? [])) {
+        if (!metaNames.has(local.name)) {
+          await db.from('templates').update({ status: 'deleted', updated_at: new Date().toISOString() }).eq('id', local.id);
+        }
       }
     }
 
