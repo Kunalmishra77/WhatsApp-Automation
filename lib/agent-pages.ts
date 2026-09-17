@@ -2,6 +2,7 @@
 // always-on core work surface (Dashboard, Conversations, Contacts, CRM-as-leads).
 // Stored in workspaces.settings.agent_page_access as a string[] of keys below.
 export const AGENT_RESTRICTABLE_PAGES = [
+  { key: 'growth-copilot', label: 'Growth Copilot',    href: '/growth-copilot' },
   { key: 'crm',            label: 'CRM Pipeline',      href: '/crm' },
   { key: 'campaigns',      label: 'Campaigns',          href: '/campaigns' },
   { key: 'unified-leads',  label: 'Unified Leads',      href: '/leads' },

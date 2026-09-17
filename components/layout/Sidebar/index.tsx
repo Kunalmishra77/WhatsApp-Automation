@@ -6,7 +6,7 @@ import {
   MessageSquare, Users, Kanban, Megaphone, FileText,
   BarChart3, Settings, UserCircle, ChevronLeft, ChevronRight,
   Users2, GitBranch, BookOpen, TrendingUp, LifeBuoy, CalendarCheck,
-  LayoutDashboard, LogOut, Brain, CheckSquare, Receipt, Radar, Store, MousePointerClick, PieChart,
+  LayoutDashboard, LogOut, Brain, CheckSquare, Receipt, Radar, Store, MousePointerClick, PieChart, Lightbulb,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -40,6 +40,7 @@ const NAV_ITEMS: Array<{
   agentPageKey?:    AgentPageKey;
 }> = [
   { href: '/dashboard',     icon: LayoutDashboard, label: 'Dashboard'        },
+  { href: '/growth-copilot', icon: Lightbulb,      label: 'Growth Copilot',  agentPageKey: 'growth-copilot' },
   { href: '/conversations', icon: MessageSquare,   label: 'Conversations'    },
   { href: '/contacts',      icon: Users,           label: 'Contacts'         },
   { href: '/crm',           icon: Kanban,          label: 'CRM Pipeline',    requiredFeature: 'crm',   requiredPlan: 'Pro', agentPageKey: 'crm' },
