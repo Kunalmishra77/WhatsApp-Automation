@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Phone, Mail, Building2, Globe, Tag, Pencil, Trash2, Ban, X, ListChecks, Star, TrendingUp, Route } from 'lucide-react';
+import { Phone, Mail, Building2, Globe, Tag, Pencil, Trash2, Ban, X, ListChecks, Star, TrendingUp, Route, Gift } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { format } from 'date-fns';
 import { useContact, useUpdateContact, useDeleteContact } from '../../hooks/useContacts';
@@ -272,6 +272,22 @@ export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
 
           <Separator />
           <ContactJourney contactId={contactId} />
+
+          <Separator />
+          <Button
+            variant="outline" size="sm" className="w-full gap-1.5 text-xs"
+            onClick={async () => {
+              try {
+                const res = await fetch(`/api/referrals/code?workspaceId=${(contact as any).workspace_id}&contactId=${contact.id}`);
+                const d = await res.json();
+                if (!res.ok) throw new Error(d.error ?? 'Failed');
+                await navigator.clipboard.writeText(d.shareMessage ?? d.link);
+                toast.success('Referral link copied — share it with this customer!');
+              } catch { toast.error('Could not create referral link'); }
+            }}
+          >
+            <Gift className="h-3.5 w-3.5" /> Copy referral link
+          </Button>
 
           <Separator />
           <Button

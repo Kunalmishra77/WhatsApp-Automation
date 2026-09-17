@@ -6,7 +6,7 @@ import {
   MessageSquare, Users, Kanban, Megaphone, FileText,
   BarChart3, Settings, UserCircle, ChevronLeft, ChevronRight,
   Users2, GitBranch, BookOpen, TrendingUp, LifeBuoy, CalendarCheck,
-  LayoutDashboard, LogOut, Brain, CheckSquare, Receipt, Radar, Store, MousePointerClick, PieChart, Lightbulb, Boxes, HeartHandshake,
+  LayoutDashboard, LogOut, Brain, CheckSquare, Receipt, Radar, Store, MousePointerClick, PieChart, Lightbulb, Boxes, HeartHandshake, Gift,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -49,6 +49,7 @@ const NAV_ITEMS: Array<{
   { href: '/marketing-roi', icon: PieChart,        label: 'Marketing ROI',   agentPageKey: 'marketing-roi' },
   { href: '/segments',      icon: Boxes,           label: 'Customer Segments', agentPageKey: 'customer-segments' },
   { href: '/win-back',      icon: HeartHandshake,  label: 'Win-Back',        agentPageKey: 'win-back' },
+  { href: '/referrals',     icon: Gift,            label: 'Referrals',       agentPageKey: 'referrals' },
   { href: '/meta-leads',    icon: Brain,           label: 'Meta Leads',      agentPageKey: 'meta-leads' },
   { href: '/google-business', icon: Store,         label: 'Google Business', agentPageKey: 'google-business' },
   { href: '/google-ads',    icon: MousePointerClick, label: 'Google Ads',    agentPageKey: 'google-ads' },
