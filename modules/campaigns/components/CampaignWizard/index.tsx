@@ -30,6 +30,7 @@ import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { WhatsAppPreview } from '@/modules/templates/components/WhatsAppPreview';
 import { normalizePhone } from '@/lib/phone';
+import { AiCopyButton } from './AiCopyButton';
 
 const STEPS = ['Name & Setup', 'Select Template', 'Audience', 'Schedule', 'Review'];
 
@@ -822,7 +823,14 @@ export function CampaignWizard({ open, onClose, initialPhones }: CampaignWizardP
                 {/* Text message input */}
                 {state.campaignType === 'text' && (
                   <div className="rounded-xl border border-sky-200 bg-sky-50/40 p-3 space-y-2">
-                    <p className="text-xs font-semibold text-sky-800">Message text</p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-sky-800">Message text</p>
+                      <AiCopyButton
+                        workspaceId={workspaceId}
+                        goalHint={state.name}
+                        onInsert={(text) => setState((s) => ({ ...s, textContent: text }))}
+                      />
+                    </div>
                     <Textarea
                       placeholder="Type your message here… Links will auto-preview in WhatsApp."
                       value={state.textContent}
