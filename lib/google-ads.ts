@@ -61,14 +61,15 @@ export async function refreshAccessToken(refreshToken: string): Promise<string |
 }
 
 // List the customer accounts the authorized user can access (resourceNames like
-// "customers/1234567890"). Needs the developer token.
+// "customers/1234567890"). Developer tokens were sunset (2026-09-09) — access is
+// now project-based via the OAuth credentials' GCP project; the token header is
+// optional and only sent if still configured (backward-compat).
 export async function listAccessibleCustomers(accessToken: string): Promise<AdsResult<string[]>> {
-  const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN?.trim();
-  if (!devToken) return fail('GOOGLE_ADS_DEVELOPER_TOKEN not configured');
   try {
-    const res = await fetch(`${ADS_BASE}/customers:listAccessibleCustomers`, {
-      headers: { Authorization: `Bearer ${accessToken}`, 'developer-token': devToken },
-    });
+    const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
+    const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN?.trim();
+    if (devToken) headers['developer-token'] = devToken;
+    const res = await fetch(`${ADS_BASE}/customers:listAccessibleCustomers`, { headers });
     if (!res.ok) return fail(`listAccessibleCustomers ${res.status}: ${await res.text()}`);
     const data = await res.json() as { resourceNames?: string[] };
     const ids = (data.resourceNames ?? []).map((r) => r.split('/').pop() ?? '').filter(Boolean);
@@ -85,14 +86,15 @@ export interface GaqlRow { [key: string]: any }
 export async function searchGaql(
   accessToken: string, customerId: string, query: string, loginCustomerId?: string | null,
 ): Promise<AdsResult<GaqlRow[]>> {
-  const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN?.trim();
-  if (!devToken) return fail('GOOGLE_ADS_DEVELOPER_TOKEN not configured');
   try {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
-      'developer-token': devToken,
       'Content-Type': 'application/json',
     };
+    // Developer tokens were sunset (2026-09-09); access is now project-based via
+    // the OAuth credentials' GCP project. Sent only if still configured.
+    const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN?.trim();
+    if (devToken) headers['developer-token'] = devToken;
     if (loginCustomerId) headers['login-customer-id'] = loginCustomerId.replace(/-/g, '');
     const res = await fetch(`${ADS_BASE}/customers/${customerId.replace(/-/g, '')}/googleAds:search`, {
       method: 'POST', headers, body: JSON.stringify({ query }),
