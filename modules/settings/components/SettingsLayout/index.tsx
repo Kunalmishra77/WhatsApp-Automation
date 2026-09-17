@@ -37,11 +37,12 @@ import { InstagramSettings } from '../InstagramSettings';
 import { GoogleCalendarSettings } from '../GoogleCalendarSettings';
 import { GoogleBusinessSettings } from '../GoogleBusinessSettings';
 import { GoogleAdsSettings } from '../GoogleAdsSettings';
+import { StarterPackSettings } from '../StarterPackSettings';
 import { MetaAdsSettings } from '../MetaAdsSettings';
 import { RetentionSettings } from '../RetentionSettings';
 
 type SettingKey =
-  | 'profile' | 'security' | 'workspace' | 'branding' | 'billing'
+  | 'profile' | 'security' | 'workspace' | 'branding' | 'billing' | 'starter-pack'
   | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library' | 'chat-widget' | 'wa-forms' | 'whatsapp-forms'
   | 'instagram' | 'meta-ads'
   | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers' | 'auto-triggers'
@@ -60,6 +61,7 @@ const NAV_SECTIONS: NavSection[] = [
       { key: 'profile',   label: 'Profile',   icon: User },
       { key: 'security',  label: 'Security',  icon: Shield },
       { key: 'workspace', label: 'Workspace', icon: Building2 },
+      { key: 'starter-pack', label: 'Industry Setup', icon: Zap },
       { key: 'branding',  label: 'Branding',  icon: Layers },
       { key: 'billing',   label: 'Billing',   icon: CreditCard },
     ],
@@ -117,6 +119,7 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'profile':        <ProfileSettings />,
   'security':       <ChangePassword />,
   'workspace':      <WorkspaceSettings />,
+  'starter-pack':   <StarterPackSettings />,
   'branding':       <BrandingSettings />,
   'billing':        <BillingSettings />,
   'whatsapp':       <WhatsAppSettings />,
