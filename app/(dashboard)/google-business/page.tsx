@@ -130,6 +130,19 @@ function ReviewsTab({ workspaceId, locationId }: { workspaceId: string; location
   const [status, setStatus] = useState('all');
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [requesting, setRequesting] = useState(false);
+
+  async function requestReviews() {
+    setRequesting(true);
+    try {
+      const d = await post('/api/gbp/request-review', { workspaceId, mode: 'customers' });
+      if ((d.sent ?? 0) > 0) toast.success(`Review request sent to ${d.sent} customer${d.sent === 1 ? '' : 's'}`);
+      else if ((d.audience ?? 0) === 0) toast.info('No customers with orders to message yet');
+      else toast.error(`Couldn't send (${d.failed} failed) — is the "review_request" template approved?`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to send review requests');
+    } finally { setRequesting(false); }
+  }
 
   const params = new URLSearchParams({ workspaceId, locationId, rating, status });
   const { data, isLoading } = useQuery({
@@ -154,22 +167,28 @@ function ReviewsTab({ workspaceId, locationId }: { workspaceId: string; location
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-3">
-        <Select value={rating} onValueChange={setRating}>
-          <SelectTrigger className="h-9 w-32 text-sm"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All ratings</SelectItem>
-            {[5, 4, 3, 2, 1].map((s) => <SelectItem key={s} value={String(s)}>{s} star</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="h-9 w-40 text-sm"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="none">Unanswered</SelectItem>
-            <SelectItem value="posted">Replied</SelectItem>
-          </SelectContent>
-        </Select>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex gap-3">
+          <Select value={rating} onValueChange={setRating}>
+            <SelectTrigger className="h-9 w-32 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All ratings</SelectItem>
+              {[5, 4, 3, 2, 1].map((s) => <SelectItem key={s} value={String(s)}>{s} star</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger className="h-9 w-40 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="none">Unanswered</SelectItem>
+              <SelectItem value="posted">Replied</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Button size="sm" className="bg-brand-500 hover:bg-brand-600 text-white" disabled={requesting}
+          onClick={() => void requestReviews()} title="Send a WhatsApp asking your customers to leave a Google review">
+          <Star className="h-3.5 w-3.5 mr-1.5" /> {requesting ? 'Sending…' : 'Request reviews'}
+        </Button>
       </div>
 
       {isLoading ? <Skeleton className="h-40 w-full" /> : reviews.length === 0 ? (
