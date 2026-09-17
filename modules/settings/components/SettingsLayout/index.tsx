@@ -36,6 +36,7 @@ import { WhatsAppForms } from '@/modules/flows-native/components/WhatsAppForms';
 import { InstagramSettings } from '../InstagramSettings';
 import { GoogleCalendarSettings } from '../GoogleCalendarSettings';
 import { GoogleBusinessSettings } from '../GoogleBusinessSettings';
+import { GoogleAdsSettings } from '../GoogleAdsSettings';
 import { MetaAdsSettings } from '../MetaAdsSettings';
 import { RetentionSettings } from '../RetentionSettings';
 
@@ -44,7 +45,7 @@ type SettingKey =
   | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library' | 'chat-widget' | 'wa-forms' | 'whatsapp-forms'
   | 'instagram' | 'meta-ads'
   | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers' | 'auto-triggers'
-  | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models' | 'google-calendar' | 'google-business'
+  | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models' | 'google-calendar' | 'google-business' | 'google-ads'
   | 'audit-logs' | 'retention';
 
 interface NavSection {
@@ -97,6 +98,7 @@ const NAV_SECTIONS: NavSection[] = [
       { key: 'integrations',    label: 'Integrations',    icon: Shield },
       { key: 'google-calendar', label: 'Google Calendar', icon: CalendarCheck },
       { key: 'google-business', label: 'Google Business', icon: Building2 },
+      { key: 'google-ads',      label: 'Google Ads',      icon: Megaphone },
       { key: 'webhooks',        label: 'Webhooks',        icon: Webhook },
       { key: 'api-keys',        label: 'API Keys',        icon: Key },
       { key: 'ai-models',       label: 'AI Models',       icon: Zap },
@@ -130,6 +132,7 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'integrations':    <IntegrationSettings />,
   'google-calendar': <GoogleCalendarSettings />,
   'google-business': <GoogleBusinessSettings />,
+  'google-ads':      <GoogleAdsSettings />,
   'webhooks':        <WebhookSettings />,
   'api-keys':       <ApiKeys />,
   'ai-models':      <LlmSettings />,

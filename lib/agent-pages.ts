@@ -7,6 +7,7 @@ export const AGENT_RESTRICTABLE_PAGES = [
   { key: 'unified-leads',  label: 'Unified Leads',      href: '/leads' },
   { key: 'meta-leads',     label: 'Meta Leads',         href: '/meta-leads' },
   { key: 'google-business', label: 'Google Business',   href: '/google-business' },
+  { key: 'google-ads',     label: 'Google Ads',         href: '/google-ads' },
   { key: 'templates',      label: 'Templates',          href: '/templates' },
   { key: 'flows',          label: 'Flows',               href: '/flows' },
   { key: 'team',           label: 'Team',                href: '/team' },
