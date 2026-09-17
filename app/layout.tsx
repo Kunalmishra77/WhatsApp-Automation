@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { Providers } from './providers';
+import { PwaRegister } from '@/components/PwaRegister';
 import './globals.css';
 
 const inter = Inter({
@@ -18,12 +19,19 @@ export const metadata: Metadata = {
   keywords: ['WhatsApp CRM', 'messaging', 'customer support', 'automation'],
   authors: [{ name: 'Agentix Engineering' }],
   robots: { index: false, follow: false },
+  applicationName: 'AGENTiX',
+  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'AGENTiX' },
+  icons: {
+    icon: '/agentix-favicon.png',
+    apple: '/apple-touch-icon.png',
+  },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0ea5e9',
+  themeColor: '#0f172a',
   width: 'device-width',
   initialScale: 1,
+  viewportFit: 'cover',
 };
 
 interface RootLayoutProps {
@@ -37,6 +45,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
         <Providers>
           {children}
         </Providers>
+        <PwaRegister />
       </body>
     </html>
   );

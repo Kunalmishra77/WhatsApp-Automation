@@ -24,6 +24,7 @@ import { signOutAction } from '@/app/actions/auth.actions';
 import { hasFeature } from '@/lib/plan-features';
 import { cn } from '@/lib/utils';
 import { SupportModal } from '@/modules/support/components/SupportModal';
+import { PwaInstallButton } from '@/components/PwaInstallButton';
 import type { LucideIcon } from 'lucide-react';
 import type { AgentPageKey } from '@/lib/agent-pages';
 
@@ -160,6 +161,8 @@ export function Sidebar() {
           {!isAgent && (
             <NavItem href="/settings" icon={Settings} label="Settings" collapsed={collapsed} />
           )}
+
+          <PwaInstallButton collapsed={collapsed} />
 
           <button
             onClick={() => setSupportOpen(true)}
