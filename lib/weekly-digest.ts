@@ -6,7 +6,8 @@ import { sendMail } from '@/lib/mailer';
 
 export interface DigestResult { sent: number; skipped: boolean; error?: string }
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+export type DigestPeriod = 'week' | 'month';
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 async function countSince(db: any, table: string, workspaceId: string, sinceIso: string, dateCol = 'created_at', extra?: (q: any) => any): Promise<number> {
   let q = db.from(table).select('*', { count: 'exact', head: true })
@@ -16,9 +17,16 @@ async function countSince(db: any, table: string, workspaceId: string, sinceIso:
   return count ?? 0;
 }
 
-export async function sendWeeklyDigest(db: any, workspace: { id: string; name?: string | null }): Promise<DigestResult> {
+export async function sendWeeklyDigest(
+  db: any,
+  workspace: { id: string; name?: string | null },
+  period: DigestPeriod = 'week',
+): Promise<DigestResult> {
   try {
-    const sinceIso = new Date(Date.now() - WEEK_MS).toISOString();
+    const days = period === 'month' ? 30 : 7;
+    const periodLabel = period === 'month' ? 'monthly' : 'weekly';
+    const rangeLabel = period === 'month' ? 'last 30 days' : 'last 7 days';
+    const sinceIso = new Date(Date.now() - days * DAY_MS).toISOString();
     const wsId = workspace.id;
 
     // Recipients: workspace admins/owners with an email.
@@ -47,10 +55,10 @@ export async function sendWeeklyDigest(db: any, workspace: { id: string; name?: 
       ['New Google reviews', String(reviews)],
     ];
 
-    const html = renderDigestHtml(workspace.name ?? 'your business', rows);
+    const html = renderDigestHtml(workspace.name ?? 'your business', rows, rangeLabel);
     const res = await sendMail({
       to: emails,
-      subject: `📊 Your weekly AGENTiX report — ${workspace.name ?? 'summary'}`,
+      subject: `📊 Your ${periodLabel} report — ${workspace.name ?? 'summary'}`,
       html,
     });
     if (!res.ok) return { sent: 0, skipped: false, error: res.error };
@@ -61,7 +69,7 @@ export async function sendWeeklyDigest(db: any, workspace: { id: string; name?: 
   }
 }
 
-function renderDigestHtml(businessName: string, rows: Array<[string, string]>): string {
+function renderDigestHtml(businessName: string, rows: Array<[string, string]>, rangeLabel: string): string {
   const cells = rows.map(([label, value]) => `
     <tr>
       <td style="padding:10px 14px;border-bottom:1px solid #eef2f7;color:#334155;font-size:14px;">${label}</td>
@@ -71,8 +79,8 @@ function renderDigestHtml(businessName: string, rows: Array<[string, string]>): 
   <div style="background:#f1f5f9;padding:24px;font-family:Segoe UI,Arial,sans-serif;">
     <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;border:1px solid #e2e8f0;">
       <div style="background:#0f172a;padding:20px 24px;color:#fff;">
-        <p style="margin:0;font-size:18px;font-weight:800;">AGENTiX — Weekly Report</p>
-        <p style="margin:4px 0 0;color:#94a3b8;font-size:13px;">${businessName} · last 7 days</p>
+        <p style="margin:0;font-size:18px;font-weight:800;">${businessName}</p>
+        <p style="margin:4px 0 0;color:#94a3b8;font-size:13px;">Performance report · ${rangeLabel}</p>
       </div>
       <table style="width:100%;border-collapse:collapse;">${cells}</table>
       <div style="padding:16px 24px;background:#f8fafc;">

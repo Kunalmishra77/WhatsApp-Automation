@@ -102,24 +102,39 @@ export function Sidebar() {
           collapsed && 'justify-center px-2',
         )}>
           <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
-            {/* Brain logo mark */}
-            <div className={cn(
-              'flex shrink-0 items-center justify-center rounded-xl',
-              'bg-gradient-to-br from-brand-500 to-brand-600',
-              'shadow-lg shadow-brand-900/40',
-              'h-8 w-8',
-            )}>
-              <Brain className="h-5 w-5 text-white" strokeWidth={1.8} />
-            </div>
+            {/* Logo mark — white-labeled to the workspace logo when set */}
+            {workspace?.logo_url ? (
+              <img
+                src={workspace.logo_url}
+                alt={workspace.name ?? 'Logo'}
+                className="h-8 w-8 shrink-0 rounded-xl object-contain bg-white/10"
+              />
+            ) : (
+              <div className={cn(
+                'flex shrink-0 items-center justify-center rounded-xl',
+                'bg-gradient-to-br from-brand-500 to-brand-600',
+                'shadow-lg shadow-brand-900/40',
+                'h-8 w-8',
+              )}>
+                <Brain className="h-5 w-5 text-white" strokeWidth={1.8} />
+              </div>
+            )}
 
             {!collapsed && (
               <div className="min-w-0">
-                {/* AGENTiX wordmark */}
-                <p className="text-sm font-bold leading-none tracking-wide text-white">
-                  <span className="text-brand-400">A</span>GENT
-                  <span className="text-white/80">i</span>
-                  <span className="text-brand-400">X</span>
-                </p>
+                {workspace?.logo_url ? (
+                  /* White-label: show the workspace name as the brand */
+                  <p className="truncate text-sm font-bold leading-none tracking-wide text-white">
+                    {workspace.name ?? 'Dashboard'}
+                  </p>
+                ) : (
+                  /* Default AGENTiX wordmark */
+                  <p className="text-sm font-bold leading-none tracking-wide text-white">
+                    <span className="text-brand-400">A</span>GENT
+                    <span className="text-white/80">i</span>
+                    <span className="text-brand-400">X</span>
+                  </p>
+                )}
                 <span className={cn(
                   'mt-1 inline-block rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider leading-none',
                   planBadge.cls,
@@ -132,7 +147,7 @@ export function Sidebar() {
         </div>
 
         {/* ── Workspace name strip ──────────────────────────────────────── */}
-        {!collapsed && workspace?.name && (
+        {!collapsed && workspace?.name && !workspace?.logo_url && (
           <div className="px-3 pt-3 pb-1">
             <p className="truncate text-[11px] font-semibold uppercase tracking-widest text-white/30">
               {workspace.name}

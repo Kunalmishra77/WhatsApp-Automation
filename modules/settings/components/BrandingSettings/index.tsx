@@ -27,6 +27,7 @@ export function BrandingSettings() {
   const workspaceId = activeWorkspace?.id ?? '';
   const queryClient  = useQueryClient();
   const [brandColor,    setBrandColor]    = useState('#6366f1');
+  const [logoUrl,       setLogoUrl]       = useState('');
   const [customDomain,  setCustomDomain]  = useState('');
   const [widgetUrl,     setWidgetUrl]     = useState('');
   const [savingDomain,  setSavingDomain]  = useState(false);
@@ -44,6 +45,7 @@ export function BrandingSettings() {
   useEffect(() => {
     if (ws?.workspace) {
       setBrandColor((ws.workspace.brand_color as string | null) ?? '#6366f1');
+      setLogoUrl((ws.workspace.logo_url as string | null) ?? '');
       setCustomDomain((ws.workspace.custom_domain as string | null) ?? '');
       setWidgetUrl(`${window.location.origin}/widget/${workspaceId}`);
     }
@@ -54,13 +56,13 @@ export function BrandingSettings() {
       const supabase = createClient() as any;
       const { error } = await supabase
         .from('workspaces')
-        .update({ brand_color: brandColor })
+        .update({ brand_color: brandColor, logo_url: logoUrl.trim() || null })
         .eq('id', workspaceId);
       if (error) throw new Error(error.message);
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['workspace-branding', workspaceId] });
-      toast.success('Branding saved');
+      toast.success('Branding saved — refresh to see your logo in the sidebar');
     },
   });
 
@@ -91,6 +93,25 @@ export function BrandingSettings() {
           <Palette className="h-4 w-4 text-purple-500" /> White Label & Branding
         </h2>
         <p className="text-sm text-muted-foreground mt-0.5">Customize your workspace appearance and embed the chat widget on your website.</p>
+      </div>
+
+      {/* Logo — white-label the sidebar */}
+      <div className="rounded-xl border border-border p-4 space-y-3 bg-card">
+        <p className="text-sm font-medium">Logo</p>
+        <p className="text-xs text-muted-foreground">Paste a public image URL. When set, your logo + workspace name replace the AGENTiX branding in the sidebar (white-label).</p>
+        <div className="flex items-center gap-3">
+          <div className="h-11 w-11 shrink-0 rounded-xl border border-border bg-muted overflow-hidden flex items-center justify-center">
+            {logoUrl.trim()
+              ? <img src={logoUrl} alt="Logo preview" className="h-full w-full object-contain" />
+              : <span className="text-[10px] text-muted-foreground">Logo</span>}
+          </div>
+          <Input
+            value={logoUrl}
+            onChange={(e) => setLogoUrl(e.target.value)}
+            placeholder="https://…/your-logo.png"
+            className="flex-1 text-sm"
+          />
+        </div>
       </div>
 
       {/* Brand Color */}
@@ -196,7 +217,7 @@ export function BrandingSettings() {
 
       <Button onClick={() => void save.mutate()} disabled={save.isPending} className="gap-1.5">
         <Palette className="h-4 w-4" />
-        {save.isPending ? 'Saving…' : 'Save Brand Color'}
+        {save.isPending ? 'Saving…' : 'Save Branding'}
       </Button>
     </div>
   );
