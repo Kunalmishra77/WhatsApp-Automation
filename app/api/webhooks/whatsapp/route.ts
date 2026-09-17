@@ -10,6 +10,7 @@ import { dispatchWebhookEvent } from '@/lib/outbound-webhook';
 import { checkAutoReplyLimit } from '@/lib/rate-limit';
 import { isWithinBusinessHours, type BusinessHoursConfig } from '@/app/api/business-hours/route';
 import { callAI } from '@/lib/ai-client';
+import { transcribeWhatsAppAudio } from '@/lib/voice-transcribe';
 import { notifyWorkspaceSheets } from '@/lib/sheets-notify';
 import {
   categorizeMessage,
@@ -1139,10 +1140,31 @@ async function handleIncomingMessage(
       }
     }
 
+    // Voice notes: transcribe with Whisper so the AI answers what was actually
+    // said, instead of asking the customer to type. Falls back to the "please
+    // type" prompt if transcription is unavailable.
+    let audioTranscript: string | null = null;
+    if (msg.type === 'audio' && msg.audio?.id) {
+      const { data: wsForAudio } = await (supabase as any)
+        .from('workspaces')
+        .select('access_token')
+        .eq('id', workspaceId)
+        .single();
+      if (wsForAudio?.access_token) {
+        audioTranscript = await transcribeWhatsAppAudio(msg.audio.id, wsForAudio.access_token);
+      }
+      // Surface the spoken words in the inbox instead of a bare "[Audio]".
+      if (audioTranscript && insertedMessage?.id) {
+        await (supabase as any).from('messages')
+          .update({ content: `🎤 ${audioTranscript}` })
+          .eq('id', insertedMessage.id);
+      }
+    }
+
     // Build rich AI prompt for media messages so AI can reply contextually.
     // When the user asked an off-topic question mid-flow, add a system note so the
     // AI only answers that specific question and doesn't re-initiate the booking flow.
-    const aiPrompt = buildAiPrompt(msg, content);
+    const aiPrompt = audioTranscript ?? buildAiPrompt(msg, content);
     const finalAiPrompt = pendingFlowQuestion
       ? aiPrompt + '\n\n[SYSTEM: User is currently in an active booking flow. ONLY answer their question above. Do NOT ask about employee count, attendance, demo date/time/address, or initiate a booking — the automated flow is handling all of that.]'
       : aiPrompt;
