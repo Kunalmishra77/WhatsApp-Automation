@@ -9,6 +9,7 @@ import {
   getPerformanceMetrics, starRatingToInt, type GbpLocation,
 } from '@/lib/google-business';
 import { recordTouchpoint } from '@/lib/lead-touchpoint';
+import { readAutoReplyConfig, autoReplyToReview } from '@/lib/gbp-auto-reply';
 
 const idOf = (resourceName: string | undefined): string =>
   (resourceName ?? '').split('/').pop() ?? '';
@@ -91,6 +92,15 @@ export async function syncWorkspaceGbp(db: any, workspaceId: string): Promise<Gb
     }
     if (!accountId) { result.error = 'no_account'; return result; }
 
+    // Auto-reply config + business name (fetched once; used per new review below).
+    const { data: wsRow } = await db
+      .from('workspaces')
+      .select('name, settings')
+      .eq('id', workspaceId)
+      .single();
+    const businessName: string = (wsRow?.name as string | undefined)?.trim() || 'our business';
+    const autoReply = readAutoReplyConfig(wsRow?.settings);
+
     // ── Locations ──────────────────────────────────────────────────────────
     const locsRes = await listLocations(accessToken, `accounts/${accountId}`);
     if (!locsRes.ok) { result.error = locsRes.error; return result; }
@@ -153,6 +163,23 @@ export async function syncWorkspaceGbp(db: any, workspaceId: string): Promise<Gb
               occurredAt: r.createTime ?? undefined,
               metadata: { location_id: locationId, star_rating: starRatingToInt(r.starRating) },
             });
+
+            // Optional: auto-draft + post a reply to qualifying new reviews.
+            const stars = starRatingToInt(r.starRating);
+            const alreadyReplied = Boolean(r.reviewReply?.comment);
+            if (autoReply.enabled && !alreadyReplied && stars !== null && stars >= autoReply.minStars) {
+              await autoReplyToReview(db, {
+                workspaceId,
+                businessName,
+                accessToken,
+                accountId,
+                locationId,
+                reviewId,
+                reviewerName: r.reviewer?.displayName ?? null,
+                starRating: stars,
+                comment: r.comment ?? null,
+              });
+            }
           }
         }
       }

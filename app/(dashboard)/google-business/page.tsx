@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Store, Star, Sparkles, RefreshCw, Send, MessageCircleQuestion, Megaphone, BarChart3 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Store, Star, Sparkles, RefreshCw, Send, MessageCircleQuestion, Megaphone, BarChart3, Bot } from 'lucide-react';
 import { useRequirePageRole } from '@/hooks/useRequirePageRole';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { toast } from 'sonner';
@@ -123,6 +124,51 @@ export default function GoogleBusinessPage() {
   );
 }
 
+// ── Auto-reply toggle ────────────────────────────────────────────────────────
+function AutoReplyBar({ workspaceId }: { workspaceId: string }) {
+  const qc = useQueryClient();
+  const [saving, setSaving] = useState(false);
+  const { data } = useQuery({
+    queryKey: ['gbp-auto-reply', workspaceId],
+    queryFn: () => fetch(`/api/gbp/auto-reply?workspaceId=${workspaceId}`).then((r) => r.json()),
+  });
+  const enabled: boolean = data?.enabled ?? false;
+  const minStars: number = data?.minStars ?? 4;
+
+  async function save(next: { enabled?: boolean; minStars?: number }) {
+    setSaving(true);
+    try {
+      await post('/api/gbp/auto-reply', { workspaceId, enabled: next.enabled ?? enabled, minStars: next.minStars ?? minStars });
+      void qc.invalidateQueries({ queryKey: ['gbp-auto-reply', workspaceId] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save');
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-3 flex items-center gap-3 flex-wrap">
+      <Bot className="h-4 w-4 text-brand-500 shrink-0" />
+      <div className="flex-1 min-w-[180px]">
+        <p className="text-sm font-medium text-gray-900">Auto-reply to new reviews</p>
+        <p className="text-xs text-gray-500">When on, AGENTiX drafts &amp; posts a warm reply to new reviews automatically.</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-gray-500">for</span>
+        <Select value={String(minStars)} onValueChange={(v) => void save({ minStars: Number(v) })}>
+          <SelectTrigger className="h-8 w-32 text-xs" disabled={!enabled || saving}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="5">5 star only</SelectItem>
+            <SelectItem value="4">4 star &amp; up</SelectItem>
+            <SelectItem value="3">3 star &amp; up</SelectItem>
+            <SelectItem value="1">all reviews</SelectItem>
+          </SelectContent>
+        </Select>
+        <Switch checked={enabled} disabled={saving} onCheckedChange={(v) => void save({ enabled: v })} />
+      </div>
+    </div>
+  );
+}
+
 // ── Reviews ─────────────────────────────────────────────────────────────────
 function ReviewsTab({ workspaceId, locationId }: { workspaceId: string; locationId: string }) {
   const qc = useQueryClient();
@@ -167,6 +213,7 @@ function ReviewsTab({ workspaceId, locationId }: { workspaceId: string; location
 
   return (
     <div className="space-y-4">
+      <AutoReplyBar workspaceId={workspaceId} />
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex gap-3">
           <Select value={rating} onValueChange={setRating}>
