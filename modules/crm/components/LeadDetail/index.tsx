@@ -40,6 +40,13 @@ function stageLabel(stage: string | null): string {
   return STAGE_LABELS[stage as LeadStage] ?? stage;
 }
 
+const CHANNEL_LABELS: Record<string, string> = {
+  whatsapp: 'WhatsApp', instagram: 'Instagram', meta_ads: 'Meta Ads',
+  google_ads: 'Google Ads', gbp: 'Google Business', website: 'Website',
+  chat_widget: 'Chat Widget', campaign: 'Campaign', api: 'API',
+  referral: 'Referral', manual: 'Manual', other: 'Other',
+};
+
 interface LeadDetailProps {
   leadId: string | null;
   onClose: () => void;
@@ -230,10 +237,24 @@ export function LeadDetail({ leadId, onClose }: LeadDetailProps) {
               )}
 
               <div className="space-y-2 text-sm">
-                {lead.source && (
+                {(lead as any).channel && (
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Source</span>
-                    <span className="font-medium">{lead.source}</span>
+                    <span className="text-muted-foreground">Channel</span>
+                    <span className="font-medium">{CHANNEL_LABELS[(lead as any).channel] ?? (lead as any).channel}</span>
+                  </div>
+                )}
+                {((lead as any).source_detail || lead.source) && (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">Source</span>
+                    <span className="font-medium text-right truncate">{(lead as any).source_detail ?? lead.source}</span>
+                  </div>
+                )}
+                {((lead as any).utm_source || (lead as any).utm_campaign) && (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground shrink-0">UTM</span>
+                    <span className="font-medium text-right truncate">
+                      {[(lead as any).utm_source, (lead as any).utm_medium, (lead as any).utm_campaign].filter(Boolean).join(' · ')}
+                    </span>
                   </div>
                 )}
                 <div className="flex items-center justify-between">

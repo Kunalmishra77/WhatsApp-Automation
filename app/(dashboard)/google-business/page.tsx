@@ -232,6 +232,12 @@ function QATab({ workspaceId, locationId }: { workspaceId: string; locationId: s
     catch (e) { toast.error(e instanceof Error ? e.message : 'Answer failed'); }
     finally { setBusy(null); }
   }
+  async function draft(id: string) {
+    setBusy(id);
+    try { const d = await post(`/api/gbp/questions/${id}/draft`, { workspaceId }); setAnswers((p) => ({ ...p, [id]: d.draft })); }
+    catch (e) { toast.error(e instanceof Error ? e.message : 'Draft failed'); }
+    finally { setBusy(null); }
+  }
 
   if (isLoading) return <Skeleton className="h-40 w-full" />;
   if (questions.length === 0) return <p className="text-sm text-gray-400 text-center py-12">No questions yet.</p>;
@@ -246,12 +252,17 @@ function QATab({ workspaceId, locationId }: { workspaceId: string; locationId: s
             <div className="rounded-lg bg-gray-50 p-2.5 text-sm text-gray-600"><span className="font-medium text-gray-500">Answer: </span>{q.answer_text}</div>
           ) : (
             <div className="space-y-2 pt-1">
-              <Textarea value={answers[q.id] ?? ''} onChange={(e) => setAnswers((p) => ({ ...p, [q.id]: e.target.value }))}
-                placeholder="Write an answer…" className="text-sm min-h-[60px]" />
-              <Button size="sm" className="bg-brand-500 hover:bg-brand-600 text-white" disabled={busy === q.id}
-                onClick={() => void answer(q.id, answers[q.id] ?? '')}>
-                <Send className="h-3.5 w-3.5 mr-1.5" /> Post answer
-              </Button>
+              <Textarea value={answers[q.id] ?? q.ai_draft ?? ''} onChange={(e) => setAnswers((p) => ({ ...p, [q.id]: e.target.value }))}
+                placeholder="Write an answer, or generate an AI draft…" className="text-sm min-h-[60px]" />
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={busy === q.id} onClick={() => void draft(q.id)}>
+                  <Sparkles className="h-3.5 w-3.5 mr-1.5" /> AI draft
+                </Button>
+                <Button size="sm" className="bg-brand-500 hover:bg-brand-600 text-white" disabled={busy === q.id}
+                  onClick={() => void answer(q.id, answers[q.id] ?? q.ai_draft ?? '')}>
+                  <Send className="h-3.5 w-3.5 mr-1.5" /> Post answer
+                </Button>
+              </div>
             </div>
           )}
         </div>
