@@ -80,8 +80,19 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // ── 4) Meta (Facebook/Instagram) ad spend ──────────────────────────────
+    let metaAdSpend = 0;
+    {
+      let mq = db.from('meta_ad_spend_daily').select('spend, date').eq('workspace_id', workspaceId);
+      if (from) mq = mq.gte('date', from);
+      if (to) mq = mq.lte('date', to);
+      const { data } = await mq.limit(10000);
+      for (const r of (data ?? []) as Array<{ spend: number }>) metaAdSpend += Number(r.spend ?? 0);
+    }
+
     const spendByChannel: Record<string, { spend: number; kind: 'ad' | 'messaging' }> = {
       google_ads: { spend: googleSpend, kind: 'ad' },
+      meta_ads: { spend: metaAdSpend, kind: 'ad' },
       whatsapp: { spend: whatsappCost, kind: 'messaging' },
     };
 

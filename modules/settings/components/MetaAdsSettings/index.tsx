@@ -20,9 +20,45 @@ export function MetaAdsSettings() {
   const [deletingId,     setDeletingId]     = useState<string | null>(null);
   const [backfilling,    setBackfilling]    = useState(false);
   const [backfillResult, setBackfillResult] = useState<{ tagged: number; total: number } | null>(null);
+  const [adAccountId,    setAdAccountId]    = useState('');
+  const [savingCfg,      setSavingCfg]      = useState(false);
+  const [syncingSpend,   setSyncingSpend]   = useState(false);
 
   const workspace = useWorkspaceStore((s) => s.activeWorkspace);
   const waConnected = !!(workspace?.phone_number_id || workspace?.waba_id);
+
+  useEffect(() => {
+    if (!workspace?.id) return;
+    fetch(`/api/integrations/meta-ads/config?workspaceId=${workspace.id}`)
+      .then((r) => r.json())
+      .then((d) => setAdAccountId(d.adAccountId ?? ''))
+      .catch(() => {});
+  }, [workspace?.id]);
+
+  const saveAdConfig = async () => {
+    setSavingCfg(true);
+    try {
+      const res = await fetch('/api/integrations/meta-ads/config', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId: workspace?.id, adAccountId }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success('Meta ad account saved');
+    } catch { toast.error('Failed to save'); } finally { setSavingCfg(false); }
+  };
+
+  const syncAdSpend = async () => {
+    setSyncingSpend(true);
+    try {
+      const res = await fetch('/api/integrations/meta-ads/sync', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId: workspace?.id }),
+      });
+      const d = await res.json() as { spend?: number; rows?: number; error?: string };
+      if (!res.ok) throw new Error(d.error ?? 'Sync failed');
+      toast.success(`Synced — ₹${Math.round(d.spend ?? 0).toLocaleString('en-IN')} ad spend across ${d.rows ?? 0} days`);
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Sync failed'); } finally { setSyncingSpend(false); }
+  };
 
   const loadPrefills = () => {
     setLoading(true);
@@ -106,6 +142,35 @@ export function MetaAdsSettings() {
           <p>Phone Number ID: <span className="font-mono text-foreground">{workspace?.phone_number_id ?? '—'}</span></p>
           <p>WABA ID: <span className="font-mono text-foreground">{workspace?.waba_id ?? '—'}</span></p>
         </div>
+      </div>
+
+      {/* Ad spend tracking → Marketing ROI */}
+      <div className="rounded-xl border border-border p-4 space-y-3">
+        <div>
+          <p className="text-sm font-medium">Ad Spend Tracking (Marketing ROI)</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Add your Meta Ad Account ID to pull real Facebook/Instagram ad spend into the Marketing ROI dashboard.
+          </p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <Input
+            value={adAccountId}
+            onChange={(e) => setAdAccountId(e.target.value)}
+            placeholder="Ad account ID (e.g. 1234567890)"
+            className="text-sm flex-1 min-w-[180px]"
+          />
+          <Button size="sm" onClick={() => void saveAdConfig()} disabled={savingCfg}>
+            {savingCfg ? 'Saving…' : 'Save'}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void syncAdSpend()} disabled={syncingSpend || !adAccountId.trim()}>
+            {syncingSpend ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <RefreshCw className="h-3.5 w-3.5 mr-1.5" />}
+            Sync spend
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Ad Account ID = the number after &quot;act_&quot; in Meta Ads Manager. Your WhatsApp token must have the
+          <span className="font-mono"> ads_read </span> permission (or add a dedicated ads token).
+        </p>
       </div>
 
       {/* How it works — simple, clear */}
