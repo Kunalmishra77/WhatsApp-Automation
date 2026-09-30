@@ -1,15 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { AlertTriangle, Lock, Unlock, Trash2 } from 'lucide-react';
+import { AlertTriangle, Lock, Unlock, Trash2, CreditCard } from 'lucide-react';
 
 interface Props {
   workspaceId: string;
@@ -71,6 +72,9 @@ export function SettingsTab({ workspaceId, workspace }: Props) {
           Update Plan
         </Button>
       </div>
+
+      {/* Payment gateway (billing enforcement) */}
+      <PaymentGatewaySection workspaceId={workspaceId} />
 
       {/* Custom Domain */}
       <div className="space-y-2">
@@ -152,6 +156,52 @@ export function SettingsTab({ workspaceId, workspace }: Props) {
             <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete Workspace
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Per-client payment gateway toggle. ON = billing enforced (trial/renewal/suspension
+// apply). OFF = comped (free, billing sweep skips). Works for existing or new clients.
+function PaymentGatewaySection({ workspaceId }: { workspaceId: string }) {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ['admin', 'workspace-billing', workspaceId],
+    queryFn: () => fetch(`/api/admin/workspaces/${workspaceId}/billing`).then((r) => r.json()),
+  });
+  const comped: boolean = data?.comped ?? false;
+  const enforced = !comped;
+
+  const mut = useMutation<unknown, Error, boolean>({
+    mutationFn: (nextEnforced) =>
+      fetch(`/api/admin/workspaces/${workspaceId}/billing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comped: !nextEnforced }),
+      }).then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error ?? 'Failed'); return d; }),
+    onSuccess: (_d, nextEnforced) => {
+      toast.success(nextEnforced ? 'Payment gateway enabled for this client' : 'Payment gateway removed — client is now free (comped)');
+      qc.invalidateQueries({ queryKey: ['admin', 'workspace-billing', workspaceId] });
+      qc.invalidateQueries({ queryKey: ['admin', 'workspace', workspaceId] });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+        <CreditCard className="h-4 w-4" /> Payment Gateway
+      </h3>
+      <div className="flex items-center justify-between rounded-xl border border-gray-200 p-3">
+        <div className="pr-3">
+          <p className="text-sm font-medium text-gray-800">{enforced ? 'Billing enforced' : 'Comped (free)'}</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {enforced
+              ? 'This client is charged — trial, renewal and suspension apply.'
+              : 'This client uses the product free — the billing sweep skips it.'}
+          </p>
+        </div>
+        <Switch checked={enforced} disabled={mut.isPending} onCheckedChange={(v) => mut.mutate(v)} />
       </div>
     </div>
   );
