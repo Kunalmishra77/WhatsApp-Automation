@@ -3,8 +3,17 @@ import { zonedDayStartUtc } from '@/lib/date-range';
 
 export const GST_RATE = 18;
 
-export const PLAN_KEYS = { WHATSAPP: 'whatsapp', WHATSAPP_INSTAGRAM: 'whatsapp_instagram' } as const;
+export const PLAN_KEYS = {
+  WHATSAPP: 'whatsapp',                 // legacy
+  WHATSAPP_INSTAGRAM: 'whatsapp_instagram', // legacy
+  CORE: 'core',
+  ALL_IN_ONE: 'all_in_one',
+} as const;
 export type PlanKey = typeof PLAN_KEYS[keyof typeof PLAN_KEYS];
+
+// Add-on plan keys (billing_plans.kind = 'addon'), priced on top of Core.
+export const ADDON_KEYS = { INSTAGRAM: 'instagram_addon', GOOGLE_GROWTH: 'google_growth_addon' } as const;
+export type AddonKey = typeof ADDON_KEYS[keyof typeof ADDON_KEYS];
 
 export type SubStatus = 'pending' | 'active' | 'past_due' | 'suspended' | 'cancelled';
 
