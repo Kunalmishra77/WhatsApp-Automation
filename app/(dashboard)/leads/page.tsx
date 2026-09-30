@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+import { useStickyState } from '@/hooks/useStickyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -54,12 +54,12 @@ export default function UnifiedLeadsPage() {
   const router = useRouter();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
 
-  const [page,    setPage]    = useState(0);
-  const [channel, setChannel] = useState('all');
-  const [stage,   setStage]   = useState('all');
-  const [from,    setFrom]    = useState('');
-  const [to,      setTo]      = useState('');
-  const [search,  setSearch]  = useState('');
+  const [page,    setPage]    = useStickyState('leads:page', 0);
+  const [channel, setChannel] = useStickyState('leads:channel', 'all');
+  const [stage,   setStage]   = useStickyState('leads:stage', 'all');
+  const [from,    setFrom]    = useStickyState('leads:from', '');
+  const [to,      setTo]      = useStickyState('leads:to', '');
+  const [search,  setSearch]  = useStickyState('leads:search', '');
 
   const listParams = new URLSearchParams({ workspaceId: workspaceId ?? '', page: String(page), pageSize: String(PAGE_SIZE) });
   if (channel !== 'all') listParams.set('channel', channel);
