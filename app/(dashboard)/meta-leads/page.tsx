@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+import { useStickyState, useStickyScroll } from '@/hooks/useStickyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,11 +36,11 @@ type TopAd = {
 export default function MetaLeadsPage() {
   useRequirePageRole('meta-leads');
   const router = useRouter();
-  const [page,     setPage]     = useState(1);
-  const [platform, setPlatform] = useState('all');
-  const [status,   setStatus]   = useState('all');
-  const [from,     setFrom]     = useState('');
-  const [to,       setTo]       = useState('');
+  const [page,     setPage]     = useStickyState('meta-leads:page', 1);
+  const [platform, setPlatform] = useStickyState('meta-leads:platform', 'all');
+  const [status,   setStatus]   = useStickyState('meta-leads:status', 'all');
+  const [from,     setFrom]     = useStickyState('meta-leads:from', '');
+  const [to,       setTo]       = useStickyState('meta-leads:to', '');
 
   const params = new URLSearchParams({ page: String(page) });
   if (platform !== 'all') params.set('platform', platform);
@@ -53,6 +53,8 @@ export default function MetaLeadsPage() {
     queryFn: () => fetch(`/api/meta-leads?${params}`).then((r) => r.json()),
     staleTime: 30_000,
   });
+
+  useStickyScroll('meta-leads', !isLoading);
 
   const leads: Lead[]  = data?.leads ?? [];
   const topAds: TopAd[] = data?.topAds ?? [];
