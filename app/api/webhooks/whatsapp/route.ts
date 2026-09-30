@@ -1127,7 +1127,9 @@ async function handleIncomingMessage(
   // Rate limit: max 1 auto-reply per 30s per contact
   const canReply = await checkAutoReplyLimit(contact.id);
   if (canReply) {
-    // Vision AI: if image, download the media URL for multimodal processing
+    // Vision AI: if image, download the bytes as a base64 data URL for multimodal
+    // processing. We must inline the bytes — Meta media URLs are token-protected,
+    // so a vision model's server cannot fetch them directly.
     let visionImageUrl: string | undefined;
     if (msg.type === 'image' && msg.image?.id) {
       const { data: wsForVision } = await (supabase as any)
@@ -1136,7 +1138,7 @@ async function handleIncomingMessage(
         .eq('id', workspaceId)
         .single();
       if (wsForVision?.access_token) {
-        visionImageUrl = (await getWhatsAppMediaUrl(msg.image.id, wsForVision.access_token)) ?? undefined;
+        visionImageUrl = (await getWhatsAppMediaAsDataUrl(msg.image.id, wsForVision.access_token)) ?? undefined;
       }
     }
 
@@ -1305,6 +1307,33 @@ async function getWhatsAppMediaUrl(mediaId: string, accessToken: string): Promis
   }
 }
 
+// Downloads an inbound WhatsApp media file and returns it as a base64 data URL.
+// Meta media URLs are token-protected \u2014 a vision model's server cannot fetch
+// them, so we must inline the bytes. Returns null on any failure (caller falls
+// back to a safe "image received" acknowledgment). Size-capped so a huge file
+// never bloats the AI request.
+async function getWhatsAppMediaAsDataUrl(mediaId: string, accessToken: string): Promise<string | null> {
+  try {
+    const token = accessToken.replace(/\uFEFF/g, '').trim();
+    const metaRes = await fetch(`https://graph.facebook.com/v19.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!metaRes.ok) return null;
+    const meta = await metaRes.json() as { url?: string; mime_type?: string };
+    if (!meta.url) return null;
+
+    const mediaRes = await fetch(meta.url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!mediaRes.ok) return null;
+    const buffer = Buffer.from(await mediaRes.arrayBuffer());
+    if (buffer.length === 0 || buffer.length > 8 * 1024 * 1024) return null; // cap ~8MB
+
+    const mimeType = (meta.mime_type ?? mediaRes.headers.get('content-type') ?? 'image/jpeg').split(';')[0] || 'image/jpeg';
+    return `data:${mimeType};base64,${buffer.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
 // Downloads an inbound WhatsApp media file and re-uploads it to Supabase Storage
 // (same 'media-uploads' bucket used for outgoing catalog images) so it survives
 // past WhatsApp's ~30-day media expiry window. Runs fire-and-forget after the
@@ -1459,8 +1488,8 @@ function buildAiPrompt(msg: WAMessage, textContent: string): string {
     case 'image': {
       const caption = msg.image?.caption;
       return caption
-        ? `User sent an image with caption: "${caption}". Acknowledge the image and respond helpfully to the caption.`
-        : 'User sent an image. Acknowledge it warmly and ask how you can help.';
+        ? `User sent an image with caption: "${caption}". Look at the image and respond helpfully to both the image and the caption, staying within your business's scope.`
+        : 'User sent an image. Look at the image and respond helpfully based on what it shows, staying within your business scope. If the image is unclear or unrelated to the business, briefly acknowledge that you received it and ask how you can help.';
     }
     case 'video': {
       const caption = msg.video?.caption;
@@ -1727,10 +1756,17 @@ async function sendAutoReply(
     ? '\n\n[SYSTEM: You just sent the same reply twice. The customer is waiting for something NEW. Acknowledge what they said, ask a clarifying question, or provide different information to move the conversation forward.]'
     : '';
 
-  const message = (await getAIReply(
+  const aiReply = await getAIReply(
     escalationPrefix + customerMessage + repeatNote,
     name, kbContext, imageUrl, wsSettings, businessName, conversationHistory, intentLabel,
-  )) ?? `Thanks for reaching out to ${businessName}! Our team received your message and will get back to you shortly.`;
+  );
+  // Fallback must never claim we didn't receive the image. When the customer sent
+  // an image but analysis was unavailable/failed (getAIReply === null), acknowledge
+  // the image and hand off to the team instead of the generic message.
+  const fallback = imageUrl
+    ? `Thanks ${name}! We've received your image 📷 Our team will review it and get back to you shortly.`
+    : `Thanks for reaching out to ${businessName}! Our team received your message and will get back to you shortly.`;
+  const message = aiReply ?? fallback;
 
   try {
     const response = await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
