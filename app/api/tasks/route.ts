@@ -61,6 +61,13 @@ export async function POST(request: NextRequest) {
     }).select(SELECT).single();
     if (error) { console.error('[Tasks POST]', error); return NextResponse.json({ error: 'Failed to create task' }, { status: 500 }); }
 
+    // Seed the activity log with a creation entry.
+    await db.from('task_activity').insert({
+      workspace_id: workspaceId, task_id: task.id, actor_id: ctx.userId,
+      type: 'created', body: assigned_to ? 'Task created and assigned' : 'Task created',
+      meta: { assigned_to: assigned_to ?? null },
+    }).then(() => {}, () => {});
+
     // Notify the assignee (unless self-assigned).
     if (assigned_to && assigned_to !== ctx.userId) {
       await db.from('notifications').insert({

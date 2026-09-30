@@ -1,10 +1,12 @@
 'use client';
 
-import { Trash2, User, CalendarClock, MessageSquare } from 'lucide-react';
+import { useState } from 'react';
+import { Trash2, User, CalendarClock, MessageSquare, History } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { isOverdue } from '@/lib/tasks';
 import { useTaskMutations, type Task } from '../../hooks/useTasks';
+import { TaskActivity } from '../TaskActivity';
 
 const PRIORITY_STYLES: Record<string, string> = {
   high:   'bg-red-100 text-red-700',
@@ -16,6 +18,7 @@ const STATUS_LABEL: Record<Task['status'], string> = { todo: 'Start', in_progres
 
 export function TaskCard({ task }: { task: Task }) {
   const { update, remove } = useTaskMutations();
+  const [showActivity, setShowActivity] = useState(false);
   const overdue = isOverdue(task.due_date, task.status, Date.now());
   const assignee = task.assignee?.full_name ?? task.assignee?.email ?? 'Unassigned';
 
@@ -64,10 +67,21 @@ export function TaskCard({ task }: { task: Task }) {
         >
           {STATUS_LABEL[task.status]}
         </button>
-        <button onClick={del} disabled={remove.isPending} className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600">
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setShowActivity((v) => !v)}
+            className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] transition-colors ${showActivity ? 'bg-brand-50 text-brand-600' : 'text-muted-foreground hover:bg-muted'}`}
+            title="Activity & comments"
+          >
+            <History className="h-3.5 w-3.5" /> Activity
+          </button>
+          <button onClick={del} disabled={remove.isPending} className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
+
+      {showActivity && <TaskActivity taskId={task.id} />}
     </div>
   );
 }

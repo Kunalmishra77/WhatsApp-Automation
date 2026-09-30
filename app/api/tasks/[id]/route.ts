@@ -13,7 +13,7 @@ export async function PATCH(
     const body = await request.json();
     const db = createAdminClient() as any;
 
-    const { data: existing } = await db.from('tasks').select('workspace_id, assigned_to').eq('id', id).single();
+    const { data: existing } = await db.from('tasks').select('workspace_id, assigned_to, status, due_date').eq('id', id).single();
     if (!existing) return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     const ctx = await requireWorkspacePermission(existing.workspace_id, 'handle_conversations');
 
@@ -31,6 +31,20 @@ export async function PATCH(
 
     const { data: task, error } = await db.from('tasks').update(patch).eq('id', id).eq('workspace_id', existing.workspace_id).select('*').single();
     if (error) { console.error('[Tasks PATCH]', error); return NextResponse.json({ error: 'Failed to update task' }, { status: 500 }); }
+
+    // Activity log — record meaningful changes so work has a visible history.
+    const activityRows: Array<Record<string, unknown>> = [];
+    const base = { workspace_id: existing.workspace_id, task_id: id, actor_id: ctx.userId };
+    if (body.status !== undefined && body.status !== existing.status) {
+      activityRows.push({ ...base, type: 'status_change', body: `Status: ${existing.status} → ${body.status}`, meta: { from: existing.status, to: body.status } });
+    }
+    if (body.assigned_to !== undefined && body.assigned_to !== existing.assigned_to) {
+      activityRows.push({ ...base, type: 'assignment', body: body.assigned_to ? 'Reassigned' : 'Unassigned', meta: { from: existing.assigned_to, to: body.assigned_to } });
+    }
+    if (body.due_date !== undefined && body.due_date !== existing.due_date) {
+      activityRows.push({ ...base, type: 'due_change', body: 'Due date updated', meta: { from: existing.due_date, to: body.due_date } });
+    }
+    if (activityRows.length > 0) await db.from('task_activity').insert(activityRows).then(() => {}, () => {});
 
     // Notify on (re)assignment to someone new (and not self).
     if (body.assigned_to && body.assigned_to !== existing.assigned_to && body.assigned_to !== ctx.userId) {
