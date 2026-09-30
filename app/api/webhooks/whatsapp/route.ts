@@ -1487,9 +1487,10 @@ function buildAiPrompt(msg: WAMessage, textContent: string): string {
   switch (msg.type) {
     case 'image': {
       const caption = msg.image?.caption;
+      const safety = ' If the image contains nudity, sexual, violent, or otherwise inappropriate content, do NOT describe or engage with it — politely decline in one line and redirect to how you can help with the business.';
       return caption
-        ? `User sent an image with caption: "${caption}". Look at the image and respond helpfully to both the image and the caption, staying within your business's scope.`
-        : 'User sent an image. Look at the image and respond helpfully based on what it shows, staying within your business scope. If the image is unclear or unrelated to the business, briefly acknowledge that you received it and ask how you can help.';
+        ? `User sent an image with caption: "${caption}". Look at the image and respond helpfully to both the image and the caption, staying within your business's scope.${safety}`
+        : `User sent an image. Look at the image and respond helpfully based on what it shows, staying within your business scope. If the image is unclear or unrelated to the business, briefly acknowledge that you received it and ask how you can help.${safety}`;
     }
     case 'video': {
       const caption = msg.video?.caption;
