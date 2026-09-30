@@ -14,8 +14,9 @@ import { Switch } from '@/components/ui/switch';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { UserPlus, BarChart2, Users2, Shuffle, Mail, X, RotateCw, Trash2, Clock, ShieldCheck } from 'lucide-react';
+import { UserPlus, BarChart2, Users2, Shuffle, Mail, X, RotateCw, Trash2, Clock, ShieldCheck, ClipboardList } from 'lucide-react';
 import { AgentPageAccess } from '../AgentPageAccess';
+import { AssignedWork } from '../AssignedWork';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
@@ -177,9 +178,18 @@ export function TeamPage() {
       <Tabs defaultValue="members" className="flex flex-col flex-1 overflow-hidden">
         <TabsList className="shrink-0 mx-6 mt-3 w-fit">
           <TabsTrigger value="members" className="gap-1.5 text-xs"><Users2 className="h-3.5 w-3.5" />Members</TabsTrigger>
+          <TabsTrigger value="work" className="gap-1.5 text-xs"><ClipboardList className="h-3.5 w-3.5" />Assigned Work</TabsTrigger>
           <TabsTrigger value="workload" className="gap-1.5 text-xs"><BarChart2 className="h-3.5 w-3.5" />Workload</TabsTrigger>
           <TabsTrigger value="access" className="gap-1.5 text-xs"><ShieldCheck className="h-3.5 w-3.5" />Page Access</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="work" className="flex-1 overflow-auto p-6 space-y-4">
+          <div>
+            <p className="text-sm font-semibold">Assigned Work</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Who owns what, and progress. Open a task from the Tasks page to comment or update status.</p>
+          </div>
+          <AssignedWork workspaceId={workspaceId} />
+        </TabsContent>
 
         <TabsContent value="workload" className="flex-1 overflow-auto p-6 space-y-4">
           <div className="flex items-center justify-between">

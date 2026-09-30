@@ -61,7 +61,7 @@ const NAV_ITEMS: Array<{
   { href: '/billing',       icon: Receipt,         label: 'Billing & Meta Spend', agentPageKey: 'billing' },
   { href: '/bookings',      icon: CalendarCheck,   label: 'Bookings & Events', agentPageKey: 'bookings' },
   { href: '/tasks',         icon: CheckSquare,     label: 'Tasks',           agentPageKey: 'tasks' },
-  { href: '/ai-revenue',    icon: TrendingUp,      label: 'AI Revenue',      agentPageKey: 'ai-revenue' },
+  { href: '/ai-revenue',    icon: TrendingUp,      label: 'AI Lead Intelligence', agentPageKey: 'ai-revenue' },
   { href: '/knowledge-base',icon: BookOpen,        label: 'Knowledge Base',  agentPageKey: 'knowledge-base' },
 ];
 

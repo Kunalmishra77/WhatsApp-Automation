@@ -141,7 +141,7 @@ export function AIRevenueDashboard() {
           <div>
             <h1 className="text-heading-lg font-bold text-foreground flex items-center gap-2">
               <TrendingUp className="h-6 w-6 text-brand-500" />
-              AI Revenue Intelligence
+              AI Lead Intelligence
             </h1>
             <p className="mt-1 text-body-md text-muted-foreground">
               AI-powered lead scoring, buy-signal detection, and best-time-to-send prediction.

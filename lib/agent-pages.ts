@@ -21,7 +21,7 @@ export const AGENT_RESTRICTABLE_PAGES = [
   { key: 'billing',        label: 'Billing & Meta Spend', href: '/billing' },
   { key: 'bookings',       label: 'Bookings & Events',  href: '/bookings' },
   { key: 'tasks',          label: 'Tasks',              href: '/tasks' },
-  { key: 'ai-revenue',     label: 'AI Revenue',         href: '/ai-revenue' },
+  { key: 'ai-revenue',     label: 'AI Lead Intelligence', href: '/ai-revenue' },
   { key: 'knowledge-base', label: 'Knowledge Base',     href: '/knowledge-base' },
   { key: 'settings',       label: 'Settings',           href: '/settings' },
 ] as const;
