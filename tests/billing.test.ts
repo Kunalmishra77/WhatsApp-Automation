@@ -85,6 +85,14 @@ describe('state machine (grace 3, reminder 3)', () => {
     const r = nextBillingAction({ ...base, status: 'cancelled', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-01', reminderSentFor: null, graceReminderSentFor: null });
     expect(r.action).toBe('suspend'); expect(r.status).toBe('suspended'); expect(r.isActive).toBe(false);
   });
+  it('trial stays active before it ends', () => {
+    const r = nextBillingAction({ ...base, status: 'trialing', currentPeriodEnd: '2026-09-04', graceUntil: null, today: '2026-09-02', reminderSentFor: null, graceReminderSentFor: null });
+    expect(r.action).toBe('none'); expect(r.isActive).toBe(true);
+  });
+  it('trial suspends (no grace) once it ends', () => {
+    const r = nextBillingAction({ ...base, status: 'trialing', currentPeriodEnd: '2026-09-04', graceUntil: null, today: '2026-09-04', reminderSentFor: null, graceReminderSentFor: null });
+    expect(r.action).toBe('suspend'); expect(r.status).toBe('suspended'); expect(r.isActive).toBe(false);
+  });
   it('cancelled subscription stays suspended after period end', () => {
     const r = nextBillingAction({ ...base, status: 'cancelled', currentPeriodEnd: '2026-09-01', graceUntil: null, today: '2026-09-05', reminderSentFor: null, graceReminderSentFor: null });
     expect(r.action).toBe('suspend'); expect(r.status).toBe('suspended'); expect(r.isActive).toBe(false);

@@ -80,6 +80,28 @@ export function OnboardingPlanStep({ workspaceId }: OnboardingPlanStepProps) {
     }
   }
 
+  // Start the 3-day free trial (no payment) — the default entry into the product.
+  async function handleStartTrial() {
+    setActivating(true);
+    try {
+      const res = await fetch('/api/onboarding/start-trial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId }),
+      });
+      const result = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || !result.ok) {
+        toast.error(result.error ?? 'Could not start your trial — please try again');
+        setActivating(false);
+        return;
+      }
+      router.push('/conversations');
+    } catch {
+      toast.error('Network error — please try again');
+      setActivating(false);
+    }
+  }
+
   if (isLoading) {
     return (
       <Shell>
@@ -162,6 +184,32 @@ export function OnboardingPlanStep({ workspaceId }: OnboardingPlanStepProps) {
   return (
     <Shell>
       <div className="space-y-5">
+        {/* Primary path: start a 3-day free trial, no card required. */}
+        <div className="rounded-xl border border-brand-200 bg-brand-50/60 p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="h-5 w-5 mt-0.5 text-brand-600 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-brand-900">Start with a 3-day free trial</p>
+              <p className="text-xs text-brand-800 mt-0.5">
+                Explore the WhatsApp AI chatbot, campaigns and CRM free for 3 days — no card required.
+                Add Instagram &amp; Google automation any time by subscribing.
+              </p>
+            </div>
+          </div>
+          <Button
+            className="w-full bg-brand-500 hover:bg-brand-600"
+            onClick={() => void handleStartTrial()}
+            disabled={activating}
+          >
+            {activating ? 'Setting up…' : 'Start 3-day free trial'}
+          </Button>
+        </div>
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border" /></div>
+          <div className="relative flex justify-center"><span className="bg-background px-3 text-xs text-muted-foreground">or subscribe now</span></div>
+        </div>
+
         <div className="rounded-xl border border-border p-4 flex items-start gap-3">
           <MessageSquare className="h-4 w-4 mt-0.5 text-brand-500 shrink-0" />
           <div>

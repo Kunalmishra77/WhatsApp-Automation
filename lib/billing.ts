@@ -15,7 +15,7 @@ export type PlanKey = typeof PLAN_KEYS[keyof typeof PLAN_KEYS];
 export const ADDON_KEYS = { INSTAGRAM: 'instagram_addon', GOOGLE_GROWTH: 'google_growth_addon' } as const;
 export type AddonKey = typeof ADDON_KEYS[keyof typeof ADDON_KEYS];
 
-export type SubStatus = 'pending' | 'active' | 'past_due' | 'suspended' | 'cancelled';
+export type SubStatus = 'pending' | 'active' | 'past_due' | 'suspended' | 'cancelled' | 'trialing';
 
 export function planKeyFor(hasInstagram: boolean): PlanKey {
   return hasInstagram ? PLAN_KEYS.WHATSAPP_INSTAGRAM : PLAN_KEYS.WHATSAPP;
@@ -105,6 +105,15 @@ export function nextBillingAction(i: NextBillingActionInput): NextBillingActionR
 
   if (status === 'suspended' || status === 'pending') {
     return { action: 'none', status, isActive: false, graceUntil, reminderSentFor: i.reminderSentFor, graceReminderSentFor: i.graceReminderSentFor, daysUntilSuspend: 0 };
+  }
+
+  // Trial: access until the trial end date, then suspend (→ payment-required).
+  // No grace period on a free trial — pay to continue.
+  if (status === 'trialing') {
+    if (today >= currentPeriodEnd) {
+      return { action: 'suspend', status: 'suspended', isActive: false, graceUntil, reminderSentFor: i.reminderSentFor, graceReminderSentFor: i.graceReminderSentFor, daysUntilSuspend: 0 };
+    }
+    return { action: 'none', status, isActive: true, graceUntil, reminderSentFor: i.reminderSentFor, graceReminderSentFor: i.graceReminderSentFor, daysUntilSuspend: 0 };
   }
 
   // A cancelled subscription keeps access until its current period ends —
