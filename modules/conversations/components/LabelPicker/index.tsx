@@ -51,9 +51,9 @@ function useSetLabels(conversationId: string) {
 export function LabelBadge({ label, color, onRemove }: { label: string; color?: string; onRemove?: () => void }) {
   const c = LABEL_COLORS[color ?? 'gray'] ?? LABEL_COLORS['gray']!;
   return (
-    <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium', c.bg, c.text)}>
-      <span className={cn('h-1.5 w-1.5 rounded-full', c.dot)} />
-      {label}
+    <span className={cn('inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium', c.bg, c.text)}>
+      <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', c.dot)} />
+      <span className="truncate max-w-[120px]">{label}</span>
       {onRemove && (
         <button onClick={onRemove} className="ml-0.5 opacity-60 hover:opacity-100">
           <X className="h-2.5 w-2.5" />
