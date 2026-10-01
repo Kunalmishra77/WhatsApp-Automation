@@ -1757,9 +1757,10 @@ async function sendAutoReply(
     ? '\n\n[SYSTEM: You just sent the same reply twice. The customer is waiting for something NEW. Acknowledge what they said, ask a clarifying question, or provide different information to move the conversation forward.]'
     : '';
 
+  const replyMeta: { classification?: 'ok' | 'offtopic' | 'abuse' } = {};
   const aiReply = await getAIReply(
     escalationPrefix + customerMessage + repeatNote,
-    name, kbContext, imageUrl, wsSettings, businessName, conversationHistory, intentLabel, workspaceId,
+    name, kbContext, imageUrl, wsSettings, businessName, conversationHistory, intentLabel, workspaceId, replyMeta,
   );
   // Fallback must never claim we didn't receive the image. When the customer sent
   // an image but analysis was unavailable/failed (getAIReply === null), acknowledge
@@ -1824,9 +1825,58 @@ async function sendAutoReply(
         supabase, workspaceId, conversationId, contactId,
         customerName, toPhone, customerMessage, message, wsSettings,
       );
+
+      // Smart off-topic/abuse handling (non-blocking). The reply above already went
+      // out (one more polite redirect); this governs whether the bot keeps engaging.
+      void applySmartModeration(supabase, {
+        workspaceId, conversationId, contactId,
+        classification: replyMeta.classification,
+      });
     }
   } catch (error) {
     console.error('[AutoReply] Failed:', error);
+  }
+}
+
+// After N consecutive off-topic messages the bot stops auto-replying (pauses) and the
+// conversation is flagged for a human; clear abuse blocks the contact immediately. An
+// on-business message resets the counter. User-confirmed behaviour (2026-10-01).
+const OFFTOPIC_PAUSE_THRESHOLD = 4;
+async function applySmartModeration(
+  supabase: AdminClient,
+  args: { workspaceId: string; conversationId: string; contactId: string; classification?: 'ok' | 'offtopic' | 'abuse' },
+) {
+  const db = supabase as any;
+  try {
+    const cls = args.classification;
+    if (!cls || cls === 'ok') {
+      await db.from('conversations').update({ consecutive_offtopic: 0 }).eq('id', args.conversationId);
+      return;
+    }
+
+    if (cls === 'abuse') {
+      // Block + opt out — the webhook fully silences both, so the bot never replies again.
+      await db.from('contacts').update({ is_blocked: true, opted_out: true }).eq('id', args.contactId);
+      await db.from('conversations').update({ bot_paused: true }).eq('id', args.conversationId);
+      console.log(`[SmartMod] blocked abusive contact ${args.contactId} (conv ${args.conversationId})`);
+      return;
+    }
+
+    // offtopic → increment, and pause + flag once the threshold is reached.
+    const { data: cv } = await db.from('conversations').select('consecutive_offtopic, meta').eq('id', args.conversationId).maybeSingle();
+    const next = (Number(cv?.consecutive_offtopic) || 0) + 1;
+    const patch: Record<string, unknown> = { consecutive_offtopic: next };
+    if (next >= OFFTOPIC_PAUSE_THRESHOLD) {
+      patch.bot_paused = true;
+      patch.status = 'pending'; // surfaces in the "Pending" filter for an agent to review
+      patch.meta = { ...((cv?.meta as Record<string, unknown>) ?? {}), auto_paused_reason: 'repeated_offtopic', auto_paused_at: new Date().toISOString() };
+    }
+    await db.from('conversations').update(patch).eq('id', args.conversationId);
+    if (next >= OFFTOPIC_PAUSE_THRESHOLD) {
+      console.log(`[SmartMod] auto-paused conv ${args.conversationId} after ${next} off-topic messages`);
+    }
+  } catch (err) {
+    console.error('[SmartMod] error (non-fatal):', err);
   }
 }
 

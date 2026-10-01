@@ -300,6 +300,7 @@ export async function getAIReply(
   conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [],
   intentLabel?: string | null,
   workspaceId?: string | null,
+  outMeta?: { classification?: 'ok' | 'offtopic' | 'abuse' },
 ): Promise<string | null> {
   const { getModel } = await import('@/lib/ai-router');
   const model = imageUrl
@@ -438,6 +439,22 @@ Supported languages: English, Hindi, Hinglish (Roman-script Hindi), Marathi, Tam
 - This rule changes ONLY the language of the reply. The meaning, intent, knowledge-base facts, and reasoning must stay exactly the same as they would be in any language.
 - If a [SYSTEM OVERRIDE: ...] language note is attached to the customer's message, follow it exactly.`;
 
+  // Optional internal routing classifier (near-zero cost — same call). Asks the model
+  // to append one hidden tag; we strip it before the reply is ever sent.
+  const classifySuffix = outMeta
+    ? `\n\nINTERNAL ROUTING TAG — after your reply, on its own final line, append EXACTLY one of these (nothing else) classifying the customer's CURRENT message: <<OK>> if it is about ${businessName}'s products/services/orders/support; <<OFFTOPIC>> if it is personal chit-chat, time-wasting, flirting, or unrelated to the business; <<ABUSE>> if it is sexual, abusive, hateful, or threatening. This tag is for internal routing only and is removed before sending — never refer to it.`
+    : '';
+  const finalSystemPrompt = systemPrompt + classifySuffix;
+
+  // Extracts + strips the routing tag from a reply, recording it on outMeta.
+  const applyClassification = (text: string | null): string | null => {
+    if (!text) return text;
+    if (!outMeta) return text;
+    const m = text.match(/<<\s*(OK|OFFTOPIC|ABUSE)\s*>>/i);
+    outMeta.classification = (m?.[1]?.toLowerCase() as 'ok' | 'offtopic' | 'abuse' | undefined) ?? 'ok';
+    return text.replace(/\s*<<\s*(OK|OFFTOPIC|ABUSE)\s*>>\s*$/i, '').replace(/<<\s*(OK|OFFTOPIC|ABUSE)\s*>>/ig, '').trim();
+  };
+
   // Vision path: multimodal content (image URL array) requires direct OpenRouter fetch
   if (imageUrl) {
     const apiKey = process.env.OPENROUTER_API_KEY?.replace(/\uFEFF/g, '').trim();
@@ -457,7 +474,7 @@ Supported languages: English, Hindi, Hinglish (Roman-script Hindi), Marathi, Tam
         body: JSON.stringify({
           model,
           messages: [
-            { role: 'system', content: systemPrompt },
+            { role: 'system', content: finalSystemPrompt },
             {
               role: 'user',
               content: [
@@ -486,7 +503,7 @@ Supported languages: English, Hindi, Hinglish (Roman-script Hindi), Marathi, Tam
       void import('@/lib/ai-usage').then(({ logAiUsage }) => logAiUsage({
         provider: 'OpenRouter', model: data.model ?? model, task: 'vision', workspaceId, usage: data.usage,
       })).catch(() => {});
-      return reply;
+      return applyClassification(reply);
     } catch (error) {
       console.error('[AI] Vision fetch error:', error);
       return null;
@@ -502,13 +519,13 @@ Supported languages: English, Hindi, Hinglish (Roman-script Hindi), Marathi, Tam
     const userContent = customerMessage + langInstruction;
 
     const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: finalSystemPrompt },
       ...conversationHistory,
       { role: 'user', content: userContent },
     ];
-    const reply = await callAI(messages, { model, maxTokens: 350, temperature: 0.4, workspaceId, task: 'auto_reply' });
+    const reply = await callAI(messages, { model, maxTokens: 380, temperature: 0.4, workspaceId, task: 'auto_reply' });
     if (!reply) console.warn('[AI] Empty response from AI client');
-    return reply;
+    return applyClassification(reply);
   } catch (error) {
     console.error('[AI] Network/parse error:', error);
     return null;
