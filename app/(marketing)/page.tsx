@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight, Bot, Inbox, IndianRupee, KanbanSquare } from 'lucide-react';
+import { ArrowRight, Bot, Inbox, IndianRupee, KanbanSquare, MessageCircle, Camera, MapPin, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Section } from '@/modules/marketing/components/Section';
 import { Eyebrow } from '@/modules/marketing/components/Eyebrow';
@@ -8,8 +8,57 @@ import { FeatureCard } from '@/modules/marketing/components/FeatureCard';
 import { StatBadge } from '@/modules/marketing/components/StatBadge';
 import { CTABand } from '@/modules/marketing/components/CTABand';
 import { ConversationThread, type ConversationTurn } from '@/modules/marketing/components/ConversationThread';
+import { cn } from '@/lib/utils';
 
 const CLIENTS = ['Umang Hospital', 'Razorveda', 'Fitness First', 'Skinwise', 'VMS'];
+
+const MODULES = [
+  {
+    name: 'Core',
+    icon: MessageCircle,
+    iconBg: 'bg-emerald-500',
+    price: '₹2,999',
+    priceNote: '/mo',
+    tagline: 'Everything you need to sell on WhatsApp with a live AI agent.',
+    featured: true,
+    features: [
+      'AI agent answers, qualifies & books 24/7',
+      'Shared team inbox + hot/warm/cold CRM',
+      'Campaigns, broadcasts & templates',
+      'In-chat Razorpay payment links',
+    ],
+  },
+  {
+    name: 'Instagram',
+    icon: Camera,
+    iconBg: 'bg-fuchsia-500',
+    price: '+₹999',
+    priceNote: '/mo',
+    tagline: 'Put the same AI agent to work across your Instagram DMs.',
+    featured: false,
+    features: [
+      'Auto-reply to Instagram DMs',
+      'Comment-reply on your posts',
+      'Follow-first on new conversations',
+      'One inbox for WhatsApp + Instagram',
+    ],
+  },
+  {
+    name: 'Google Growth',
+    icon: MapPin,
+    iconBg: 'bg-blue-500',
+    price: '+₹999',
+    priceNote: '/mo',
+    tagline: 'Get found on Google and turn searches into customers.',
+    featured: false,
+    features: [
+      'Google Business Profile management',
+      'Google Ads performance insights',
+      'Local rank tracking by keyword',
+      'Automated review requests & replies',
+    ],
+  },
+];
 
 const DIFFERENTIATORS = [
   {
@@ -181,6 +230,54 @@ export default function MarketingHomePage() {
             <FeatureCard key={item.title} icon={item.icon} title={item.title} description={item.description} />
           ))}
         </div>
+      </Section>
+
+      {/* ── Modules ──────────────────────────────────────────────────────── */}
+      <Section variant="white">
+        <div className="mx-auto max-w-2xl text-center">
+          <Eyebrow>One platform, three products</Eyebrow>
+          <DisplayHeading>Start with WhatsApp. Add channels as you grow.</DisplayHeading>
+          <p className="mt-4 text-base leading-relaxed text-navy-900/60">
+            Core gets you selling on WhatsApp in minutes. Switch on Instagram and Google Growth whenever
+            you&apos;re ready — same inbox, same AI, one bill.
+          </p>
+        </div>
+        <div className="mt-14 grid gap-6 lg:grid-cols-3">
+          {MODULES.map((m) => (
+            <div
+              key={m.name}
+              className={cn(
+                'relative flex flex-col rounded-3xl border bg-white p-7 shadow-sm',
+                m.featured ? 'border-brand-300 ring-1 ring-brand-200' : 'border-navy-900/10',
+              )}
+            >
+              {m.featured && (
+                <span className="absolute -top-3 left-7 rounded-full bg-brand-500 px-3 py-1 text-[11px] font-semibold text-white">Most popular</span>
+              )}
+              <div className={cn('inline-flex h-11 w-11 items-center justify-center rounded-2xl', m.iconBg)}>
+                <m.icon className="h-5 w-5 text-white" />
+              </div>
+              <h3 className="mt-5 font-display text-xl font-semibold text-navy-900">{m.name}</h3>
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <span className="font-display text-3xl font-bold text-navy-900">{m.price}</span>
+                <span className="text-sm text-navy-900/50">{m.priceNote}</span>
+              </div>
+              <p className="mt-3 text-sm leading-relaxed text-navy-900/60">{m.tagline}</p>
+              <ul className="mt-5 space-y-2.5 text-sm text-navy-900/70">
+                {m.features.map((f) => (
+                  <li key={f} className="flex items-start gap-2.5">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" aria-hidden="true" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+        <p className="mt-10 text-center text-sm text-navy-900/55">
+          All three together —{' '}
+          <span className="font-semibold text-navy-900">All-in-One at ₹4,999/month</span>. Every plan starts with a 3-day free trial.
+        </p>
       </Section>
 
       {/* ── How it works ─────────────────────────────────────────────────── */}
