@@ -20,9 +20,17 @@ interface StatusPlan {
   gst_paise: number;
   total_paise: number;
 }
+type TermPrice = { total_paise: number; original_total_paise: number | null };
+interface ModularPricing {
+  core: Record<string, TermPrice>;
+  all_in_one: Record<string, TermPrice>;
+  instagram_addon: Record<string, TermPrice>;
+  google_growth_addon: Record<string, TermPrice>;
+}
 interface StatusResponse {
   plans: StatusPlan[];
   price_matrix: PriceMatrixRow[];
+  modular?: ModularPricing;
   payments_enabled: boolean;
 }
 
@@ -38,6 +46,7 @@ export function OnboardingPlanStep({ workspaceId }: OnboardingPlanStepProps) {
   const router = useRouter();
 
   const [hasInstagram, setHasInstagram] = useState(false);
+  const [hasGoogle, setHasGoogle] = useState(false);
   const [selectedTerm, setSelectedTerm] = useState<Term>('monthly');
   const [activating, setActivating] = useState(false);
   // True once checkout has failed to even start (e.g. the payment gateway isn't
@@ -168,13 +177,29 @@ export function OnboardingPlanStep({ workspaceId }: OnboardingPlanStepProps) {
     );
   }
 
-  const { plans, price_matrix } = data;
-  const igAddOnPlan = plans.find((p) => p.key === 'whatsapp_instagram');
-  const baseOnlyPlan = plans.find((p) => p.key === 'whatsapp');
-  const igAddOnPaise = igAddOnPlan && baseOnlyPlan ? igAddOnPlan.base_paise - baseOnlyPlan.base_paise : null;
+  const modular = data.modular;
+  const ALL_TERMS: Term[] = ['monthly', 'quarterly', 'half_yearly', 'yearly'];
+  const igAddOnPaise = modular?.instagram_addon?.monthly?.total_paise ?? null;
+  const googleAddOnPaise = modular?.google_growth_addon?.monthly?.total_paise ?? null;
 
-  const channelKey = hasInstagram ? 'whatsapp_instagram' : 'whatsapp';
-  const channelRows = price_matrix.filter((r) => r.key === channelKey);
+  // Build per-term price rows for the chosen combination (Core + add-ons, or the
+  // All-in-One bundle when both are selected). Falls back to the legacy matrix if
+  // modular pricing isn't available.
+  const channelRows: PriceMatrixRow[] = modular
+    ? ALL_TERMS.map((t) => {
+        const both = hasInstagram && hasGoogle;
+        const src = both ? modular.all_in_one[t] : modular.core[t];
+        const ig = hasInstagram && !both ? modular.instagram_addon[t] : undefined;
+        const gg = hasGoogle && !both ? modular.google_growth_addon[t] : undefined;
+        const total = (src?.total_paise ?? 0) + (ig?.total_paise ?? 0) + (gg?.total_paise ?? 0);
+        const hasOffer = (src?.original_total_paise ?? null) != null || (ig?.original_total_paise ?? null) != null || (gg?.original_total_paise ?? null) != null;
+        const original = hasOffer
+          ? (src?.original_total_paise ?? src?.total_paise ?? 0) + (ig?.original_total_paise ?? ig?.total_paise ?? 0) + (gg?.original_total_paise ?? gg?.total_paise ?? 0)
+          : null;
+        return { key: 'modular', term: t, months: TERMS[t].months, total_paise: total, original_total_paise: original, label: TERMS[t].label };
+      })
+    : data.price_matrix.filter((r) => r.key === (hasInstagram ? 'whatsapp_instagram' : 'whatsapp'));
+
   const selectedRow = channelRows.find((r) => r.term === selectedTerm) ?? channelRows[0] ?? null;
   const offerSavings =
     selectedRow?.original_total_paise != null && selectedRow.original_total_paise > selectedRow.total_paise
@@ -227,17 +252,32 @@ export function OnboardingPlanStep({ workspaceId }: OnboardingPlanStepProps) {
               <p className="text-sm font-medium text-foreground">Instagram add-on</p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {igAddOnPaise != null
-                  ? `+₹${rupees(igAddOnPaise)}/month for Instagram automation`
+                  ? `+₹${rupees(igAddOnPaise)}/month — DM auto-reply, comments, follow-first`
                   : 'Add Instagram automation to your plan'}
               </p>
             </div>
           </div>
           <Switch
             checked={hasInstagram}
-            onCheckedChange={(v) => {
-              setHasInstagram(v);
-              clearPending();
-            }}
+            onCheckedChange={(v) => { setHasInstagram(v); clearPending(); }}
+          />
+        </div>
+
+        <div className="rounded-xl border border-border p-4 flex items-center justify-between">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Google Growth add-on</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {googleAddOnPaise != null
+                  ? `+₹${rupees(googleAddOnPaise)}/month — Business Profile, Ads, Local Rank, reviews`
+                  : 'Add Google automation to your plan'}
+              </p>
+            </div>
+          </div>
+          <Switch
+            checked={hasGoogle}
+            onCheckedChange={(v) => { setHasGoogle(v); clearPending(); }}
           />
         </div>
 
@@ -284,6 +324,7 @@ export function OnboardingPlanStep({ workspaceId }: OnboardingPlanStepProps) {
         <CheckoutButton
           workspaceId={workspaceId}
           hasInstagram={hasInstagram}
+          hasGoogleGrowth={hasGoogle}
           mode="manual"
           term={selectedTerm}
           label={selectedRow ? `Pay & Activate — ₹${rupees(selectedRow.total_paise)}` : 'Pay & Activate'}

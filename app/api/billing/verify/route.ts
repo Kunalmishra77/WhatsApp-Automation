@@ -16,6 +16,9 @@ interface PaymentRow {
   period_start: string | null;
   period_end: string | null;
   term: string | null;
+  plan_key: string | null;
+  has_instagram: boolean | null;
+  has_google_growth: boolean | null;
 }
 
 // POST /api/billing/verify
@@ -44,7 +47,7 @@ export async function POST(request: NextRequest) {
 
     const { data: paymentData, error: paymentError } = await db
       .from('payments')
-      .select('id, workspace_id, status, invoice_no, base_paise, total_paise, period_start, period_end, term')
+      .select('id, workspace_id, status, invoice_no, base_paise, total_paise, period_start, period_end, term, plan_key, has_instagram, has_google_growth')
       .eq('razorpay_order_id', razorpay_order_id)
       .single();
 
@@ -81,20 +84,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid payment signature' }, { status: 400 });
     }
 
-    // Resolve which plan this payment was for. payments has no plan_key column, so we
-    // recover it from billing_plans via the base amount computeAmounts() was seeded
-    // from at checkout time (base_paise is unique per plan).
-    const { data: planData, error: planError } = await db
-      .from('billing_plans')
-      .select('key, includes_instagram')
-      .eq('base_paise', payment.base_paise)
-      .single();
-
-    if (planError || !planData) {
-      console.error('[Billing Verify] plan lookup failed for base_paise', payment.base_paise, planError);
-      return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    // Resolve what this payment activates. New payments carry plan_key + add-on flags
+    // directly; legacy payments (pre-modular) fall back to recovering the plan from
+    // billing_plans via base_paise (which was unique per plan back then).
+    let planKey = payment.plan_key;
+    let hasInstagram = payment.has_instagram ?? false;
+    let hasGoogle = payment.has_google_growth ?? false;
+    if (!planKey) {
+      const { data: planData, error: planError } = await db
+        .from('billing_plans')
+        .select('key, includes_instagram')
+        .eq('base_paise', payment.base_paise)
+        .limit(1)
+        .maybeSingle();
+      if (planError || !planData) {
+        console.error('[Billing Verify] plan lookup failed for base_paise', payment.base_paise, planError);
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+      }
+      planKey = (planData as { key: string }).key;
+      hasInstagram = (planData as { includes_instagram: boolean }).includes_instagram;
     }
-    const plan = planData as { key: string; includes_instagram: boolean };
 
     // Activate subscription + workspace BEFORE marking the payment 'captured'. If this
     // process crashes between the two steps, the payment is left in 'created' status
@@ -104,11 +113,12 @@ export async function POST(request: NextRequest) {
     const { error: subError } = await db.from('subscriptions').upsert(
       {
         workspace_id: workspaceId,
-        plan_key: plan.key,
+        plan_key: planKey,
         term: payment.term ?? 'monthly',
         mode: 'manual',
         status: 'active',
-        has_instagram: plan.includes_instagram,
+        has_instagram: hasInstagram,
+        has_google_growth: hasGoogle,
         current_period_start: payment.period_start,
         current_period_end: payment.period_end,
         grace_until: null,
@@ -122,9 +132,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 
+    // Clear any trial on conversion to a paid subscription.
     const { error: wsError } = await db
       .from('workspaces')
-      .update({ is_active: true, subscription_status: 'active' })
+      .update({ is_active: true, subscription_status: 'active', trial_ends_at: null })
       .eq('id', workspaceId);
 
     if (wsError) {

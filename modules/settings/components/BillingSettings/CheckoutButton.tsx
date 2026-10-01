@@ -68,6 +68,7 @@ interface RazorpayHandlerResponse {
 interface CheckoutButtonProps {
   workspaceId: string;
   hasInstagram: boolean;
+  hasGoogleGrowth?: boolean;
   mode: 'manual' | 'auto';
   term: Term;
   label: string;
@@ -94,6 +95,7 @@ interface CheckoutButtonProps {
 export function CheckoutButton({
   workspaceId,
   hasInstagram,
+  hasGoogleGrowth = false,
   mode,
   term,
   label,
@@ -124,7 +126,7 @@ export function CheckoutButton({
       const checkoutRes = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId, has_instagram: hasInstagram, mode, term }),
+        body: JSON.stringify({ workspaceId, has_instagram: hasInstagram, has_google_growth: hasGoogleGrowth, mode, term }),
       });
       const checkoutData = (await checkoutRes.json()) as CheckoutResponse;
 

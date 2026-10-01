@@ -90,6 +90,24 @@ export async function GET(request: NextRequest) {
     }
     const planRows = plansData as BillingPlanRow[];
 
+    // Modular pricing (Core + add-ons) for the self-serve checkout. Per-term totals
+    // so the client can preview any combination without extra round trips.
+    const { data: modularData } = await db
+      .from('billing_plans')
+      .select('key, term, total_paise, original_total_paise')
+      .in('key', [PLAN_KEYS.CORE, PLAN_KEYS.ALL_IN_ONE, 'instagram_addon', 'google_growth_addon'])
+      .eq('active', true);
+    const modular = {
+      core: {} as Record<string, { total_paise: number; original_total_paise: number | null }>,
+      all_in_one: {} as Record<string, { total_paise: number; original_total_paise: number | null }>,
+      instagram_addon: {} as Record<string, { total_paise: number; original_total_paise: number | null }>,
+      google_growth_addon: {} as Record<string, { total_paise: number; original_total_paise: number | null }>,
+    };
+    for (const r of ((modularData ?? []) as Array<{ key: string; term: string; total_paise: number; original_total_paise: number | null }>)) {
+      const bucket = (modular as Record<string, Record<string, { total_paise: number; original_total_paise: number | null }>>)[r.key];
+      if (bucket) bucket[r.term] = { total_paise: Number(r.total_paise), original_total_paise: r.original_total_paise != null ? Number(r.original_total_paise) : null };
+    }
+
     // Full price matrix — both channels x all 4 terms — so the client can preview
     // any (channel, term) combination, including the Instagram add-on, without a
     // second round trip.
@@ -156,6 +174,7 @@ export async function GET(request: NextRequest) {
       plan: currentPlan,
       plans,
       price_matrix: priceMatrix,
+      modular,
       payments: payments.map((p) => ({
         invoice_no: p.invoice_no,
         total_paise: p.total_paise,
