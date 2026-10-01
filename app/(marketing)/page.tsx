@@ -113,7 +113,7 @@ export default function MarketingHomePage() {
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
               <Button asChild size="lg" className="bg-brand-500 text-white hover:bg-brand-600 focus-visible:ring-offset-navy-900">
                 <Link href="/signup">
-                  Get Started
+                  Start 3-day free trial
                   <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </Link>
               </Button>
@@ -127,7 +127,7 @@ export default function MarketingHomePage() {
               </Button>
             </div>
             <div className="mt-12 flex flex-wrap gap-x-10 gap-y-6 border-t border-white/10 pt-8">
-              <StatBadge tone="light" value="₹2,999" label="Flat, per month" />
+              <StatBadge tone="light" value="3 days" label="Free trial, no card" />
               <StatBadge tone="light" value="2" label="Channels, one inbox" />
               <StatBadge tone="light" value="Bundled" label="AI agent included" />
             </div>
@@ -218,12 +218,12 @@ export default function MarketingHomePage() {
           </p>
         </div>
         <div className="mx-auto mt-12 max-w-md rounded-3xl border border-navy-900/10 bg-white p-8 shadow-lg shadow-navy-900/5 sm:p-10">
-          <p className="text-sm font-semibold uppercase tracking-wide text-brand-500">WhatsApp Growth</p>
+          <p className="text-sm font-semibold uppercase tracking-wide text-brand-500">Core (WhatsApp)</p>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="font-display text-5xl font-bold text-navy-900">₹2,999</span>
             <span className="text-sm font-medium text-navy-900/50">/ month</span>
           </div>
-          <p className="mt-2 text-sm text-navy-900/50">Excl. 18% GST (₹3,539 incl.) · Instagram add-on available</p>
+          <p className="mt-2 text-sm text-navy-900/50">Excl. 18% GST · + Instagram ₹999 · + Google Growth ₹999 · All-in-One ₹4,999</p>
           <ul className="mt-7 space-y-3 text-sm text-navy-900/70">
             <li className="flex items-center gap-2.5">
               <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />
@@ -243,7 +243,7 @@ export default function MarketingHomePage() {
             </li>
           </ul>
           <Button asChild size="lg" className="mt-8 w-full bg-brand-500 text-white hover:bg-brand-600">
-            <Link href="/signup">Get Started</Link>
+            <Link href="/signup">Start 3-day free trial</Link>
           </Button>
           <Link
             href="/pricing"

@@ -12,7 +12,7 @@ import { FaqAccordion } from '@/modules/marketing/components/FaqAccordion';
 export const metadata: Metadata = {
   title: 'Pricing',
   description:
-    'One flat price for WhatsApp — ₹2,999/month, GST clearly noted, live AI agent bundled in. Add Instagram whenever you’re ready. No hidden Meta markup, no per-agent seats.',
+    'Start free for 3 days. Core WhatsApp automation from ₹2,999/month with a live AI agent bundled in. Add Instagram (+₹999) and Google Growth (+₹999), or get everything in the All-in-One plan at ₹4,999/month. GST clearly noted, no per-agent seats.',
 };
 
 const INCLUDED = [
@@ -63,20 +63,24 @@ const COMPARISON = [
 
 const FAQS = [
   {
-    q: 'Does the ₹2,999 price include GST?',
-    a: 'No — ₹2,999/month is the base price, excluding 18% GST. With GST, that’s ₹3,538.82/month. GST is called out clearly at every term on this page.',
+    q: 'Is there a free trial?',
+    a: 'Yes — every new account starts with a 3-day free trial of the Core plan. No credit card required. You get the WhatsApp AI agent, inbox and CRM (with a small usage cap) so you can see it working before you pay. Add-ons unlock once you subscribe.',
   },
   {
-    q: 'What do the 6-month and yearly terms save me?',
-    a: 'Paying for 6 months upfront brings the WhatsApp plan to ₹15,000 (about 17% off the monthly rate), and yearly brings it to ₹30,000 — both shown with the original price struck through so the saving is obvious.',
+    q: 'How does the pricing work?',
+    a: 'Core (WhatsApp) is ₹2,999/month and includes the live AI agent, shared inbox, CRM and campaigns. Add Instagram automation for +₹999 and Google Growth for +₹999. Take everything together as the All-in-One plan for ₹4,999/month. All prices exclude 18% GST, shown clearly at every term.',
+  },
+  {
+    q: 'What’s in the Instagram and Google Growth add-ons?',
+    a: 'Instagram (+₹999/mo) adds AI auto-reply to DMs, comment-reply and follow-first. Google Growth (+₹999/mo) adds Google Business Profile management, Google Ads insights, local rank tracking and review automation. Toggle them on the card above to see the exact price.',
   },
   {
     q: 'Is the AI agent really included, or is it an extra cost?',
-    a: 'It’s included in every plan and every term. There is no separate "AI add-on" tier — the agent that answers, qualifies, and books is part of the base price.',
+    a: 'It’s included in every plan and every term. There is no separate "AI add-on" tier — the agent that answers, qualifies and books is part of the base Core price.',
   },
   {
-    q: 'How much does adding Instagram cost?',
-    a: 'Instagram DMs bring the plan to ₹3,998/month (again, excluding GST), with the same discounted rates available on the 6-month and yearly terms. Toggle it on the pricing card above to see the exact numbers.',
+    q: 'What do the 6-month and yearly terms save me?',
+    a: 'Longer terms are discounted roughly 17% versus paying monthly — shown with the original price struck through so the saving is obvious. For example, Core yearly is ₹30,000 and All-in-One yearly is ₹49,990.',
   },
   {
     q: 'Are there any hidden fees on top of the plan price?',
@@ -84,7 +88,7 @@ const FAQS = [
   },
   {
     q: 'Can I cancel or change my term later?',
-    a: 'Yes — reach out to support@agentix.in and we’ll help you switch terms or cancel. There’s no long-term lock-in beyond the term you’ve already paid for.',
+    a: 'Yes — reach out to support@agentix.in and we’ll help you switch terms, add or remove modules, or cancel. There’s no long-term lock-in beyond the term you’ve already paid for.',
   },
 ];
 
@@ -98,11 +102,12 @@ export default function PricingPage() {
         <div className="relative mx-auto max-w-2xl text-center">
           <Eyebrow>Pricing</Eyebrow>
           <DisplayHeading as="h1" className="mx-auto text-white">
-            One flat price. Nothing hidden.
+            Start free. Pay only for what you add.
           </DisplayHeading>
           <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-white/70">
-            No per-agent seats, no surprise Meta markup buried in the invoice. Pick your term, add
-            Instagram if you want it, and see exactly what you&apos;ll pay.
+            3 days free, no card required. Start with Core WhatsApp automation, then add Instagram
+            and Google Growth as you need them — or take everything in the ₹4,999 All-in-One plan.
+            No per-agent seats, no surprise Meta markup.
           </p>
         </div>
       </Section>

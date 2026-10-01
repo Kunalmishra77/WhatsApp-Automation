@@ -11,9 +11,9 @@ interface CTABandProps {
 
 /** Recurring orange/navy "start free" band. Reused at the bottom of most marketing pages. */
 export function CTABand({
-  heading = 'Start free — no card to explore.',
-  subcopy = 'Set up your AI agent in minutes and see every conversation land in one inbox.',
-  ctaLabel = 'Get Started',
+  heading = 'Start your 3-day free trial.',
+  subcopy = 'No card required. Set up your AI agent in minutes and see every conversation land in one inbox.',
+  ctaLabel = 'Start 3-day free trial',
   ctaHref = '/signup',
 }: CTABandProps) {
   return (
