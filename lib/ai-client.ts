@@ -18,6 +18,9 @@ interface CallAIOptions {
   maxTokens?: number;
   temperature?: number;
   jsonMode?: boolean;
+  // Usage attribution (for token/cost tracking). Optional — omit for untracked calls.
+  workspaceId?: string | null;
+  task?: string;
 }
 
 interface Provider {
@@ -98,12 +101,18 @@ const MAX_ATTEMPTS = 3;
 // every-few-minutes reply-sweep watchdog regardless.
 const REQUEST_TIMEOUT_MS = 8_000;
 
-// Attempt ONE provider with retries. Returns the reply string on success, or null
+interface ProviderResult {
+  content: string;
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  model?: string;
+}
+
+// Attempt ONE provider with retries. Returns the reply (+ usage) on success, or null
 // if this provider could not produce one (so the caller fails over to the next).
 async function tryProvider(
   provider: Provider,
   body: Record<string, unknown>,
-): Promise<string | null> {
+): Promise<ProviderResult | null> {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -120,9 +129,13 @@ async function tryProvider(
       });
 
       if (res.ok) {
-        const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+        const data = await res.json() as {
+          choices?: Array<{ message?: { content?: string } }>;
+          usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+          model?: string;
+        };
         const content = data.choices?.[0]?.message?.content ?? null;
-        if (content) return content;
+        if (content) return { content, usage: data.usage, model: data.model };
         console.warn(`[AI] ${provider.name} returned empty content — will fail over if another provider exists`);
         return null;
       }
@@ -176,10 +189,18 @@ export async function callAI(
     };
     if (options.jsonMode) body.response_format = { type: 'json_object' };
 
-    const reply = await tryProvider(provider, body);
-    if (reply !== null) {
+    const result = await tryProvider(provider, body);
+    if (result !== null) {
       if (i > 0) console.warn(`[AI] recovered via failover provider ${provider.name}`);
-      return reply;
+      // Record token usage + cost (fire-and-forget; never blocks the reply).
+      void import('@/lib/ai-usage').then(({ logAiUsage }) => logAiUsage({
+        provider: provider.name,
+        model: result.model ?? resolveModel(rawModel, provider.useOpenAI),
+        task: options.task,
+        workspaceId: options.workspaceId ?? null,
+        usage: result.usage,
+      })).catch(() => {});
+      return result.content;
     }
     const next = providers[i + 1];
     if (next) {

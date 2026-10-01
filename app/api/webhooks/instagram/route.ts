@@ -264,7 +264,7 @@ async function handleIncomingDM(db: any, igAccount: IgAccount, ev: IgMessaging) 
     const { getAIReply, fetchKnowledgeBaseContext } = await import('@/lib/ai-reply');
     const kbContext = await fetchKnowledgeBaseContext(db, workspaceId, text);
     const firstName = (senderName?.split(' ')[0]) ?? 'there';
-    const reply = await getAIReply(text, firstName, kbContext, undefined, wsSettings, businessName, history, null);
+    const reply = await getAIReply(text, firstName, kbContext, undefined, wsSettings, businessName, history, null, workspaceId);
 
     const finalReply = reply ?? `Thanks for reaching out to ${businessName}! Our team will get back to you shortly.`;
     const sent = await sendInstagramText(igUserId, accessToken, senderIgsid, finalReply);

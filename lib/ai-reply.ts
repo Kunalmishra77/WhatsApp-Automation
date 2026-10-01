@@ -299,6 +299,7 @@ export async function getAIReply(
   businessName = 'our team',
   conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [],
   intentLabel?: string | null,
+  workspaceId?: string | null,
 ): Promise<string | null> {
   const { getModel } = await import('@/lib/ai-router');
   const model = imageUrl
@@ -474,9 +475,17 @@ Supported languages: English, Hindi, Hinglish (Roman-script Hindi), Marathi, Tam
         console.error(`[AI] OpenRouter vision error ${res.status}:`, errBody);
         return null;
       }
-      const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+      const data = await res.json() as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+        model?: string;
+      };
       const reply = data?.choices?.[0]?.message?.content?.trim() ?? null;
       if (!reply) console.warn('[AI] Empty response from OpenRouter (vision)');
+      // Track vision token usage (fire-and-forget).
+      void import('@/lib/ai-usage').then(({ logAiUsage }) => logAiUsage({
+        provider: 'OpenRouter', model: data.model ?? model, task: 'vision', workspaceId, usage: data.usage,
+      })).catch(() => {});
       return reply;
     } catch (error) {
       console.error('[AI] Vision fetch error:', error);
@@ -497,7 +506,7 @@ Supported languages: English, Hindi, Hinglish (Roman-script Hindi), Marathi, Tam
       ...conversationHistory,
       { role: 'user', content: userContent },
     ];
-    const reply = await callAI(messages, { model, maxTokens: 350, temperature: 0.4 });
+    const reply = await callAI(messages, { model, maxTokens: 350, temperature: 0.4, workspaceId, task: 'auto_reply' });
     if (!reply) console.warn('[AI] Empty response from AI client');
     return reply;
   } catch (error) {

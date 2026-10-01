@@ -1590,7 +1590,7 @@ async function sendAutoReply(
       const confirmPrompt =
         customerName + ' ne payment screenshot bheja hai.' +
         '\n\n[SYSTEM: Customer paid and sent a payment screenshot. Respond warmly in 2-3 lines: (1) confirm screenshot received (2) tell them team will verify payment within a few hours and then process the order (3) thank them for choosing us. Be brief and reassuring. Do NOT ask for more payment details.]';
-      const confirmMsg = await getAIReply(confirmPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+      const confirmMsg = await getAIReply(confirmPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel, workspaceId);
       if (confirmMsg) {
         await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, confirmMsg);
         await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: confirmMsg });
@@ -1650,7 +1650,7 @@ async function sendAutoReply(
         : `${customerMessage}\n\n[SYSTEM: Customer wants to pay online. Provide complete payment instructions from your knowledge base (UPI ID, bank details). Tell them to send payment screenshot. Confirm order in 5-6 working days after payment verification.]`
       ) + noRepeatNote;
 
-      const payMsg = await getAIReply(paymentPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+      const payMsg = await getAIReply(paymentPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel, workspaceId);
       if (payMsg) {
         await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, payMsg);
         await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: payMsg });
@@ -1661,7 +1661,7 @@ async function sendAutoReply(
     if (orderIntent === 'cod') {
       console.log(`[OrderIntent] COD — sending COD confirmation reply (no scanner)`);
       const codPrompt = `${customerMessage}\n\n[SYSTEM: Customer wants Cash on Delivery (COD). Confirm their COD order warmly. Tell them: order will be placed, payment is collected at delivery, delivery takes 5-7 working days. Ask them to confirm their delivery address if not already given. Do NOT ask for any online payment or scanner.]${noRepeatNote}`;
-      const codMsg = await getAIReply(codPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+      const codMsg = await getAIReply(codPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel, workspaceId);
       if (codMsg) {
         await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, codMsg);
         await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: codMsg });
@@ -1693,7 +1693,7 @@ async function sendAutoReply(
       const imageContextPrompt = `${customerMessage}\n\n[SYSTEM: You just sent the customer the product image(s) for: ${sentProductNames}. Do NOT say you will send an image or that you can't send images — they were already delivered above. Write a brief, friendly follow-up: confirm what they're seeing and ask if they'd like pricing or to proceed.]`;
 
       // Start AI reply generation in parallel with image uploads — saves 2-4 seconds
-      const aiReplyPromise = getAIReply(imageContextPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+      const aiReplyPromise = getAIReply(imageContextPrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel, workspaceId);
 
       // Upload + send images (while AI is thinking in parallel)
       let sentCount = 0;
@@ -1735,7 +1735,7 @@ async function sendAutoReply(
     // (Never send random images; wrong images destroy trust)
     {
       const noImagePrompt = `${customerMessage}\n\n[SYSTEM: Customer is asking to see product images. You do NOT have the specific product image in your media library right now. Politely tell them you'll share it shortly OR direct them to your website/catalog to view all product images with photos. Use your persona's website URL if available. Do NOT make up an image URL. Keep it friendly and offer to answer any other questions about the product.]`;
-      const aiReply = await getAIReply(noImagePrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel);
+      const aiReply = await getAIReply(noImagePrompt, name, kbContext, undefined, wsSettings, businessName, conversationHistory, intentLabel, workspaceId);
       const textMsg = aiReply ?? `For detailed product images, please visit our website or catalog. Feel free to ask any questions about the product! 😊`;
       await sendWhatsAppText(ws.phone_number_id, ws.access_token, toPhone, textMsg);
       await saveOutboundMessage(supabase, conversationId, workspaceId, contactId, { type: 'text', content: textMsg });
@@ -1759,7 +1759,7 @@ async function sendAutoReply(
 
   const aiReply = await getAIReply(
     escalationPrefix + customerMessage + repeatNote,
-    name, kbContext, imageUrl, wsSettings, businessName, conversationHistory, intentLabel,
+    name, kbContext, imageUrl, wsSettings, businessName, conversationHistory, intentLabel, workspaceId,
   );
   // Fallback must never claim we didn't receive the image. When the customer sent
   // an image but analysis was unavailable/failed (getAIReply === null), acknowledge

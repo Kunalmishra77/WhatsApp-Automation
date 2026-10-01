@@ -72,6 +72,14 @@ export async function POST(request: NextRequest) {
 
   const db = createAdminClient() as any;
 
+  // AI wallet low-balance alert (fully isolated — never affects billing below).
+  try {
+    const { checkAiBalancesAndAlert } = await import('@/lib/ai-balance-alert');
+    await checkAiBalancesAndAlert(db);
+  } catch (err) {
+    console.error('[billing-sweep] ai-balance check failed (non-fatal):', err);
+  }
+
   const { data: configRow } = await db
     .from('billing_config')
     .select('grace_days, reminder_days_before')
