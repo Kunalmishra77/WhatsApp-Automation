@@ -12,16 +12,16 @@ interface AuthCardProps {
 }
 
 const FEATURES = [
-  { icon: MessageSquare, text: 'WhatsApp CRM & Automation at scale' },
-  { icon: Bot,          text: 'AI chatbot flows that close deals' },
-  { icon: TrendingUp,   text: 'Lead scoring & revenue intelligence' },
-  { icon: Zap,          text: 'Bulk campaigns with real-time analytics' },
+  { icon: MessageSquare, text: 'AI agent on WhatsApp & Instagram' },
+  { icon: Bot,          text: 'Chatbot flows that qualify & close deals' },
+  { icon: TrendingUp,   text: 'Lead scoring, CRM & revenue intelligence' },
+  { icon: Zap,          text: 'Campaigns, Google Business & local growth' },
 ];
 
 const STATS = [
-  { value: '500+',  label: 'Businesses' },
-  { value: '10M+',  label: 'Messages sent' },
-  { value: '99.9%', label: 'Uptime SLA' },
+  { value: '3 days', label: 'Free trial' },
+  { value: '2',      label: 'Channels, one inbox' },
+  { value: 'Minutes', label: 'To go live' },
 ];
 
 export function AuthCard({ children, title, subtitle, className }: AuthCardProps) {
@@ -87,18 +87,18 @@ export function AuthCard({ children, title, subtitle, className }: AuthCardProps
               <div className="inline-flex items-center gap-2 rounded-full bg-brand-500/15 border border-brand-500/20 px-3 py-1.5 mb-6">
                 <span className="h-1.5 w-1.5 rounded-full bg-brand-400 animate-pulse" />
                 <span className="text-xs font-semibold text-brand-300 tracking-wide">
-                  India's #1 AI Automation Partner
+                  AI automation for WhatsApp &amp; Instagram
                 </span>
               </div>
 
               <h1 className="text-3xl xl:text-4xl font-bold leading-tight text-white">
                 Automate your{' '}
-                <span className="text-gradient-brand">WhatsApp sales</span>{' '}
-                with AI
+                <span className="text-gradient-brand">WhatsApp &amp; Instagram</span>{' '}
+                sales with AI
               </h1>
               <p className="mt-4 text-white/50 text-base leading-relaxed max-w-md">
-                Turn every WhatsApp conversation into a closed deal. AI lead scoring,
-                smart flows, bulk campaigns — all in one platform.
+                Turn every conversation into a closed deal: AI replies, lead scoring,
+                campaigns and Google growth. Start free for 3 days.
               </p>
             </motion.div>
 
