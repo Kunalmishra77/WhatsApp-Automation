@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 const NAV_LINKS = [
   { label: 'Features', href: '/features' },
   { label: 'Pricing', href: '/pricing' },
+  { label: 'Free GBP Report', href: '/gbp-report' },
   { label: 'Security', href: '/security' },
   { label: 'Docs', href: '/docs' },
 ];
@@ -51,7 +52,7 @@ export function MarketingNav() {
           />
         </Link>
 
-        <nav className="hidden items-center gap-8 md:flex" aria-label="Primary">
+        <nav className="hidden items-center gap-8 lg:flex" aria-label="Primary">
           {NAV_LINKS.map((link) => (
             <Link key={link.href} href={link.href} className={linkClass}>
               {link.label}
@@ -59,12 +60,12 @@ export function MarketingNav() {
           ))}
         </nav>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden items-center gap-3 lg:flex">
           <Link href="/login" className={linkClass}>
             Log in
           </Link>
           <Button asChild size="sm" className="bg-brand-500 text-white hover:bg-brand-600">
-            <Link href="/signup">Get Started</Link>
+            <Link href="/signup">Start free trial</Link>
           </Button>
         </div>
 
@@ -75,7 +76,7 @@ export function MarketingNav() {
               type="button"
               aria-label="Open menu"
               className={cn(
-                'inline-flex h-10 w-10 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 md:hidden',
+                'inline-flex h-10 w-10 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 lg:hidden',
                 scrolled ? 'text-navy-900' : 'text-white'
               )}
             >
@@ -109,7 +110,7 @@ export function MarketingNav() {
                 </SheetClose>
                 <SheetClose asChild>
                   <Button asChild className="bg-brand-500 text-white hover:bg-brand-600">
-                    <Link href="/signup">Get Started</Link>
+                    <Link href="/signup">Start free trial</Link>
                   </Button>
                 </SheetClose>
               </div>
