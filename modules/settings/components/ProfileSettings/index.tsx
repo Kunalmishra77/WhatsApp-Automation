@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
+import { Camera, Loader2 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { createClient } from '@/services/supabase/client';
 import { toast } from 'sonner';
@@ -20,7 +21,40 @@ type FormValues = z.infer<typeof schema>;
 
 export function ProfileSettings() {
   const user = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
   const initials = (user?.full_name ?? 'U').slice(0, 2).toUpperCase();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file
+    if (!file || !user) return;
+    if (!file.type.startsWith('image/')) { toast.error('Please choose an image'); return; }
+    if (file.size > 5 * 1024 * 1024) { toast.error('Image must be under 5 MB'); return; }
+
+    setUploading(true);
+    try {
+      const supabase = createClient() as any;
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+      const path = `avatars/${user.id}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('media-uploads')
+        .upload(path, file, { upsert: true, cacheControl: '3600', contentType: file.type });
+      if (upErr) { toast.error('Upload failed — please try again'); return; }
+
+      const { data: { publicUrl } } = supabase.storage.from('media-uploads').getPublicUrl(path);
+      const { error: updErr } = await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id);
+      if (updErr) { toast.error('Could not save your photo'); return; }
+
+      setUser({ ...user, avatar_url: publicUrl });
+      toast.success('Profile photo updated');
+    } catch {
+      toast.error('Upload failed — please try again');
+    } finally {
+      setUploading(false);
+    }
+  }
 
   const { register, handleSubmit, reset, formState: { errors, isSubmitting, isDirty } } =
     useForm<FormValues>({
@@ -53,15 +87,35 @@ export function ProfileSettings() {
       <Separator />
 
       <div className="flex items-center gap-4">
-        <Avatar className="h-16 w-16">
-          <AvatarImage src={user?.avatar_url ?? undefined} />
-          <AvatarFallback className="bg-brand-100 text-brand-700 text-xl font-semibold">
-            {initials}
-          </AvatarFallback>
-        </Avatar>
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          className="group relative rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
+          title="Change profile photo"
+        >
+          <Avatar className="h-16 w-16">
+            <AvatarImage src={user?.avatar_url ?? undefined} />
+            <AvatarFallback className="bg-brand-100 text-brand-700 text-xl font-semibold">
+              {initials}
+            </AvatarFallback>
+          </Avatar>
+          <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+            {uploading ? <Loader2 className="h-5 w-5 animate-spin text-white" /> : <Camera className="h-5 w-5 text-white" />}
+          </span>
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
         <div>
           <p className="text-sm font-medium text-foreground">{user?.full_name}</p>
           <p className="text-xs text-muted-foreground">{user?.email}</p>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="mt-1 text-xs font-medium text-brand-600 hover:text-brand-700 disabled:opacity-50"
+          >
+            {uploading ? 'Uploading…' : 'Change photo'}
+          </button>
         </div>
       </div>
 
