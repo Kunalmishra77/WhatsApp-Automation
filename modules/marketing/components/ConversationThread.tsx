@@ -16,8 +16,19 @@ interface ConversationThreadProps {
   pipeline?: string[];
   /** Smaller phone frame for use alongside 2-3 threads in a row. */
   compact?: boolean;
+  /** Which channel this thread represents — changes the header badge. */
+  channel?: 'whatsapp' | 'instagram';
+  /** Header display name (defaults to "AGENTiX Assistant"). */
+  headerName?: string;
+  /** Show an "agent is typing…" indicator after the last turn for a live feel. */
+  typing?: boolean;
   className?: string;
 }
+
+const CHANNEL_META = {
+  whatsapp:  { label: 'WhatsApp',  dot: 'bg-emerald-400' },
+  instagram: { label: 'Instagram', dot: 'bg-fuchsia-400' },
+} as const;
 
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
@@ -43,7 +54,8 @@ function usePrefersReducedMotion(): boolean {
  * a live browser; it never gates whether the conversation content exists. Static (no
  * animation) under prefers-reduced-motion.
  */
-export function ConversationThread({ turns, pipeline, compact = false, className }: ConversationThreadProps) {
+export function ConversationThread({ turns, pipeline, compact = false, channel = 'whatsapp', headerName = 'AGENTiX Assistant', typing = false, className }: ConversationThreadProps) {
+  const ch = CHANNEL_META[channel];
   const containerRef = useRef<HTMLDivElement>(null);
   const [played, setPlayed] = useState(false);
   const reducedMotion = usePrefersReducedMotion();
@@ -83,10 +95,14 @@ export function ConversationThread({ turns, pipeline, compact = false, className
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-500 text-xs font-bold text-white">
             AI
           </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-white">AGENTiX Assistant</p>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-white">{headerName}</p>
             <p className="text-[11px] text-white/45">online</p>
           </div>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-[10px] font-semibold text-white/70">
+            <span className={cn('h-1.5 w-1.5 rounded-full', ch.dot)} />
+            {ch.label}
+          </span>
         </div>
 
         {/* messages — always rendered; the reveal animation is a non-gating enhancement */}
@@ -99,6 +115,19 @@ export function ConversationThread({ turns, pipeline, compact = false, className
           {turns.map((turn, i) => (
             <ChatBubble key={i} turn={turn} animate={animate} play={played} index={i} />
           ))}
+          {typing && (
+            <div className="flex justify-start">
+              <div className="flex items-center gap-1 rounded-2xl rounded-tl-sm bg-white px-3 py-2.5 shadow-sm">
+                {[0, 1, 2].map((d) => (
+                  <span
+                    key={d}
+                    className="h-1.5 w-1.5 rounded-full bg-navy-900/40"
+                    style={reducedMotion ? undefined : { animation: 'pulse 1.2s ease-in-out infinite', animationDelay: `${d * 160}ms` }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

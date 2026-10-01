@@ -153,11 +153,12 @@ export default function MarketingHomePage() {
           <div>
             <Eyebrow>Live AI agent for WhatsApp + Instagram</Eyebrow>
             <DisplayHeading as="h1" className="text-white">
-              Every customer, answered in seconds.
+              Your AI closes the deal while you sleep.
             </DisplayHeading>
             <p className="mt-6 max-w-lg text-lg leading-relaxed text-white/70">
-              AGENTiX bundles a real AI agent that answers, qualifies, and books on WhatsApp and Instagram —
-              while every conversation lands in one inbox with a CRM that already knows who&apos;s hot.
+              A real AI agent answers, qualifies and books across WhatsApp and Instagram —
+              every conversation in one inbox, with a CRM that already knows who&apos;s hot.
+              Watch it work on the right.
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
               <Button asChild size="lg" className="bg-brand-500 text-white hover:bg-brand-600 focus-visible:ring-offset-navy-900">
@@ -184,15 +185,15 @@ export default function MarketingHomePage() {
 
           <ConversationThread
             className="lg:justify-self-end"
+            channel="whatsapp"
+            headerName="New lead · +91 98•• ••21"
+            typing
             pipeline={['Lead', 'Hot', 'Booked']}
             turns={[
-              { from: 'customer', text: 'Do you have an appointment tomorrow?' },
-              {
-                from: 'agent',
-                text: 'Yes! I have a 4:30 PM slot open tomorrow. Want me to book it for you?',
-              },
-              { from: 'customer', text: 'Yes please, book it.' },
-              { from: 'agent', text: "Done! You're confirmed for tomorrow, 4:30 PM. See you then." },
+              { from: 'customer', text: 'Hi, saw your ad. How much is the treatment?' },
+              { from: 'agent', text: 'Hi! 😊 It starts at ₹4,999 and includes a free consultation. Would you like to book a slot this week?' },
+              { from: 'customer', text: 'Yes, tomorrow evening works.' },
+              { from: 'agent', text: 'Perfect — you’re booked for tomorrow 5:30 PM ✅ I’ve sent a confirmation. See you then!' },
             ]}
           />
         </div>
