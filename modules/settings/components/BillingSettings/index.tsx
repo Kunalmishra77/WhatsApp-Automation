@@ -6,7 +6,7 @@ import { useWorkspaceStore } from '@/store/workspace.store';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Camera, RefreshCw } from 'lucide-react';
+import { Camera, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { rupees, TERMS, type Term } from '@/lib/billing';
 import { cn } from '@/lib/utils';
 import { CheckoutButton } from './CheckoutButton';
@@ -40,11 +40,19 @@ interface StatusPayment {
   period_start: string | null;
   period_end: string | null;
 }
+type TermPrice = { total_paise: number; original_total_paise: number | null };
+interface ModularPricing {
+  core: Record<string, TermPrice>;
+  all_in_one: Record<string, TermPrice>;
+  instagram_addon: Record<string, TermPrice>;
+  google_growth_addon: Record<string, TermPrice>;
+}
 interface StatusResponse {
-  subscription: StatusSubscription | null;
+  subscription: (StatusSubscription & { has_google_growth?: boolean }) | null;
   plan: StatusPlan;
   plans: StatusPlan[];
   price_matrix: PriceMatrixRow[];
+  modular?: ModularPricing;
   payments: StatusPayment[];
 }
 
@@ -81,11 +89,13 @@ export function BillingSettings() {
   // subscription yet). Changing them only changes what the *next* checkout charges
   // for — neither is applied on its own.
   const [hasInstagram, setHasInstagram] = useState(false);
+  const [hasGoogle, setHasGoogle] = useState(false);
   const [selectedTerm, setSelectedTerm] = useState<Term>('monthly');
   const seededRef = useRef(false);
   useEffect(() => {
     if (data && !seededRef.current) {
       setHasInstagram(data.subscription?.has_instagram ?? false);
+      setHasGoogle(data.subscription?.has_google_growth ?? false);
       setSelectedTerm(data.subscription?.term ?? 'monthly');
       seededRef.current = true;
     }
@@ -126,28 +136,39 @@ export function BillingSettings() {
     );
   }
 
-  const { subscription, plans, price_matrix, payments } = data;
+  const { subscription, price_matrix, payments } = data;
+  const modular = data.modular;
   const status: SubStatus = subscription?.status ?? 'pending';
   const badge = subscription ? STATUS_BADGE[status] : { label: 'No active plan', className: 'bg-gray-100 text-gray-600 border-0' };
-  const igAddOnPlan = plans.find((p) => p.key === 'whatsapp_instagram');
-  const baseOnlyPlan = plans.find((p) => p.key === 'whatsapp');
-  const igAddOnPaise = igAddOnPlan && baseOnlyPlan ? igAddOnPlan.base_paise - baseOnlyPlan.base_paise : null;
+  const igAddOnPaise = modular?.instagram_addon?.monthly?.total_paise ?? null;
+  const googleAddOnPaise = modular?.google_growth_addon?.monthly?.total_paise ?? null;
   const isAutoPay = subscription?.mode === 'auto';
 
-  // Term selector + offer preview, scoped to whichever channel the Instagram toggle
-  // currently reflects — switching the toggle recomputes this without a refetch.
-  const channelKey = hasInstagram ? 'whatsapp_instagram' : 'whatsapp';
-  const channelRows = price_matrix.filter((r) => r.key === channelKey);
+  // Build per-term price rows for the chosen combination (Core + add-ons, or the
+  // All-in-One bundle when both are selected). Falls back to the legacy matrix.
+  const ALL_TERMS: Term[] = ['monthly', 'quarterly', 'half_yearly', 'yearly'];
+  const channelRows: PriceMatrixRow[] = modular
+    ? ALL_TERMS.map((t) => {
+        const both = hasInstagram && hasGoogle;
+        const src = both ? modular.all_in_one[t] : modular.core[t];
+        const ig = hasInstagram && !both ? modular.instagram_addon[t] : undefined;
+        const gg = hasGoogle && !both ? modular.google_growth_addon[t] : undefined;
+        const total = (src?.total_paise ?? 0) + (ig?.total_paise ?? 0) + (gg?.total_paise ?? 0);
+        const hasOffer = (src?.original_total_paise ?? null) != null || (ig?.original_total_paise ?? null) != null || (gg?.original_total_paise ?? null) != null;
+        const original = hasOffer
+          ? (src?.original_total_paise ?? src?.total_paise ?? 0) + (ig?.original_total_paise ?? ig?.total_paise ?? 0) + (gg?.original_total_paise ?? gg?.total_paise ?? 0)
+          : null;
+        return { key: 'modular', term: t, months: TERMS[t].months, total_paise: total, original_total_paise: original, label: TERMS[t].label };
+      })
+    : price_matrix.filter((r) => r.key === (hasInstagram ? 'whatsapp_instagram' : 'whatsapp'));
   const selectedRow = channelRows.find((r) => r.term === selectedTerm) ?? channelRows[0] ?? null;
   const selectedOfferSavings =
     selectedRow?.original_total_paise != null && selectedRow.original_total_paise > selectedRow.total_paise
       ? selectedRow.original_total_paise - selectedRow.total_paise
       : null;
 
-  // Header label tracks the live channel + selected term (not the legacy
-  // monthly-only plan name) so it doesn't still say "Monthly" after picking
-  // a different term below.
-  const channelLabel = hasInstagram ? 'WhatsApp + Instagram' : 'WhatsApp';
+  // Header label tracks the live combination + selected term.
+  const channelLabel = hasInstagram && hasGoogle ? 'All-in-One' : hasInstagram ? 'Core + Instagram' : hasGoogle ? 'Core + Google Growth' : 'Core (WhatsApp)';
   const planHeaderLabel = selectedRow ? `${channelLabel} — ${TERMS[selectedRow.term].label}` : channelLabel;
 
   return (
@@ -207,11 +228,25 @@ export function BillingSettings() {
           <div>
             <p className="text-sm font-medium text-foreground">Instagram add-on</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {igAddOnPaise != null ? `+₹${rupees(igAddOnPaise)}/month for Instagram automation` : 'Add Instagram automation to your plan'}
+              {igAddOnPaise != null ? `+₹${rupees(igAddOnPaise)}/month — DM auto-reply, comments, follow-first` : 'Add Instagram automation to your plan'}
             </p>
           </div>
         </div>
         <Switch checked={hasInstagram} onCheckedChange={setHasInstagram} />
+      </div>
+
+      {/* Google Growth add-on */}
+      <div className="rounded-xl border border-border p-4 flex items-center justify-between">
+        <div className="flex items-start gap-3">
+          <CheckCircle2 className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-foreground">Google Growth add-on</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {googleAddOnPaise != null ? `+₹${rupees(googleAddOnPaise)}/month — Business Profile, Ads, Local Rank, reviews` : 'Add Google automation to your plan'}
+            </p>
+          </div>
+        </div>
+        <Switch checked={hasGoogle} onCheckedChange={setHasGoogle} />
       </div>
 
       {/* Payment mode + actions */}
@@ -238,6 +273,7 @@ export function BillingSettings() {
           <CheckoutButton
             workspaceId={workspaceId}
             hasInstagram={hasInstagram}
+            hasGoogleGrowth={hasGoogle}
             mode="manual"
             term={selectedTerm}
             label={selectedRow ? `Pay Now — ₹${rupees(selectedRow.total_paise)}` : 'Pay Now'}
@@ -249,6 +285,7 @@ export function BillingSettings() {
             <CheckoutButton
               workspaceId={workspaceId}
               hasInstagram={hasInstagram}
+              hasGoogleGrowth={hasGoogle}
               mode="auto"
               term={selectedTerm}
               label="Enable auto-pay"

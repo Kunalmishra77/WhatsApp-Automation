@@ -10,6 +10,7 @@ interface SubscriptionRow {
   status: string;
   mode: string;
   has_instagram: boolean;
+  has_google_growth: boolean;
   term: Term;
   current_period_start: string | null;
   current_period_end: string | null;
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
 
     const { data: subData, error: subError } = await db
       .from('subscriptions')
-      .select('plan_key, status, mode, has_instagram, term, current_period_start, current_period_end')
+      .select('plan_key, status, mode, has_instagram, has_google_growth, term, current_period_start, current_period_end')
       .eq('workspace_id', workspaceId)
       .maybeSingle();
 
@@ -166,6 +167,7 @@ export async function GET(request: NextRequest) {
             status: subscription.status,
             mode: subscription.mode,
             has_instagram: subscription.has_instagram,
+            has_google_growth: subscription.has_google_growth,
             term: subscription.term,
             current_period_start: subscription.current_period_start,
             current_period_end: subscription.current_period_end,
