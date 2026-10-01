@@ -30,6 +30,14 @@ const FOOTER_COLUMNS: { title: string; links: { label: string; href: string }[] 
     links: [
       { label: 'FAQ', href: '/faq' },
       { label: 'Docs', href: '/docs' },
+      { label: 'Free GBP Report', href: '/gbp-report' },
+    ],
+  },
+  {
+    title: 'Get started',
+    links: [
+      { label: 'Start free trial', href: '/signup' },
+      { label: 'Sign in', href: '/login' },
     ],
   },
 ];
@@ -38,7 +46,7 @@ export function MarketingFooter() {
   return (
     <footer className="bg-navy-900 text-white">
       <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-2 gap-x-8 gap-y-10 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-10 sm:grid-cols-3 lg:grid-cols-7">
           <div className="col-span-2 sm:col-span-3 lg:col-span-2">
             <Image src="/agentix-wordmark-white.png" alt="AGENTiX" width={160} height={40} className="h-9 w-auto" />
             <p className="mt-4 max-w-xs text-sm text-white/50">AI Applied, Growth Multiplied.</p>

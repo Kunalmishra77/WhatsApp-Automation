@@ -8,9 +8,34 @@ import { FeatureCard } from '@/modules/marketing/components/FeatureCard';
 import { StatBadge } from '@/modules/marketing/components/StatBadge';
 import { CTABand } from '@/modules/marketing/components/CTABand';
 import { ConversationThread, type ConversationTurn } from '@/modules/marketing/components/ConversationThread';
+import { FaqAccordion } from '@/modules/marketing/components/FaqAccordion';
 import { cn } from '@/lib/utils';
 
 const CLIENTS = ['Umang Hospital', 'Razorveda', 'Fitness First', 'Skinwise', 'VMS'];
+
+const BUILT_ON = ['Meta WhatsApp Business API', 'Instagram Graph API', 'Google Business & Ads', 'Razorpay', 'OpenAI'];
+
+const INDUSTRIES = [
+  { emoji: '🏥', name: 'Clinics & Hospitals' },
+  { emoji: '💇', name: 'Salons & Spas' },
+  { emoji: '🏋️', name: 'Gyms & Fitness' },
+  { emoji: '🍽️', name: 'Restaurants & Cafés' },
+  { emoji: '🏠', name: 'Real Estate' },
+  { emoji: '🛍️', name: 'Retail & D2C' },
+  { emoji: '🎓', name: 'Education & Coaching' },
+  { emoji: '🏨', name: 'Hotels & Travel' },
+  { emoji: '💊', name: 'Pharma & Wellness' },
+  { emoji: '🔧', name: 'Local Services' },
+];
+
+const HOME_FAQS = [
+  { q: 'Do I need technical skills to set it up?', a: 'No. Sign up, connect your WhatsApp number (and Instagram if you want), and your AI agent is live in minutes — we guide you through every step.' },
+  { q: 'Is there a free trial?', a: 'Yes — every account starts with a 3-day free trial of the Core plan. No credit card required.' },
+  { q: 'Which channels does it work on?', a: 'WhatsApp and Instagram today, both in one shared inbox. Google Business Profile, Ads and local-rank tools come with the Google Growth add-on.' },
+  { q: 'Will the AI stay on-topic for my business?', a: 'Yes. The agent only talks about your business, products and services — it politely declines anything off-topic, and answers from your own knowledge base.' },
+  { q: 'How is pricing structured?', a: 'Core (WhatsApp) is ₹2,999/mo. Add Instagram (+₹999) and Google Growth (+₹999), or take everything as All-in-One at ₹4,999/mo. All prices exclude 18% GST.' },
+  { q: 'Can I add or remove modules later?', a: 'Anytime — from Settings → Billing. Your plan and invoice update to match immediately.' },
+];
 
 const MODULES = [
   {
@@ -214,6 +239,15 @@ export default function MarketingHomePage() {
             </span>
           ))}
         </div>
+
+        <p className="mt-12 text-center text-xs font-semibold uppercase tracking-[0.2em] text-navy-900/40">
+          Built on the platforms you already trust
+        </p>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
+          {BUILT_ON.map((p) => (
+            <span key={p} className="text-sm font-semibold text-navy-900/45">{p}</span>
+          ))}
+        </div>
       </Section>
 
       {/* ── Differentiators ──────────────────────────────────────────────── */}
@@ -305,6 +339,63 @@ export default function MarketingHomePage() {
         </div>
       </Section>
 
+      {/* ── Industries ───────────────────────────────────────────────────── */}
+      <Section variant="warm">
+        <div className="mx-auto max-w-2xl text-center">
+          <Eyebrow>Built for your business</Eyebrow>
+          <DisplayHeading>Loved across every kind of local business.</DisplayHeading>
+          <p className="mt-4 text-base leading-relaxed text-navy-900/60">
+            The AI agent, templates and flows adapt to your industry — pick your type during setup and
+            start with ready-made replies and campaigns.
+          </p>
+        </div>
+        <div className="mt-12 flex flex-wrap justify-center gap-3">
+          {INDUSTRIES.map((ind) => (
+            <span
+              key={ind.name}
+              className="inline-flex items-center gap-2 rounded-full border border-navy-900/10 bg-white px-4 py-2.5 text-sm font-medium text-navy-900/75 shadow-sm"
+            >
+              <span aria-hidden="true">{ind.emoji}</span>
+              {ind.name}
+            </span>
+          ))}
+        </div>
+      </Section>
+
+      {/* ── Free GBP Report (lead magnet) ────────────────────────────────── */}
+      <Section variant="white">
+        <div className="mx-auto max-w-4xl overflow-hidden rounded-3xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-8 shadow-sm sm:p-12">
+          <div className="grid items-center gap-8 lg:grid-cols-[1.3fr_1fr]">
+            <div>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-500/10 px-3 py-1 text-xs font-semibold text-brand-700">
+                Free tool
+              </span>
+              <h3 className="mt-4 font-display text-2xl font-bold text-navy-900 sm:text-3xl">
+                Free Google Business Profile report
+              </h3>
+              <p className="mt-3 text-base leading-relaxed text-navy-900/60">
+                See exactly how your business shows up on Google — rating, reviews, photos, response rate —
+                and the quick wins that get you more calls. No signup, takes 30 seconds.
+              </p>
+              <Button asChild size="lg" className="mt-6 bg-brand-500 text-white hover:bg-brand-600">
+                <Link href="/gbp-report">
+                  Get my free report
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+              </Button>
+            </div>
+            <ul className="space-y-3 text-sm text-navy-900/70">
+              {['Your Google rating & review count', 'Profile completeness score', 'What competitors are doing better', 'Actionable fixes, prioritised'].map((f) => (
+                <li key={f} className="flex items-start gap-2.5">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" aria-hidden="true" />
+                  {f}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </Section>
+
       {/* ── Pricing teaser ───────────────────────────────────────────────── */}
       <Section variant="warm">
         <div className="mx-auto max-w-lg text-center">
@@ -349,6 +440,17 @@ export default function MarketingHomePage() {
           >
             See full pricing &amp; comparison →
           </Link>
+        </div>
+      </Section>
+
+      {/* ── FAQ ──────────────────────────────────────────────────────────── */}
+      <Section variant="white">
+        <div className="mx-auto max-w-2xl text-center">
+          <Eyebrow>Questions</Eyebrow>
+          <DisplayHeading>Everything you want to know.</DisplayHeading>
+        </div>
+        <div className="mx-auto mt-12 max-w-2xl">
+          <FaqAccordion items={HOME_FAQS} />
         </div>
       </Section>
 
