@@ -90,9 +90,10 @@ export function AiTokensDashboard() {
         </div>
       </div>
 
-      {/* Wallet */}
+      {/* Wallet — hide providers that aren't configured/used (e.g. OpenRouter when
+          running OpenAI-only). They reappear automatically once configured. */}
       <div className="grid gap-4 sm:grid-cols-2">
-        {(data?.wallet ?? []).map((w) => (
+        {(data?.wallet ?? []).filter((w) => w.source !== 'unset' || w.provider === 'OpenAI').map((w) => (
           <div key={w.provider} className={`rounded-2xl border p-5 shadow-sm ${w.low ? 'border-red-200 bg-red-50' : 'border-gray-100 bg-white'}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -101,8 +102,10 @@ export function AiTokensDashboard() {
               </div>
               {w.low && <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700"><AlertTriangle className="h-3 w-3" /> Low — recharge</span>}
             </div>
-            <p className="mt-3 text-3xl font-bold text-gray-900">{usd(w.remaining)}</p>
-            <p className="mt-1 text-xs text-gray-500">{w.note ?? `Alert below $${w.threshold.toFixed(2)} · ${w.source}`}</p>
+            <p className={`mt-3 text-3xl font-bold ${w.remaining == null ? 'text-gray-300' : 'text-gray-900'}`}>
+              {w.remaining == null ? 'Not set' : usd(w.remaining)}
+            </p>
+            <p className="mt-1 text-xs text-gray-500">{w.remaining != null ? `Remaining balance · alert below $${w.threshold.toFixed(2)}` : (w.note ?? '')}</p>
             {w.provider === 'OpenAI' && (
               <div className="mt-3 flex gap-2">
                 <input value={oaBalance} onChange={(e) => setOaBalance(e.target.value)} placeholder="Set balance after recharge ($)" className="h-8 flex-1 rounded-md border border-gray-200 px-2 text-xs" />
