@@ -16,7 +16,24 @@ interface UsageResponse {
   by_workspace: WorkspaceRow[];
 }
 
-const usd = (n: number | null | undefined) => (n == null ? '—' : `$${Number(n).toFixed(2)}`);
+// Approx USD→INR for a concrete "paisa" view. Display-only; actual billing is in USD.
+const USD_TO_INR = 84;
+
+function usd(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(Number(n))) return '—';
+  const v = Number(n);
+  if (v === 0) return '$0';
+  const abs = Math.abs(v);
+  if (abs < 0.01) return `$${v.toFixed(4)}`;
+  if (abs < 1) return `$${v.toFixed(3)}`;
+  return `$${v.toFixed(2)}`;
+}
+function inr(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(Number(n))) return '';
+  const v = Number(n) * USD_TO_INR;
+  if (v === 0) return '₹0';
+  return `₹${v < 1 ? v.toFixed(2) : v.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+}
 const num = (n: number | null | undefined) => (n == null ? '0' : Number(n).toLocaleString('en-IN'));
 
 const post = (url: string, body: unknown) =>
@@ -99,14 +116,14 @@ export function AiTokensDashboard() {
       {/* Totals */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         {[
-          { label: 'Total cost', value: usd(totals.cost_usd), icon: Coins },
-          { label: 'Total tokens', value: num(totals.total_tokens), icon: Cpu },
-          { label: 'AI calls', value: num(totals.calls), icon: RefreshCw },
+          { label: 'Total cost', value: usd(totals.cost_usd), sub: `≈ ${inr(totals.cost_usd)}`, icon: Coins },
+          { label: 'Total tokens', value: num(totals.total_tokens), sub: '', icon: Cpu },
+          { label: 'AI calls', value: num(totals.calls), sub: '', icon: RefreshCw },
         ].map((k) => (
           <div key={k.label} className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
             <k.icon className="h-4 w-4 text-gray-300" />
             {isLoading ? <div className="mt-2 h-7 w-20 animate-pulse rounded bg-gray-100" /> : <p className="mt-2 text-2xl font-bold text-gray-900 tabular-nums">{k.value}</p>}
-            <p className="text-sm text-gray-500 mt-0.5">{k.label}</p>
+            <p className="text-sm text-gray-500 mt-0.5">{k.label}{k.sub ? <span className="text-gray-400"> · {k.sub}</span> : null}</p>
           </div>
         ))}
       </div>

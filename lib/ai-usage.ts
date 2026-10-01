@@ -66,20 +66,50 @@ export async function logAiUsage(input: LogUsageInput): Promise<void> {
   }
 }
 
-// Live OpenRouter wallet. Returns remaining USD, or null if unavailable.
+export function isOpenRouterConfigured(): boolean {
+  return Boolean(process.env.OPENROUTER_API_KEY?.replace(/﻿/g, '').trim());
+}
+
+// Live OpenRouter wallet. Tries /credits (prepaid credits) first, then /auth/key
+// (usage vs limit) as a fallback. Returns remaining USD, or null if the key is
+// missing or both endpoints fail (errors are logged so we can see why).
 export async function fetchOpenRouterBalance(): Promise<{ remaining: number; totalCredits: number; totalUsage: number } | null> {
   const key = process.env.OPENROUTER_API_KEY?.replace(/﻿/g, '').trim();
   if (!key) return null;
+  const headers = { Authorization: `Bearer ${key}` };
+
+  // Preferred: prepaid credits endpoint.
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/credits', {
-      headers: { Authorization: `Bearer ${key}` },
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as { data?: { total_credits?: number; total_usage?: number } };
-    const totalCredits = Number(data.data?.total_credits ?? 0);
-    const totalUsage = Number(data.data?.total_usage ?? 0);
-    return { remaining: totalCredits - totalUsage, totalCredits, totalUsage };
-  } catch {
-    return null;
+    const res = await fetch('https://openrouter.ai/api/v1/credits', { headers });
+    if (res.ok) {
+      const data = await res.json() as { data?: { total_credits?: number; total_usage?: number } };
+      const tc = Number(data.data?.total_credits);
+      const tu = Number(data.data?.total_usage);
+      if (Number.isFinite(tc) && Number.isFinite(tu)) return { remaining: tc - tu, totalCredits: tc, totalUsage: tu };
+    } else {
+      console.error('[ai-usage] OpenRouter /credits failed:', res.status, (await res.text()).slice(0, 200));
+    }
+  } catch (e) {
+    console.error('[ai-usage] OpenRouter /credits error:', e instanceof Error ? e.message : e);
   }
+
+  // Fallback: key-info endpoint (usage + optional limit).
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/auth/key', { headers });
+    if (res.ok) {
+      const data = await res.json() as { data?: { usage?: number; limit?: number | null } };
+      const usage = Number(data.data?.usage ?? 0);
+      const limit = data.data?.limit;
+      if (limit != null && Number.isFinite(Number(limit))) {
+        return { remaining: Number(limit) - usage, totalCredits: Number(limit), totalUsage: usage };
+      }
+      // Pay-as-you-go (no limit) — remaining is effectively uncapped; report usage only.
+      return { remaining: Number.POSITIVE_INFINITY, totalCredits: Number.POSITIVE_INFINITY, totalUsage: usage };
+    }
+    console.error('[ai-usage] OpenRouter /auth/key failed:', res.status, (await res.text()).slice(0, 200));
+  } catch (e) {
+    console.error('[ai-usage] OpenRouter /auth/key error:', e instanceof Error ? e.message : e);
+  }
+
+  return null;
 }

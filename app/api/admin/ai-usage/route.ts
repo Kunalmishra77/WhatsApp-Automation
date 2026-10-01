@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requirePlatformAdmin } from '@/lib/require-platform-admin';
 import { AuthzError, authzResponse } from '@/lib/authz';
-import { fetchOpenRouterBalance } from '@/lib/ai-usage';
+import { fetchOpenRouterBalance, isOpenRouterConfigured } from '@/lib/ai-usage';
 
 export const runtime = 'nodejs';
 
@@ -40,12 +40,16 @@ export async function GET(request: NextRequest) {
     // OpenRouter — live from its API.
     const orBal = balances.find((b) => b.provider === 'OpenRouter');
     const orThreshold = orBal?.low_threshold_usd ?? 5;
-    if (orLive) {
-      // Cache for the cron.
+    if (orLive && Number.isFinite(orLive.remaining)) {
       await db.from('ai_provider_balances').update({ balance_usd: orLive.remaining, balance_set_at: toISO, updated_at: toISO }).eq('provider', 'OpenRouter');
-      wallet.push({ provider: 'OpenRouter', remaining: Number(orLive.remaining.toFixed(2)), source: 'live', low: orLive.remaining < orThreshold, threshold: orThreshold });
+      wallet.push({ provider: 'OpenRouter', remaining: Number(orLive.remaining.toFixed(4)), source: 'live', note: `Used $${orLive.totalUsage.toFixed(2)} of $${orLive.totalCredits.toFixed(2)}`, low: orLive.remaining < orThreshold, threshold: orThreshold });
+    } else if (orLive) {
+      // Pay-as-you-go (no credit limit) — no cap to run low against.
+      wallet.push({ provider: 'OpenRouter', remaining: null, source: 'live', note: `Pay-as-you-go · $${orLive.totalUsage.toFixed(2)} used`, low: false, threshold: orThreshold });
+    } else if (!isOpenRouterConfigured()) {
+      wallet.push({ provider: 'OpenRouter', remaining: null, source: 'unset', note: 'Not configured — you are using OpenAI only. Add OPENROUTER_API_KEY to enable failover + live balance.', low: false, threshold: orThreshold });
     } else {
-      wallet.push({ provider: 'OpenRouter', remaining: orBal?.balance_usd ?? null, source: 'cached', note: 'Live balance unavailable', low: (orBal?.balance_usd ?? Infinity) < orThreshold, threshold: orThreshold });
+      wallet.push({ provider: 'OpenRouter', remaining: orBal?.balance_usd ?? null, source: 'cached', note: 'Live balance temporarily unavailable — check the OpenRouter key.', low: (orBal?.balance_usd ?? Infinity) < orThreshold, threshold: orThreshold });
     }
 
     // OpenAI — no public balance API; admin sets balance on recharge, we subtract spend since.
