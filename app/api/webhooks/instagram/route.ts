@@ -2,6 +2,11 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { getRequiredSecret } from '@/lib/supabase-env';
 import { recordTouchpoint } from '@/lib/lead-touchpoint';
+import { getWorkspaceEntitlements } from '@/lib/entitlements';
+import { decryptSecret } from '@/lib/crypto-vault';
+import { sendInstagramText } from '@/lib/instagram-send';
+
+export const runtime = 'nodejs';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -67,7 +72,7 @@ export async function POST(request: NextRequest) {
     // Find workspace by ig_user_id
     const { data: igAccount } = await db
       .from('instagram_accounts')
-      .select('workspace_id, access_token, ig_user_id, username')
+      .select('workspace_id, access_token, access_token_enc, ig_user_id, username, auto_reply_enabled, follow_first_enabled')
       .eq('ig_user_id', igAccountId)
       .single();
 
@@ -93,12 +98,20 @@ export async function POST(request: NextRequest) {
 
 // ─── Handle incoming DM ───────────────────────────────────────────────────────
 
-async function handleIncomingDM(
-  db: any,
-  igAccount: { workspace_id: string; access_token: string; ig_user_id: string; username: string },
-  ev: IgMessaging,
-) {
-  const { workspace_id: workspaceId, access_token: accessToken, ig_user_id: igUserId } = igAccount;
+interface IgAccount {
+  workspace_id: string;
+  access_token: string | null;
+  access_token_enc: string | null;
+  ig_user_id: string;
+  username: string;
+  auto_reply_enabled?: boolean;
+  follow_first_enabled?: boolean;
+}
+
+async function handleIncomingDM(db: any, igAccount: IgAccount, ev: IgMessaging) {
+  const { workspace_id: workspaceId, ig_user_id: igUserId } = igAccount;
+  // Prefer the encrypted token; fall back to the legacy plaintext column.
+  const accessToken = decryptSecret(igAccount.access_token_enc) ?? igAccount.access_token ?? '';
   const senderIgsid = ev.sender.id;
   const igPhone = `ig:${senderIgsid}`; // pseudo-phone to uniquely identify Instagram contacts
 
@@ -214,4 +227,69 @@ async function handleIncomingDM(
 
   // ── Track usage (non-blocking) ───────────────────────────────────────────
   void import('@/lib/usage-tracker').then(({ trackMessageIn }) => trackMessageIn(workspaceId)).catch(() => {});
+
+  // ── AI auto-reply ──────────────────────────────────────────────────────────
+  // Only when: the workspace is entitled to the Instagram module, auto-reply is on,
+  // we have a usable token, and the message has text to answer.
+  try {
+    if ((igAccount.auto_reply_enabled ?? true) === false) return;
+    if (!accessToken || !text.trim()) return;
+
+    const ent = await getWorkspaceEntitlements(db, workspaceId);
+    if (!ent.modules.instagram) {
+      console.log('[IG Webhook] workspace not entitled to Instagram — skipping auto-reply');
+      return;
+    }
+
+    const { data: ws } = await db
+      .from('workspaces')
+      .select('name, settings')
+      .eq('id', workspaceId)
+      .single();
+    const businessName: string = (ws?.name as string | undefined)?.trim() || 'our team';
+    const wsSettings = (ws?.settings ?? {}) as Record<string, unknown>;
+
+    // Recent conversation history for context.
+    const { data: recent } = await db
+      .from('messages')
+      .select('content, sender_type')
+      .eq('conversation_id', conversation.id)
+      .order('created_at', { ascending: false })
+      .limit(21);
+    const history = ((recent ?? []) as Array<{ content: string; sender_type: string }>)
+      .slice(1).reverse()
+      .map((m) => ({ role: m.sender_type === 'contact' ? ('user' as const) : ('assistant' as const), content: m.content ?? '' }))
+      .filter((m) => m.content.length > 0);
+
+    const { getAIReply, fetchKnowledgeBaseContext } = await import('@/lib/ai-reply');
+    const kbContext = await fetchKnowledgeBaseContext(db, workspaceId, text);
+    const firstName = (senderName?.split(' ')[0]) ?? 'there';
+    const reply = await getAIReply(text, firstName, kbContext, undefined, wsSettings, businessName, history, null);
+
+    const finalReply = reply ?? `Thanks for reaching out to ${businessName}! Our team will get back to you shortly.`;
+    const sent = await sendInstagramText(igUserId, accessToken, senderIgsid, finalReply);
+    if (sent.ok) {
+      await db.from('messages').insert({
+        conversation_id: conversation.id,
+        workspace_id: workspaceId,
+        sender_type: 'bot',
+        sender_id: null,
+        direction: 'outbound',
+        type: 'text',
+        content: finalReply,
+        status: 'sent',
+        whatsapp_msg_id: sent.messageId ?? null,
+        created_at: new Date().toISOString(),
+      });
+      await db.from('conversations').update({ last_message: finalReply.slice(0, 200), last_message_at: new Date().toISOString() }).eq('id', conversation.id);
+    }
+
+    // Follow-first: on the very first inbound DM, optionally follow the user back.
+    if (!priorConv && igAccount.follow_first_enabled) {
+      const { followInstagramUser } = await import('@/lib/instagram-send');
+      void followInstagramUser(igUserId, accessToken, senderIgsid).catch(() => {});
+    }
+  } catch (err) {
+    console.error('[IG Webhook] auto-reply failed:', err);
+  }
 }

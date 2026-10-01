@@ -7,22 +7,30 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { CheckCircle2, AlertCircle, Camera, Trash2 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { CheckCircle2, AlertCircle, Camera, Trash2, Lock } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useWorkspaceStore } from '@/store/workspace.store';
 
 interface IgAccount {
-  ig_user_id:       string;
-  page_id:          string | null;
-  username:         string | null;
-  name:             string | null;
-  webhook_verified: boolean;
-  created_at:       string;
+  ig_user_id:            string;
+  page_id:               string | null;
+  username:              string | null;
+  name:                  string | null;
+  app_id:                string | null;
+  status:                string | null;
+  webhook_verified:      boolean;
+  auto_reply_enabled:    boolean;
+  comment_reply_enabled: boolean;
+  follow_first_enabled:  boolean;
+  created_at:            string;
 }
 
 interface FormState {
   igUserId:    string;
   pageId:      string;
+  appId:       string;
+  appSecret:   string;
   accessToken: string;
   username:    string;
 }
@@ -34,9 +42,12 @@ export function InstagramSettings() {
   const [saving, setSaving]               = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
+  const [entitled, setEntitled] = useState(true);
   const [form, setForm] = useState<FormState>({
     igUserId:    '',
     pageId:      '',
+    appId:       '',
+    appSecret:   '',
     accessToken: '',
     username:    '',
   });
@@ -50,10 +61,26 @@ export function InstagramSettings() {
     setLoading(true);
     fetch(`/api/instagram/connect?workspaceId=${workspace.id}`)
       .then((r) => r.json())
-      .then((d: { account: IgAccount | null }) => setAccount(d.account ?? null))
+      .then((d: { account: IgAccount | null; entitled?: boolean }) => {
+        setAccount(d.account ?? null);
+        setEntitled(d.entitled ?? true);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [workspace?.id]);
+
+  async function handleToggle(key: 'auto_reply_enabled' | 'comment_reply_enabled' | 'follow_first_enabled', value: boolean) {
+    setAccount((prev) => (prev ? { ...prev, [key]: value } : prev));
+    try {
+      await fetch('/api/instagram/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId: workspace!.id, [key]: value }),
+      });
+    } catch {
+      toast.error('Could not update — please retry');
+    }
+  }
 
   async function handleConnect() {
     if (!form.igUserId.trim() || !form.accessToken.trim()) {
@@ -69,6 +96,8 @@ export function InstagramSettings() {
           workspaceId: workspace!.id,
           igUserId:    form.igUserId.trim(),
           pageId:      form.pageId.trim() || undefined,
+          appId:       form.appId.trim() || undefined,
+          appSecret:   form.appSecret.trim() || undefined,
           accessToken: form.accessToken.trim(),
           username:    form.username.trim() || undefined,
         }),
@@ -80,7 +109,7 @@ export function InstagramSettings() {
         const r2 = await fetch(`/api/instagram/connect?workspaceId=${workspace!.id}`);
         const d2 = await r2.json() as { account: IgAccount | null };
         setAccount(d2.account ?? null);
-        setForm({ igUserId: '', pageId: '', accessToken: '', username: '' });
+        setForm({ igUserId: '', pageId: '', appId: '', appSecret: '', accessToken: '', username: '' });
       } else {
         toast.error(data.error ?? 'Failed to connect Instagram');
       }
@@ -126,6 +155,16 @@ export function InstagramSettings() {
       </div>
       <Separator />
 
+      {!entitled && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex items-start gap-2">
+          <Lock className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-800">
+            Instagram automation is part of the <strong>Instagram add-on (₹999/mo)</strong>. You can connect your account,
+            but auto-reply stays off until you add it from <strong>Billing</strong>.
+          </p>
+        </div>
+      )}
+
       {account ? (
         /* ── Connected state ── */
         <div className="space-y-4">
@@ -155,6 +194,27 @@ export function InstagramSettings() {
             </code>
             <p className="mt-1">Verify Token: <code className="bg-blue-100 px-1 rounded">agentix-webhook-secret-2026</code></p>
             <p className="mt-1">Subscribe to: <strong>messages</strong></p>
+          </div>
+
+          {/* Automation toggles */}
+          <div className="rounded-xl border border-border divide-y divide-border">
+            {([
+              { key: 'auto_reply_enabled' as const, label: 'AI auto-reply to DMs', desc: 'Reply to Instagram DMs automatically using your AI persona.' },
+              { key: 'comment_reply_enabled' as const, label: 'Auto-reply to comments', desc: 'Respond to comments on your posts (coming soon).' },
+              { key: 'follow_first_enabled' as const, label: 'Follow-first', desc: 'Follow back users who DM you for the first time.' },
+            ]).map((t) => (
+              <div key={t.key} className="flex items-center justify-between gap-3 p-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{t.label}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t.desc}</p>
+                </div>
+                <Switch
+                  checked={account[t.key]}
+                  disabled={!entitled && t.key === 'auto_reply_enabled'}
+                  onCheckedChange={(v) => void handleToggle(t.key, v)}
+                />
+              </div>
+            ))}
           </div>
 
           <Button
@@ -206,6 +266,17 @@ export function InstagramSettings() {
                 onChange={(e) => setF('pageId', e.target.value)}
                 placeholder="123456789"
               />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="appId">App ID <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                <Input id="appId" value={form.appId} onChange={(e) => setF('appId', e.target.value)} placeholder="1234567890" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="appSecret">App Secret <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                <Input id="appSecret" type="password" value={form.appSecret} onChange={(e) => setF('appSecret', e.target.value)} placeholder="••••••••" />
+              </div>
             </div>
 
             <div className="space-y-1.5">
