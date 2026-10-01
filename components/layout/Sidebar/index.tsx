@@ -25,8 +25,10 @@ import { hasFeature } from '@/lib/plan-features';
 import { cn } from '@/lib/utils';
 import { SupportModal } from '@/modules/support/components/SupportModal';
 import { PwaInstallButton } from '@/components/PwaInstallButton';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import type { LucideIcon } from 'lucide-react';
 import type { AgentPageKey } from '@/lib/agent-pages';
+import type { ModuleKey } from '@/lib/entitlements';
 
 const NAV_ITEMS: Array<{
   href:             string;
@@ -38,6 +40,9 @@ const NAV_ITEMS: Array<{
   // Conversations, Contacts). Present = admin-configurable for 'agent' role
   // via Team page > Page Access, checked against useAgentPageAccess().
   agentPageKey?:    AgentPageKey;
+  // Add-on module this page belongs to — locked when the workspace isn't
+  // entitled to it (plan/trial), driving the upgrade prompt.
+  module?:          ModuleKey;
 }> = [
   { href: '/dashboard',     icon: LayoutDashboard, label: 'Dashboard'        },
   { href: '/growth-copilot', icon: Lightbulb,      label: 'Growth Copilot',  agentPageKey: 'growth-copilot' },
@@ -51,9 +56,9 @@ const NAV_ITEMS: Array<{
   { href: '/win-back',      icon: HeartHandshake,  label: 'Win-Back',        agentPageKey: 'win-back' },
   { href: '/referrals',     icon: Gift,            label: 'Referrals',       agentPageKey: 'referrals' },
   { href: '/meta-leads',    icon: Brain,           label: 'Meta Leads',      agentPageKey: 'meta-leads' },
-  { href: '/google-business', icon: Store,         label: 'Google Business', agentPageKey: 'google-business' },
-  { href: '/local-rank',    icon: MapPin,          label: 'Local Rank',      agentPageKey: 'local-rank' },
-  { href: '/google-ads',    icon: MousePointerClick, label: 'Google Ads',    agentPageKey: 'google-ads' },
+  { href: '/google-business', icon: Store,         label: 'Google Business', agentPageKey: 'google-business', module: 'google_growth' },
+  { href: '/local-rank',    icon: MapPin,          label: 'Local Rank',      agentPageKey: 'local-rank', module: 'google_growth' },
+  { href: '/google-ads',    icon: MousePointerClick, label: 'Google Ads',    agentPageKey: 'google-ads', module: 'google_growth' },
   { href: '/templates',     icon: FileText,        label: 'Templates',       agentPageKey: 'templates' },
   { href: '/flows',         icon: GitBranch,       label: 'Flows',           requiredFeature: 'flows', requiredPlan: 'Pro', agentPageKey: 'flows' },
   { href: '/team',          icon: Users2,          label: 'Team',            agentPageKey: 'team' },
@@ -80,6 +85,7 @@ export function Sidebar() {
   const { data: role } = useCurrentRole();
   const isAgent        = role === 'agent';
   const { data: agentAllowedPages = [] } = useAgentPageAccess();
+  const { entitlements } = useEntitlements();
   const [supportOpen, setSupportOpen] = useState(false);
 
   const visibleNavItems = NAV_ITEMS.filter((item) =>
@@ -161,7 +167,12 @@ export function Sidebar() {
         {/* ── Navigation ────────────────────────────────────────────────── */}
         <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
           {visibleNavItems.map((item) => {
-            const locked = item.requiredFeature ? !hasFeature(plan, item.requiredFeature) : false;
+            const featureLocked = item.requiredFeature ? !hasFeature(plan, item.requiredFeature) : false;
+            const moduleLocked = item.module ? entitlements.modules[item.module] !== true : false;
+            const locked = featureLocked || moduleLocked;
+            const requiredPlan = moduleLocked
+              ? (item.module === 'google_growth' ? 'Google Growth add-on' : 'Instagram add-on')
+              : item.requiredPlan;
             return (
               <NavItem
                 key={item.href}
@@ -170,7 +181,7 @@ export function Sidebar() {
                 label={item.label}
                 collapsed={collapsed}
                 locked={locked}
-                requiredPlan={item.requiredPlan}
+                requiredPlan={requiredPlan}
               />
             );
           })}

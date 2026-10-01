@@ -7,6 +7,7 @@ import { MobileNav } from '@/components/layout/MobileNav';
 import { CommandPalette } from '@/components/layout/CommandPalette';
 import { PageTransition } from '@/components/layout/PageTransition';
 import { SessionHeartbeat } from '@/components/SessionHeartbeat';
+import { TrialBanner } from '@/components/layout/TrialBanner';
 import { cn } from '@/lib/utils';
 
 interface AppShellProps {
@@ -28,6 +29,7 @@ export function AppShell({ children }: AppShellProps) {
       {/* Main content column */}
       <div className="flex flex-1 flex-col overflow-hidden">
         <TopBar />
+        <TrialBanner />
         <main className={cn('flex-1 overflow-auto', 'pb-16 md:pb-0')}>
           <PageTransition>{children}</PageTransition>
         </main>

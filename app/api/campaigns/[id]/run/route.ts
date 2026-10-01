@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { authzResponse, requireWorkspacePermission, AuthzError } from '@/lib/authz';
 import { createAdminClient } from '@/services/supabase/admin';
 import { assertWorkspaceActive, suspendedResponse, SuspendedError } from '@/lib/billing-guard';
+import { getWorkspaceEntitlements } from '@/lib/entitlements';
 
 // POST /api/campaigns/[id]/run
 // Instead of executing synchronously (timeout risk), enqueues to campaign_queue.
@@ -75,6 +76,31 @@ export async function POST(
         const { count } = await q;
         audienceCount = count ?? 0;
       }
+    }
+
+    // Trial caps — during the 3-day trial, limit campaign size and total count.
+    // Comped/paid clients have unlimited caps (see lib/entitlements).
+    try {
+      const ent = await getWorkspaceEntitlements(db, campaign.workspace_id);
+      if (ent.trialing) {
+        const recCap = ent.caps.campaignRecipients;
+        if (recCap != null && audienceCount > recCap) {
+          return NextResponse.json({ error: `Your free trial can send to up to ${recCap} recipients per campaign. Upgrade to reach more.` }, { status: 402 });
+        }
+        const campCap = ent.caps.campaigns;
+        if (campCap != null) {
+          const { count: ranCampaigns } = await db
+            .from('campaigns')
+            .select('id', { count: 'exact', head: true })
+            .eq('workspace_id', campaign.workspace_id)
+            .in('status', ['running', 'completed']);
+          if ((ranCampaigns ?? 0) >= campCap) {
+            return NextResponse.json({ error: `Your free trial includes ${campCap} campaign. Upgrade to run more.` }, { status: 402 });
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[Campaign Run] trial cap check failed, allowing through:', e);
     }
 
     // Check campaign limit before running
