@@ -124,9 +124,20 @@ From prior full audits this cycle (see memory): multi-tenant RLS isolation is en
 
 ---
 
-## 9. Market/competitor features
+## 9. Market/competitor features (researched)
 
-**(Being researched by a background agent — findings appended on completion.)** Preliminary direction for an Indian SMB WhatsApp-AI CRM: AI lead scoring with explainability (this doc), auto lead-routing, in-chat payments, broadcast analytics, multi-channel (Telegram/SMS), AI agent handoff, and sentiment trends.
+**Industry direction validates this doc:** the whole market (HubSpot's Aug-2025 rebuild, Salesforce Einstein) has moved to **HYBRID scoring — rule-based base + AI layer — on a 0-100 scale, with mandatory explainability** (show the top signals that drove the score). Nobody ships a black-box score. Wati/AiSensy/Interakt have weak/no real lead scoring → this is our credibility gap to close.
+
+**Critical nuance:** competitors' *predictive* models need history (HubSpot ~500 contacts + 3 months) → useless on a cold tenant. **AGENTiX's advantage:** our scoring reads the actual conversation via LLM, so it works from message #1 with zero training data — we sidestep the cold-start problem. Start rule-based + LLM-intent from day one; a predictive layer can come later per tenant.
+
+**Top features to add (prioritized):**
+- *Now:* (1) Explainable hybrid lead scoring [this doc], (2) CTWA + Meta per-campaign **revenue** attribution (we have `messages.campaign_id`), (3) AI auto-qualification → auto-advance pipeline, (4) WhatsApp catalog + in-chat order, (5) broadcast retargeting by engagement.
+- *Next:* (6) in-chat UPI/Razorpay via Flows, (7) win-back automation [have], (8) referrals [have], (9) GBP AI posts/review replies [have], (10) local rank tracker [have], (11) shared-inbox AI copilot (reply suggestions, summaries, sentiment, SLA).
+- *Future:* (12) Google Ads + unified cross-channel attribution, (13) predictive deal scoring + next-best-action, (14) vernacular + voice AI agent.
+
+**Genuine differentiators (not copies):** (D1) explainable scoring on *conversational* signals with the chat snippets that drove it; (D2) unified Meta+Google Ads+GBP+WhatsApp "₹ spent → ₹ earned per channel" view (the beat-Grexa wedge); (D3) "growth autopilot" that closes signal→action loops automatically; (D4) vernacular + voice-first for Bharat SMBs; (D5) in-chat UPI + auto GST invoice (qualify→sell→collect→invoice inside WhatsApp).
+
+Sources: HubSpot/Salesforce lead-scoring docs, AiSensy/Zoko/Wati comparisons, Grexa, Razorpay/Tally WhatsApp-payments 2026, Meta Business-AI India. (Full source list in the research pass.)
 
 ---
 
