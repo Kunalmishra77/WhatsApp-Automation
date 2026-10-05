@@ -10,6 +10,7 @@
 
 import { callAI } from '@/lib/ai-client';
 import { createAdminClient } from '@/services/supabase/admin';
+import { syncLeadToSheet } from '@/lib/lead-sheet-sync';
 
 export type LeadStage = 'new' | 'contacted' | 'follow_up' | 'interested' | 'converted' | 'lost';
 export type LeadTemperature = 'hot' | 'warm' | 'cold';
@@ -374,6 +375,9 @@ export async function classifyLeadPipeline(args: {
         .eq('id', leadRow.contact_id)
         .eq('workspace_id', workspaceId);
     }
+
+    // One-row-per-lead Google Sheet sync (Phase 3) — fire-and-forget, never blocks.
+    void syncLeadToSheet(supabase, workspaceId, leadId);
   } catch (err) {
     console.error('[lead-classifier] classifyLeadPipeline failed:', err instanceof Error ? err.message : String(err));
   }

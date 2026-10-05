@@ -4,11 +4,50 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { Target, Loader2, Save, Sparkles, Check, X, RotateCcw } from 'lucide-react';
+import { Target, Loader2, Save, Sparkles, Check, X, RotateCcw, Sheet, Copy, ChevronDown } from 'lucide-react';
 import { useWorkspaceStore } from '@/store/workspace.store';
+import { cn } from '@/lib/utils';
 
 interface Thresholds { hot: number; warm: number }
 interface Suggestion { thresholds: Thresholds; guidance: string; rationale: string }
+
+// Google Apps Script that upserts one row per lead (keyed by lead_id in column A).
+// Paste into the connected Sheet's Apps Script editor and deploy as a web app.
+const APPS_SCRIPT = `// AGENTiX — one row per lead. Deploy: Deploy > New deployment > Web app (access: Anyone).
+var HEADERS = ['lead_id','name','phone','stage','temperature','score','signals','source','created_at','updated_at'];
+
+function doPost(e) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var data = JSON.parse(e.postData.contents);
+    if (data.row_type !== 'lead') return ok(); // ignore non-lead payloads
+    var sh = sheetFor('Leads');
+    var ids = sh.getRange(2, 1, Math.max(sh.getLastRow() - 1, 1), 1).getValues();
+    var row = -1;
+    for (var i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]) === String(data.lead_id)) { row = i + 2; break; }
+    }
+    var values = HEADERS.map(function (h) { return data[h] != null ? data[h] : ''; });
+    if (row === -1) sh.appendRow(values);
+    else sh.getRange(row, 1, 1, HEADERS.length).setValues([values]);
+    return ok();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function sheetFor(name) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(name);
+  if (!sh) { sh = ss.insertSheet(name); sh.appendRow(HEADERS); }
+  return sh;
+}
+
+function ok() {
+  return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+    .setMimeType(ContentService.MimeType.JSON);
+}`;
 
 export function LeadScoringSettings() {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
@@ -22,6 +61,8 @@ export function LeadScoringSettings() {
   const [defaults, setDefaults] = useState<Thresholds>({ hot: 61, warm: 31 });
   const [isDefault, setIsDefault] = useState(true);
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
+  const [leadsSheetUrl, setLeadsSheetUrl] = useState('');
+  const [showScript, setShowScript] = useState(false);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -33,6 +74,7 @@ export function LeadScoringSettings() {
           rules?: { thresholds: Thresholds; guidance?: string };
           defaults?: Thresholds;
           is_default?: boolean;
+          leads_sheet_url?: string;
         };
         if (data.rules) {
           setHot(data.rules.thresholds.hot);
@@ -41,6 +83,7 @@ export function LeadScoringSettings() {
         }
         if (data.defaults) setDefaults(data.defaults);
         setIsDefault(Boolean(data.is_default));
+        setLeadsSheetUrl(data.leads_sheet_url ?? '');
       } finally {
         setIsLoading(false);
       }
@@ -60,13 +103,16 @@ export function LeadScoringSettings() {
       const res = await fetch('/api/lead-rules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId, thresholds: { hot, warm }, guidance }),
+        body: JSON.stringify({ workspaceId, thresholds: { hot, warm }, guidance, leadsSheetUrl }),
       });
-      if (!res.ok) throw new Error('save failed');
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error ?? 'save failed');
+      }
       setIsDefault(false);
       toast.success('Lead scoring rules saved — applied on the next classification');
-    } catch {
-      toast.error('Failed to save');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to save');
     } finally {
       setIsSaving(false);
     }
@@ -292,6 +338,61 @@ export function LeadScoringSettings() {
         </div>
       )}
 
+      {/* Google Sheet sync (one row per lead) */}
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <div>
+          <p className="text-sm font-medium flex items-center gap-1.5">
+            <Sheet className="h-4 w-4 text-emerald-600" />
+            Google Sheet sync (one row per lead)
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Mirror every lead into a Google Sheet — one row per lead, updated live as its score,
+            stage and temperature change. Paste a Google Apps Script web-app URL below.
+          </p>
+        </div>
+        <Input
+          type="url"
+          value={leadsSheetUrl}
+          onChange={(e) => setLeadsSheetUrl(e.target.value)}
+          placeholder="https://script.google.com/macros/s/…/exec"
+          className="h-9 text-sm"
+        />
+        <button
+          type="button"
+          onClick={() => setShowScript((v) => !v)}
+          className="flex items-center gap-1 text-[11px] text-brand-600 hover:text-brand-700"
+        >
+          <ChevronDown className={cn('h-3 w-3 transition-transform', showScript && 'rotate-180')} />
+          {showScript ? 'Hide' : 'Show'} setup — paste this into Apps Script
+        </button>
+        {showScript && (
+          <div className="space-y-2">
+            <div className="relative">
+              <pre className="max-h-64 overflow-auto rounded-lg border border-border bg-muted/40 p-3 text-[11px] leading-relaxed text-foreground">
+                {APPS_SCRIPT}
+              </pre>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(APPS_SCRIPT);
+                  toast.success('Apps Script copied');
+                }}
+                className="absolute right-2 top-2 flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] hover:bg-accent"
+              >
+                <Copy className="h-3 w-3" />
+                Copy
+              </button>
+            </div>
+            <ol className="list-decimal pl-4 text-[11px] text-muted-foreground space-y-0.5">
+              <li>Open your Google Sheet → <span className="font-medium">Extensions → Apps Script</span>.</li>
+              <li>Paste the code above, then <span className="font-medium">Deploy → New deployment → Web app</span>.</li>
+              <li>Set “Who has access” to <span className="font-medium">Anyone</span>, deploy, and copy the web-app URL.</li>
+              <li>Paste that URL above and press <span className="font-medium">Save</span>.</li>
+            </ol>
+          </div>
+        )}
+      </div>
+
       {/* How it works */}
       <div className="rounded-xl border border-border bg-muted/30 p-4 text-xs text-muted-foreground space-y-1">
         <p className="font-medium text-foreground text-sm">How it works</p>
@@ -299,6 +400,7 @@ export function LeadScoringSettings() {
         <p>• Temperature is derived from the score using the thresholds above — it can rise and fall.</p>
         <p>• A single greeting or generic question never reads Hot on its own.</p>
         <p>• Changes apply to the next classification; existing leads re-score as new messages arrive.</p>
+        <p>• If a Leads Sheet is connected, each lead syncs to one live row on every re-score.</p>
       </div>
     </div>
   );

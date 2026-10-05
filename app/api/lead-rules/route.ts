@@ -14,9 +14,11 @@ export async function GET(request: NextRequest) {
 
     const db = createAdminClient() as any;
     const { data: ws } = await db.from('workspaces').select('settings').eq('id', workspaceId).maybeSingle();
+    const settings = (ws?.settings ?? {}) as Record<string, unknown>;
     const rules = readLeadRules(ws?.settings);
-    const isDefault = !((ws?.settings ?? {}) as Record<string, unknown>).lead_rules;
-    return NextResponse.json({ rules, defaults: DEFAULT_THRESHOLDS, is_default: isDefault });
+    const isDefault = !settings.lead_rules;
+    const leadsSheetUrl = typeof settings.leads_sheet_webhook_url === 'string' ? settings.leads_sheet_webhook_url : '';
+    return NextResponse.json({ rules, defaults: DEFAULT_THRESHOLDS, is_default: isDefault, leads_sheet_url: leadsSheetUrl });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);
     console.error('[LeadRules GET]', error);
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest) {
 // Saves the per-client rules (merged into workspaces.settings.lead_rules).
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { workspaceId?: string; thresholds?: { hot?: number; warm?: number }; guidance?: string };
+    const body = await request.json() as { workspaceId?: string; thresholds?: { hot?: number; warm?: number }; guidance?: string; leadsSheetUrl?: string };
     const { workspaceId } = body;
     if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
     await requireWorkspacePermission(workspaceId, 'manage_workspace');
@@ -41,10 +43,28 @@ export async function POST(request: NextRequest) {
     }
     const guidance = typeof body.guidance === 'string' ? body.guidance.trim().slice(0, 1200) : '';
 
+    // Leads Sheet webhook URL — optional. Empty string clears it. Must be an https URL
+    // (Apps Script web-app endpoints are always https) to avoid storing junk.
+    let leadsSheetUrl: string | undefined;
+    if (typeof body.leadsSheetUrl === 'string') {
+      const trimmed = body.leadsSheetUrl.trim();
+      if (trimmed === '') {
+        leadsSheetUrl = '';
+      } else if (/^https:\/\/\S+$/.test(trimmed)) {
+        leadsSheetUrl = trimmed;
+      } else {
+        return NextResponse.json({ error: 'Leads Sheet URL must be a valid https:// link' }, { status: 400 });
+      }
+    }
+
     const db = createAdminClient() as any;
     const { data: ws } = await db.from('workspaces').select('settings').eq('id', workspaceId).single();
     const settings = { ...((ws?.settings ?? {}) as Record<string, unknown>) };
     settings.lead_rules = { thresholds: { hot, warm }, guidance: guidance || undefined };
+    if (leadsSheetUrl !== undefined) {
+      if (leadsSheetUrl === '') delete settings.leads_sheet_webhook_url;
+      else settings.leads_sheet_webhook_url = leadsSheetUrl;
+    }
 
     const { error } = await db.from('workspaces').update({ settings }).eq('id', workspaceId);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
