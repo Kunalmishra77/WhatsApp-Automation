@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   User, Building2, MessageSquare, Shield, Clock,
-  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText, Camera, CalendarCheck, Megaphone, Trash2, CreditCard, ClipboardList,
+  Zap, Webhook, MessagesSquare, Timer, Key, ScrollText, SlidersHorizontal, Tag, Layers, AlarmClock, ShoppingBag, FileText, Camera, CalendarCheck, Megaphone, Trash2, CreditCard, ClipboardList, Target,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProfileSettings } from '../ProfileSettings';
@@ -40,12 +40,13 @@ import { GoogleAdsSettings } from '../GoogleAdsSettings';
 import { StarterPackSettings } from '../StarterPackSettings';
 import { MetaAdsSettings } from '../MetaAdsSettings';
 import { RetentionSettings } from '../RetentionSettings';
+import { LeadScoringSettings } from '../LeadScoringSettings';
 
 type SettingKey =
   | 'profile' | 'security' | 'workspace' | 'branding' | 'billing' | 'starter-pack'
   | 'whatsapp' | 'business-hours' | 'quick-replies' | 'qr-code' | 'catalog' | 'media-library' | 'chat-widget' | 'wa-forms' | 'whatsapp-forms'
   | 'instagram' | 'meta-ads'
-  | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers' | 'auto-triggers'
+  | 'inbox-rules' | 'sequences' | 'sla' | 'labels' | 'custom-fields' | 'time-triggers' | 'auto-triggers' | 'lead-scoring'
   | 'integrations' | 'webhooks' | 'api-keys' | 'ai-models' | 'google-calendar' | 'google-business' | 'google-ads'
   | 'audit-logs' | 'retention';
 
@@ -85,6 +86,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'Automation',
     items: [
       { key: 'wa-forms',        label: 'WA Forms',       icon: FileText },
+      { key: 'lead-scoring',   label: 'Lead Scoring',   icon: Target },
       { key: 'inbox-rules',    label: 'Inbox Rules',    icon: SlidersHorizontal },
       { key: 'sequences',      label: 'Follow-Up',      icon: Zap },
       { key: 'sla',            label: 'SLA',            icon: Timer },
@@ -125,6 +127,7 @@ const CONTENT_MAP: Record<SettingKey, React.ReactNode> = {
   'whatsapp':       <WhatsAppSettings />,
   'business-hours': <BusinessHours />,
   'quick-replies':  <QuickReplies />,
+  'lead-scoring':   <LeadScoringSettings />,
   'inbox-rules':    <InboxRules />,
   'sequences':      <FollowUpSequences />,
   'sla':            <SlaSettings />,

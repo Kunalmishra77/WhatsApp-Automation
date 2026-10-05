@@ -31,6 +31,28 @@ export function scoreToTemperature(score: number, t: TemperatureThresholds = DEF
   return 'cold';
 }
 
+// Per-client lead-classification config (Phase 2), stored at
+// workspaces.settings.lead_rules. Business-aware: custom thresholds + free-text
+// guidance injected into the scorer, so each business scores to its own rules.
+export interface LeadRules {
+  thresholds: TemperatureThresholds;
+  guidance?: string;
+}
+
+export function readLeadRules(settings: unknown): LeadRules {
+  const s = (settings ?? {}) as Record<string, unknown>;
+  const r = (s.lead_rules ?? {}) as Record<string, unknown>;
+  const th = (r.thresholds ?? {}) as Record<string, unknown>;
+  const hot = Number(th.hot);
+  const warm = Number(th.warm);
+  const safeHot = Number.isFinite(hot) ? Math.min(100, Math.max(1, Math.round(hot))) : DEFAULT_THRESHOLDS.hot;
+  const safeWarm = Number.isFinite(warm) ? Math.min(safeHot - 1, Math.max(0, Math.round(warm))) : Math.min(DEFAULT_THRESHOLDS.warm, safeHot - 1);
+  return {
+    thresholds: { hot: safeHot, warm: safeWarm },
+    guidance: typeof r.guidance === 'string' && r.guidance.trim() ? r.guidance.trim().slice(0, 1200) : undefined,
+  };
+}
+
 // Temperature only moves when the AI is at least moderately sure — avoids flip-flop
 // on an uncertain read (user requirement: low confidence must not aggressively reclassify).
 export const TEMPERATURE_CONFIDENCE_THRESHOLD = 50;
@@ -296,10 +318,17 @@ export async function classifyLeadPipeline(args: {
       }));
     if (ordered.length === 0) return;
 
+    // Per-client rules (thresholds + business-specific guidance).
+    const { data: ws } = await db.from('workspaces').select('settings').eq('id', workspaceId).maybeSingle();
+    const rules = readLeadRules(ws?.settings);
+    const systemPrompt = rules.guidance
+      ? `${SYSTEM_PROMPT}\n\nBUSINESS-SPECIFIC GUIDANCE for THIS client — weigh these when scoring:\n${rules.guidance}`
+      : SYSTEM_PROMPT;
+
     const transcript = buildTranscript(ordered);
     const raw = await callAI(
       [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: transcript },
       ],
       { model: 'openai/gpt-4o-mini', temperature: 0, maxTokens: 300, jsonMode: true, workspaceId, task: 'lead_classify' },
@@ -317,7 +346,7 @@ export async function classifyLeadPipeline(args: {
       follow_up_at: lead.follow_up_at,
       temperature: lead.temperature ?? null,
     };
-    const writes = applyLeadClassification(leadRow, classification, new Date());
+    const writes = applyLeadClassification(leadRow, classification, new Date(), rules.thresholds);
 
     await db.from('leads').update(writes.leadUpdate).eq('id', leadId).eq('workspace_id', workspaceId);
 

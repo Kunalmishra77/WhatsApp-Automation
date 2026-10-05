@@ -11,7 +11,10 @@ type LeadCandidate = {
   workspace_id: string;
   conversation_id: string;
   ai_classified_at: string | null;
+  stage: string | null;
 };
+
+const TERMINAL_STAGES = new Set(['converted', 'lost']);
 
 // Reclassification backstop. Scheduled by pg_cron every 15 minutes (migration 075).
 // Covers leads whose classification is missing or stale relative to their
@@ -38,15 +41,20 @@ async function run(request: NextRequest) {
   const CONCURRENCY = 5;
   const PROCESS_CAP = 250;
 
-  // Candidate leads: has a conversation, not in a terminal stage, oldest/never
-  // classified first. Over-fetch beyond the cap since some candidates will turn out
-  // to still be fresh (classified after their conversation's last message) and get
-  // skipped below without counting toward the cap.
+  // Candidate leads: has a conversation, oldest/never classified first. Over-fetch
+  // beyond the cap since some candidates will turn out to still be fresh (classified
+  // after their conversation's last message) and get skipped below without counting
+  // toward the cap.
+  //
+  // Terminal stages (converted/lost) are INCLUDED in the fetch but re-scored only when
+  // explicitly re-queued (ai_classified_at IS NULL) — see the stale filter. A won deal
+  // is never silently downgraded just because the customer sent another message; a
+  // full re-score of terminal leads happens only when an operator nulls their
+  // ai_classified_at on purpose (one-time historical backfill).
   const { data: candidates } = await supabase
     .from('leads')
-    .select('id, workspace_id, conversation_id, ai_classified_at')
+    .select('id, workspace_id, conversation_id, ai_classified_at, stage')
     .not('conversation_id', 'is', null)
-    .not('stage', 'in', '(converted,lost)')
     .order('ai_classified_at', { ascending: true, nullsFirst: true })
     .limit(600);
 
@@ -72,13 +80,19 @@ async function run(request: NextRequest) {
     }
   }
 
-  // Keep only the stale candidates (missing classification, or classified before the
-  // conversation's latest message), preserving the oldest-first order.
+  // Keep only the stale candidates, preserving the oldest-first order.
+  //  - Non-terminal leads: stale when never classified, or classified before the
+  //    conversation's latest message (the normal backstop).
+  //  - Terminal leads (converted/lost): stale ONLY when never classified — i.e. an
+  //    operator explicitly re-queued them by nulling ai_classified_at. New inbound
+  //    messages alone never re-open a won/lost deal here.
   const stale = rows.filter((lead) => {
+    const classifiedAt = lead.ai_classified_at ? new Date(lead.ai_classified_at).getTime() : null;
+    if (classifiedAt === null) return true;
+    if (TERMINAL_STAGES.has(lead.stage ?? '')) return false;
     const rawLastMessageAt = lastMessageAtById.get(lead.conversation_id) ?? null;
     const lastMessageAt = rawLastMessageAt ? new Date(rawLastMessageAt).getTime() : null;
-    const classifiedAt = lead.ai_classified_at ? new Date(lead.ai_classified_at).getTime() : null;
-    return classifiedAt === null || (lastMessageAt !== null && lastMessageAt > classifiedAt);
+    return lastMessageAt !== null && lastMessageAt > classifiedAt;
   });
 
   // Bounded-concurrency worker pool: CONCURRENCY workers pull from a shared cursor
