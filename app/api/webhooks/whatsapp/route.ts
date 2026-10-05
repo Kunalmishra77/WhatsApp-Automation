@@ -16,7 +16,6 @@ import {
   categorizeMessage,
   fetchKnowledgeBaseContext,
   getAIReply,
-  detectLeadTemperature,
 } from '@/lib/ai-reply';
 import { getWorkspaceByPhoneNumberId, getWorkspaceById } from '@/lib/workspace-cache';
 import { webhookIdemKey, isWebhookProcessed, markWebhookProcessed } from '@/lib/webhook-idempotency';
@@ -1224,14 +1223,13 @@ async function handleIncomingMessage(
     updateConversationSentiment(supabase as any, conversation.id, content).catch(() => {});
   }
 
-  // ── AI pipeline classification (CRM plan only) — non-blocking ──────────────
-  // autoCreateOrUpdateLead above is fire-and-forget and doesn't return an id,
-  // so look the lead up by conversation. If it hasn't been created yet (first
-  // message / still in flight), skip — Task 4's cron backstop will pick it up.
+  // ── AI lead scoring/classification (ALL workspaces) — non-blocking ─────────
+  // Lead accuracy is core now, not a CRM-gated feature, so every client gets a
+  // conversation-based score (the fix for "1 message = Hot"). autoCreateOrUpdateLead
+  // above is fire-and-forget and doesn't return an id, so look the lead up by
+  // conversation. If it hasn't been created yet (first message / still in flight),
+  // skip — the reclassify-leads cron backstop will pick it up.
   void (async () => {
-    const { getWorkspacePlan } = await import('@/lib/plan-guard');
-    const workspacePlan = await getWorkspacePlan(workspaceId);
-    if (!hasFeature(workspacePlan, 'crm')) return;
     const { data: lead } = await (supabase as any)
       .from('leads')
       .select('id')
@@ -1394,12 +1392,16 @@ async function autoCreateOrUpdateLead(
   messageContent: string,
 ) {
   try {
-    const temperature = detectLeadTemperature(messageContent);
+    // Temperature/score are now owned by the AI scorer (lib/lead-classifier.ts),
+    // which reads the whole conversation. We no longer set temperature from a single
+    // message's keywords here (that caused "1 message = Hot"). New leads start at a
+    // neutral Cold baseline and the classifier scores them from the conversation.
+    void messageContent;
 
     // Check if lead already exists for this contact
     const { data: existing } = await db
       .from('leads')
-      .select('id, temperature, stage')
+      .select('id')
       .eq('workspace_id', workspaceId)
       .eq('contact_id', contactId)
       .order('created_at', { ascending: false })
@@ -1407,12 +1409,9 @@ async function autoCreateOrUpdateLead(
       .maybeSingle();
 
     if (existing) {
-      // Update temperature only if escalating (cold → warm → hot, never downgrade)
-      const rank: Record<string, number> = { cold: 0, warm: 1, hot: 2 };
-      const currentRank = rank[existing.temperature as string] ?? 1;
-      const newRank     = rank[temperature] ?? 1;
-      if (newRank > currentRank) {
-        await db.from('leads').update({ temperature, conversation_id: conversationId }).eq('id', existing.id);
+      // Keep the lead pointed at the latest conversation; the AI scorer handles temperature.
+      if (conversationId) {
+        await db.from('leads').update({ conversation_id: conversationId }).eq('id', existing.id);
       }
       return;
     }
@@ -1433,7 +1432,8 @@ async function autoCreateOrUpdateLead(
       conversation_id: conversationId,
       title:           `Lead — ${displayName}`,
       stage:           'new',
-      temperature,
+      temperature:     'cold',   // neutral baseline; AI scorer sets the real value
+      ai_score:        0,
       priority:        'medium',
       tags:            [],
       custom_fields:   {},
@@ -1452,7 +1452,7 @@ async function autoCreateOrUpdateLead(
       });
     }
 
-    console.log(`[AutoLead] Created lead for contact ${contactId} — temperature: ${temperature}`);
+    console.log(`[AutoLead] Created lead for contact ${contactId} (Cold baseline; AI scorer will classify)`);
   } catch {
     // silent fail — lead creation is non-critical
   }

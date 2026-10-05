@@ -269,7 +269,7 @@ export function LeadDetail({ leadId, onClose }: LeadDetailProps) {
                 )}
               </div>
 
-              {(lead.stage_reason || (lead.needs_follow_up && lead.follow_up_reason)) && (
+              {(lead.stage_reason || (lead.needs_follow_up && lead.follow_up_reason) || (Array.isArray((lead as any).score_signals) && (lead as any).score_signals.length > 0)) && (
                 <>
                   <Separator />
                   <div className="space-y-1.5 text-xs">
@@ -278,6 +278,16 @@ export function LeadDetail({ leadId, onClose }: LeadDetailProps) {
                         <span className="font-semibold text-muted-foreground">AI reason: </span>
                         <span className="text-foreground">{lead.stage_reason}</span>
                       </p>
+                    )}
+                    {Array.isArray((lead as any).score_signals) && (lead as any).score_signals.length > 0 && (
+                      <div>
+                        <p className="font-semibold text-muted-foreground mb-1">Why this score:</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {((lead as any).score_signals as string[]).map((s, i) => (
+                            <span key={i} className="rounded-full border border-brand-200 bg-brand-50 px-2 py-0.5 text-[11px] text-brand-700">{s}</span>
+                          ))}
+                        </div>
+                      </div>
                     )}
                     {lead.needs_follow_up && lead.follow_up_reason && (
                       <p>

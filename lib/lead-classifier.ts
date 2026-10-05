@@ -12,12 +12,34 @@ import { callAI } from '@/lib/ai-client';
 import { createAdminClient } from '@/services/supabase/admin';
 
 export type LeadStage = 'new' | 'contacted' | 'follow_up' | 'interested' | 'converted' | 'lost';
+export type LeadTemperature = 'hot' | 'warm' | 'cold';
 
 export const VALID_STAGES: LeadStage[] = ['new', 'contacted', 'follow_up', 'interested', 'converted', 'lost'];
 
 // Below this confidence, we record the AI's read (metadata) but do NOT move the
 // pipeline stage — better a stale-but-correct stage than a confidently-wrong jump.
 export const STAGE_CONFIDENCE_THRESHOLD = 70;
+
+// Temperature is DERIVED from the 0-100 score. Thresholds are the per-client-
+// configurable defaults (Phase 2 will read them from workspace settings).
+export interface TemperatureThresholds { hot: number; warm: number }
+export const DEFAULT_THRESHOLDS: TemperatureThresholds = { hot: 61, warm: 31 };
+
+export function scoreToTemperature(score: number, t: TemperatureThresholds = DEFAULT_THRESHOLDS): LeadTemperature {
+  if (score >= t.hot) return 'hot';
+  if (score >= t.warm) return 'warm';
+  return 'cold';
+}
+
+// Temperature only moves when the AI is at least moderately sure — avoids flip-flop
+// on an uncertain read (user requirement: low confidence must not aggressively reclassify).
+export const TEMPERATURE_CONFIDENCE_THRESHOLD = 50;
+
+// Fallback score per stage when the model omits a numeric score (older/loose replies),
+// so we never collapse everything to 0 (= all Cold).
+const STAGE_DEFAULT_SCORE: Record<LeadStage, number> = {
+  new: 10, contacted: 30, follow_up: 35, interested: 70, converted: 95, lost: 5,
+};
 
 // Default follow-up window when the AI flags "needs follow-up" but no explicit
 // due date exists (or the existing one has already passed).
@@ -27,6 +49,8 @@ export type LeadClassification = {
   stage: LeadStage;
   confidence: number;
   reason: string;
+  score: number;          // 0-100 genuine-intent score
+  signals: string[];      // short reasons that drove the score (explainability)
   needs_follow_up: boolean;
   follow_up_reason: string | null;
   converted: boolean;
@@ -39,11 +63,14 @@ export type LeadRow = {
   contact_id: string | null;
   stage: LeadStage;
   follow_up_at: string | null;
+  temperature?: LeadTemperature | null;
 };
 
 export type LeadWrites = {
   leadUpdate: Record<string, unknown>;
   historyRow: { from_stage: LeadStage; to_stage: LeadStage; source: 'ai'; reason: string; confidence: number } | null;
+  // Temperature-band transition to log for the audit trail (null if unchanged).
+  scoreHistoryRow: { from_temperature: LeadTemperature | null; to_temperature: LeadTemperature; score: number; confidence: number; reason: string } | null;
   promoteContact: boolean;
 };
 
@@ -75,10 +102,19 @@ export function parseClassification(raw: string): LeadClassification | null {
 
     if (!isValidStage(obj.stage)) return null;
 
+    const score = typeof obj.score === 'number' && Number.isFinite(obj.score)
+      ? Math.max(0, Math.min(100, Math.round(obj.score)))
+      : STAGE_DEFAULT_SCORE[obj.stage];
+    const signals = Array.isArray(obj.signals)
+      ? (obj.signals as unknown[]).filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 8)
+      : [];
+
     return {
       stage: obj.stage,
       confidence: clampConfidence(obj.confidence),
       reason: typeof obj.reason === 'string' ? obj.reason : '',
+      score,
+      signals,
       needs_follow_up: obj.needs_follow_up === true,
       follow_up_reason: toNullableString(obj.follow_up_reason),
       converted: obj.converted === true,
@@ -91,13 +127,25 @@ export function parseClassification(raw: string): LeadClassification | null {
 
 // PURE — no I/O. Computes the exact writes to persist for this classification.
 // `now` is injected so callers/tests control time deterministically.
-export function applyLeadClassification(lead: LeadRow, c: LeadClassification, now: Date): LeadWrites {
+export function applyLeadClassification(
+  lead: LeadRow,
+  c: LeadClassification,
+  now: Date,
+  thresholds: TemperatureThresholds = DEFAULT_THRESHOLDS,
+): LeadWrites {
   const leadUpdate: Record<string, unknown> = {
     ai_stage_confidence: c.confidence,
     stage_reason: c.reason,
     ai_classified_at: now.toISOString(),
+    // Unified score (source of truth) + explainability — always recorded.
+    // `ai_score` is the existing displayed column (LeadDetail/LeadCard/export); the
+    // AI classifier is now its single writer, replacing the old heuristic scorer.
+    ai_score: c.score,
+    score_confidence: c.confidence,
+    score_signals: c.signals,
   };
   let historyRow: LeadWrites['historyRow'] = null;
+  let scoreHistoryRow: LeadWrites['scoreHistoryRow'] = null;
   let promoteContact = false;
   let converted = false;
 
@@ -128,6 +176,23 @@ export function applyLeadClassification(lead: LeadRow, c: LeadClassification, no
     };
   }
 
+  // Temperature is DERIVED from the score. Only move it when the AI is at least
+  // moderately confident (no aggressive flip on an uncertain read). Converted leads
+  // are terminal and excluded from hot/warm/cold, so we don't touch temperature then.
+  if (!converted && c.confidence >= TEMPERATURE_CONFIDENCE_THRESHOLD) {
+    const newTemp = scoreToTemperature(c.score, thresholds);
+    if (newTemp !== (lead.temperature ?? null)) {
+      leadUpdate.temperature = newTemp;
+      scoreHistoryRow = {
+        from_temperature: lead.temperature ?? null,
+        to_temperature: newTemp,
+        score: c.score,
+        confidence: c.confidence,
+        reason: c.reason,
+      };
+    }
+  }
+
   // A won lead needs no follow-up — skip entirely when converted (converted
   // leads never get a needs_follow_up write at all). A lost lead also needs no
   // follow-up, but unlike converted it's still cleared explicitly (not skipped)
@@ -145,7 +210,7 @@ export function applyLeadClassification(lead: LeadRow, c: LeadClassification, no
     }
   }
 
-  return { leadUpdate, historyRow, promoteContact };
+  return { leadUpdate, historyRow, scoreHistoryRow, promoteContact };
 }
 
 const STAGE_DEFINITIONS = `- new: the lead just arrived, no reply from us yet.
@@ -164,6 +229,8 @@ Return ONLY strict JSON (no markdown, no commentary) with exactly these keys:
 {
   "stage": one of "new"|"contacted"|"follow_up"|"interested"|"converted"|"lost",
   "confidence": integer 0-100,
+  "score": integer 0-100,
+  "signals": array of short strings (the specific reasons that drove the score),
   "reason": string, <= 140 characters, specific and short,
   "needs_follow_up": boolean,
   "follow_up_reason": string or null,
@@ -171,9 +238,16 @@ Return ONLY strict JSON (no markdown, no commentary) with exactly these keys:
   "conversion_quote": string or null
 }
 
-Rules:
+SCORING RULES — "score" (0-100) = genuine buying intent + engagement, NOT message count:
+- A single generic/greeting/informational message with NO concrete buying signal MUST score <= 25. Sending one message NEVER makes a hot lead.
+- Raise ABOVE 60 only when there are clear buying signals, e.g.: asking price/quote, requesting a demo/appointment, asking availability, discussing payment/order details, negotiating, or sharing a concrete requirement (qty/size/date/budget) — AND the customer is actively engaged.
+- Score 80-100 for strong, explicit purchase intent or payment/order discussion.
+- Lower the score when the customer says "later/maybe/not now/baad mein", goes quiet, or only asks general info with no intent.
+- "signals" must list the exact evidence (e.g. "asked price", "requested demo", "shared requirement", "went quiet after interest", "only a greeting").
+
 - Set "converted": true ONLY when there is an explicit in-chat confirmation of a purchase, booking, or payment. Quote the customer's exact line in "conversion_quote".
 - Set "needs_follow_up": true when the customer is waiting on us, or went quiet after showing interest. Explain briefly in "follow_up_reason".
+- "confidence" reflects how sure you are of the overall read. Use a lower confidence when the conversation is short or ambiguous.
 - Keep "reason" specific to what happened in THIS conversation, not generic.`;
 
 type ConversationMessage = { direction: 'inbound' | 'outbound'; content: string | null };
@@ -200,7 +274,7 @@ export async function classifyLeadPipeline(args: {
 
     const { data: lead } = await db
       .from('leads')
-      .select('id, workspace_id, contact_id, stage, follow_up_at')
+      .select('id, workspace_id, contact_id, stage, follow_up_at, temperature')
       .eq('id', leadId)
       .eq('workspace_id', workspaceId)
       .single();
@@ -228,7 +302,7 @@ export async function classifyLeadPipeline(args: {
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: transcript },
       ],
-      { model: 'openai/gpt-4o-mini', temperature: 0, maxTokens: 200, jsonMode: true },
+      { model: 'openai/gpt-4o-mini', temperature: 0, maxTokens: 300, jsonMode: true, workspaceId, task: 'lead_classify' },
     );
     if (!raw) return;
 
@@ -241,6 +315,7 @@ export async function classifyLeadPipeline(args: {
       contact_id: lead.contact_id,
       stage: lead.stage,
       follow_up_at: lead.follow_up_at,
+      temperature: lead.temperature ?? null,
     };
     const writes = applyLeadClassification(leadRow, classification, new Date());
 
@@ -252,6 +327,14 @@ export async function classifyLeadPipeline(args: {
         lead_id: leadId,
         actor_id: null,
         ...writes.historyRow,
+      });
+    }
+
+    if (writes.scoreHistoryRow) {
+      await db.from('lead_score_history').insert({
+        workspace_id: workspaceId,
+        lead_id: leadId,
+        ...writes.scoreHistoryRow,
       });
     }
 

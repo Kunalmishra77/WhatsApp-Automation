@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseClassification, applyLeadClassification, type LeadRow, type LeadClassification } from './lead-classifier';
+import { parseClassification, applyLeadClassification, scoreToTemperature, DEFAULT_THRESHOLDS, type LeadRow, type LeadClassification } from './lead-classifier';
 
 describe('parseClassification', () => {
   const good = JSON.stringify({
@@ -35,10 +35,41 @@ describe('parseClassification', () => {
 
 const NOW = new Date('2026-08-16T10:00:00Z');
 const lead = (over: Partial<LeadRow> = {}): LeadRow =>
-  ({ id: 'L1', workspace_id: 'W1', contact_id: 'C1', stage: 'new', follow_up_at: null, ...over });
+  ({ id: 'L1', workspace_id: 'W1', contact_id: 'C1', stage: 'new', follow_up_at: null, temperature: 'cold', ...over });
 const cls = (over: Partial<LeadClassification> = {}): LeadClassification =>
-  ({ stage: 'interested', confidence: 85, reason: 'r', needs_follow_up: false,
+  ({ stage: 'interested', confidence: 85, reason: 'r', score: 75, signals: ['asked price'], needs_follow_up: false,
      follow_up_reason: null, converted: false, conversion_quote: null, ...over });
+
+describe('scoreToTemperature', () => {
+  it('maps score to bands (defaults 61/31)', () => {
+    expect(scoreToTemperature(10)).toBe('cold');
+    expect(scoreToTemperature(30)).toBe('cold');
+    expect(scoreToTemperature(31)).toBe('warm');
+    expect(scoreToTemperature(60)).toBe('warm');
+    expect(scoreToTemperature(61)).toBe('hot');
+    expect(scoreToTemperature(100)).toBe('hot');
+  });
+  it('honours custom thresholds', () => {
+    expect(scoreToTemperature(50, { hot: 80, warm: 40 })).toBe('warm');
+    expect(scoreToTemperature(85, { hot: 80, warm: 40 })).toBe('hot');
+  });
+});
+
+describe('parseClassification — score + signals', () => {
+  it('parses an explicit score + signals', () => {
+    const r = parseClassification(JSON.stringify({ stage: 'contacted', confidence: 60, reason: 'x', score: 22, signals: ['only a greeting'] }));
+    expect(r?.score).toBe(22);
+    expect(r?.signals).toEqual(['only a greeting']);
+  });
+  it('defaults a missing score from the stage (not 0)', () => {
+    const r = parseClassification(JSON.stringify({ stage: 'interested', confidence: 70, reason: 'x' }));
+    expect(r?.score).toBe(70); // STAGE_DEFAULT_SCORE.interested
+    expect(r?.signals).toEqual([]);
+  });
+  it('clamps score to 0..100', () => {
+    expect(parseClassification(JSON.stringify({ stage: 'new', score: 999, reason: 'x' }))?.score).toBe(100);
+  });
+});
 
 describe('applyLeadClassification', () => {
   it('moves stage + emits a history row when confident and changed', () => {
@@ -90,5 +121,48 @@ describe('applyLeadClassification', () => {
     );
     expect(w.leadUpdate.needs_follow_up).toBe(false);
     expect(w.leadUpdate.follow_up_at).toBeUndefined();
+  });
+
+  // ── Unified scoring + derived temperature ──
+  it('always records score, confidence and signals', () => {
+    const w = applyLeadClassification(lead(), cls({ score: 42, confidence: 80, signals: ['asked availability'] }), NOW);
+    expect(w.leadUpdate.ai_score).toBe(42);
+    expect(w.leadUpdate.score_confidence).toBe(80);
+    expect(w.leadUpdate.score_signals).toEqual(['asked availability']);
+  });
+  it('derives temperature from score + logs the band transition', () => {
+    const w = applyLeadClassification(lead({ temperature: 'cold' }), cls({ score: 75, confidence: 80 }), NOW);
+    expect(w.leadUpdate.temperature).toBe('hot');
+    expect(w.scoreHistoryRow).toMatchObject({ from_temperature: 'cold', to_temperature: 'hot', score: 75 });
+  });
+  it('a single generic message (low score) stays Cold — the 1-message-Hot fix', () => {
+    const w = applyLeadClassification(lead({ temperature: 'cold' }), cls({ stage: 'new', score: 15, confidence: 85, signals: ['only a greeting'] }), NOW);
+    // Derived temp is 'cold' (score 15) — unchanged from current, so no write + no history.
+    // The key assertion: it never becomes 'hot' from one low-score message.
+    expect(w.leadUpdate.temperature).toBeUndefined();
+    expect(scoreToTemperature(15)).toBe('cold');
+    expect(w.scoreHistoryRow).toBeNull();
+  });
+  it('does NOT change temperature below the confidence threshold', () => {
+    const w = applyLeadClassification(lead({ temperature: 'cold' }), cls({ score: 90, confidence: 40 }), NOW);
+    expect(w.leadUpdate.temperature).toBeUndefined();
+    expect(w.scoreHistoryRow).toBeNull();
+    expect(w.leadUpdate.ai_score).toBe(90); // score still recorded (metadata)
+  });
+  it('can cool a lead down (hot → warm) — no longer escalate-only', () => {
+    const w = applyLeadClassification(lead({ temperature: 'hot' }), cls({ score: 45, confidence: 70 }), NOW);
+    expect(w.leadUpdate.temperature).toBe('warm');
+    expect(w.scoreHistoryRow).toMatchObject({ from_temperature: 'hot', to_temperature: 'warm' });
+  });
+  it('does not touch temperature on conversion (terminal state)', () => {
+    const w = applyLeadClassification(lead({ temperature: 'warm' }), cls({ converted: true, conversion_quote: 'paid', score: 95, confidence: 90 }), NOW);
+    expect(w.leadUpdate.stage).toBe('converted');
+    expect(w.leadUpdate.temperature).toBeUndefined();
+    expect(w.scoreHistoryRow).toBeNull();
+  });
+  it('does not re-log when temperature band is unchanged', () => {
+    const w = applyLeadClassification(lead({ temperature: 'hot' }), cls({ score: 80, confidence: 85 }), NOW);
+    expect(w.leadUpdate.temperature).toBeUndefined();
+    expect(w.scoreHistoryRow).toBeNull();
   });
 });
