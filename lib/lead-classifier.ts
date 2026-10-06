@@ -276,6 +276,15 @@ Return ONLY strict JSON (no markdown, no commentary) with exactly these keys:
   "conversion_quote": string or null
 }
 
+RELEVANCE GATE — decide this FIRST, before scoring:
+Read the WHOLE conversation and judge whether this person is a GENUINE PROSPECTIVE CUSTOMER for THIS specific business (use the business context/guidance below). If instead the person is any of the following, they are NOT a lead — score 0-15, set "stage" to "lost", and name the reason in "signals":
+- a vendor / salesperson / agency pitching or trying to SELL something TO this business (e.g. "I'm X from Y company, we're introducing...", proposals, collaborations, B2B outreach to us)
+- a job-seeker / recruitment / internship / CV enquiry
+- spam, a bulk/automated/marketing broadcast, a forwarded notice/invoice, a phishing attempt, or a chain message
+- a wrong number, or someone clearly off-topic / unrelated to what this business offers
+- the business's own test message or an internal note
+Do NOT score these on keywords — a vendor who says "price" or "demo" is still NOT a customer. Only after this gate passes do you score genuine buying intent.
+
 SCORING RULES — "score" (0-100) = genuine buying intent + engagement, NOT message count:
 - ENGAGEMENT IS REQUIRED FOR A HIGH SCORE. If the customer has sent only ONE message and has not replied after the business answered, treat it as an un-engaged enquiry (an ad click / cold open) and score <= 30 — EVEN IF that one message names a product, service, concern, or asks for info/price. A hot lead requires real back-and-forth. Ad pre-filled opener texts (e.g. "Hi, I want info on <product>", identical for every ad click) are templated marketing copy, NOT the customer describing a genuine personal need.
 - A single generic/greeting/informational message with NO concrete buying signal MUST score <= 25. Sending one message NEVER makes a hot lead.
@@ -348,7 +357,10 @@ export async function classifyLeadPipeline(args: {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: transcript },
       ],
-      { model: 'openai/gpt-4o-mini', temperature: 0, maxTokens: 300, jsonMode: true, workspaceId, task: 'lead_classify' },
+      // gpt-4o (not -mini): the classifier is the platform's core job, and the smaller
+      // model over-scored on surface keywords (e.g. rating a vendor's sales pitch as a
+      // hot lead). The stronger model reliably judges relevance + genuine engagement.
+      { model: 'openai/gpt-4o', temperature: 0, maxTokens: 500, jsonMode: true, workspaceId, task: 'lead_classify' },
     );
     if (!raw) return;
 
