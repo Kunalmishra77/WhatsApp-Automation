@@ -155,7 +155,20 @@ export function applyLeadClassification(
   c: LeadClassification,
   now: Date,
   thresholds: TemperatureThresholds = DEFAULT_THRESHOLDS,
+  maxScore: number = 100,
 ): LeadWrites {
+  // Engagement cap: a lead where the customer has barely engaged (e.g. a single
+  // ad-click message and then silence) cannot be Hot, no matter how buying-ish the
+  // words are — an ad's pre-filled "Hi, I want info on X" is NOT the customer
+  // describing a real need. The pipeline passes maxScore (100 = no cap) based on how
+  // much the customer actually engaged. We clamp the SCORE itself so the displayed
+  // number and the derived temperature both reflect the cap.
+  const effectiveScore = Math.max(0, Math.min(c.score, maxScore));
+  const capped = effectiveScore < c.score;
+  const signals = capped
+    ? ['Only one message — customer not engaged yet', ...c.signals].slice(0, 8)
+    : c.signals;
+
   const leadUpdate: Record<string, unknown> = {
     ai_stage_confidence: c.confidence,
     stage_reason: c.reason,
@@ -163,9 +176,9 @@ export function applyLeadClassification(
     // Unified score (source of truth) + explainability — always recorded.
     // `ai_score` is the existing displayed column (LeadDetail/LeadCard/export); the
     // AI classifier is now its single writer, replacing the old heuristic scorer.
-    ai_score: c.score,
+    ai_score: effectiveScore,
     score_confidence: c.confidence,
-    score_signals: c.signals,
+    score_signals: signals,
   };
   let historyRow: LeadWrites['historyRow'] = null;
   let scoreHistoryRow: LeadWrites['scoreHistoryRow'] = null;
@@ -205,13 +218,13 @@ export function applyLeadClassification(
   // the band transition only when it actually changes). Converted leads are terminal
   // and excluded from hot/warm/cold, so we don't touch temperature then.
   if (!converted) {
-    const newTemp = scoreToTemperature(c.score, thresholds);
+    const newTemp = scoreToTemperature(effectiveScore, thresholds);
     if (newTemp !== (lead.temperature ?? null)) {
       leadUpdate.temperature = newTemp;
       scoreHistoryRow = {
         from_temperature: lead.temperature ?? null,
         to_temperature: newTemp,
-        score: c.score,
+        score: effectiveScore,
         confidence: c.confidence,
         reason: c.reason,
       };
@@ -264,6 +277,7 @@ Return ONLY strict JSON (no markdown, no commentary) with exactly these keys:
 }
 
 SCORING RULES — "score" (0-100) = genuine buying intent + engagement, NOT message count:
+- ENGAGEMENT IS REQUIRED FOR A HIGH SCORE. If the customer has sent only ONE message and has not replied after the business answered, treat it as an un-engaged enquiry (an ad click / cold open) and score <= 30 — EVEN IF that one message names a product, service, concern, or asks for info/price. A hot lead requires real back-and-forth. Ad pre-filled opener texts (e.g. "Hi, I want info on <product>", identical for every ad click) are templated marketing copy, NOT the customer describing a genuine personal need.
 - A single generic/greeting/informational message with NO concrete buying signal MUST score <= 25. Sending one message NEVER makes a hot lead.
 - Raise ABOVE 60 only when there are clear buying signals, e.g.: asking price/quote, requesting a demo/appointment, asking availability, discussing payment/order details, negotiating, or sharing a concrete requirement (qty/size/date/budget) — AND the customer is actively engaged.
 - Score 80-100 for strong, explicit purchase intent or payment/order discussion.
@@ -299,7 +313,7 @@ export async function classifyLeadPipeline(args: {
 
     const { data: lead } = await db
       .from('leads')
-      .select('id, workspace_id, contact_id, stage, follow_up_at, temperature')
+      .select('id, workspace_id, contact_id, stage, follow_up_at, temperature, source, ad_id')
       .eq('id', leadId)
       .eq('workspace_id', workspaceId)
       .single();
@@ -349,7 +363,24 @@ export async function classifyLeadPipeline(args: {
       follow_up_at: lead.follow_up_at,
       temperature: lead.temperature ?? null,
     };
-    const writes = applyLeadClassification(leadRow, classification, new Date(), rules.thresholds);
+
+    // Engagement cap. Count ALL of the customer's (inbound) messages for this
+    // conversation — not just the recent window — because a lead that has only ever
+    // sent one message (typically a Meta-ad pre-fill like "Hi, I want info on X") and
+    // then gone silent is NOT a hot lead, however buying-ish that one line reads. Such
+    // a lead can only become Hot once the customer actually engages (replies again).
+    const { count: inboundCount } = await db
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('conversation_id', conversationId)
+      .eq('workspace_id', workspaceId)
+      .eq('direction', 'inbound');
+    const isAdLead = lead.source === 'meta_ad' || lead.source === 'instagram_ad' || !!lead.ad_id;
+    // <=1 customer message: an ad click with no engagement caps at Cold (25); a plain
+    // organic one-liner caps at upper-Warm (45). 2+ messages = real conversation, no cap.
+    const maxScore = (inboundCount ?? 0) <= 1 ? (isAdLead ? 25 : 45) : 100;
+
+    const writes = applyLeadClassification(leadRow, classification, new Date(), rules.thresholds, maxScore);
 
     await db.from('leads').update(writes.leadUpdate).eq('id', leadId).eq('workspace_id', workspaceId);
 

@@ -165,4 +165,18 @@ describe('applyLeadClassification', () => {
     expect(w.leadUpdate.temperature).toBeUndefined();
     expect(w.scoreHistoryRow).toBeNull();
   });
+
+  // ── Engagement cap (un-engaged single-message / ad-click leads) ──
+  it('caps the score and cools the temperature for an un-engaged single-message lead', () => {
+    // A buying-ish single ad-click message the AI scored 90 — capped to 25 (Cold).
+    const w = applyLeadClassification(lead({ temperature: 'hot' }), cls({ score: 90, confidence: 85 }), NOW, DEFAULT_THRESHOLDS, 25);
+    expect(w.leadUpdate.ai_score).toBe(25);
+    expect(w.leadUpdate.temperature).toBe('cold');
+    expect((w.leadUpdate.score_signals as string[])[0]).toContain('not engaged');
+  });
+  it('does not cap when the customer is engaged (maxScore 100)', () => {
+    const w = applyLeadClassification(lead({ temperature: 'cold' }), cls({ score: 90, confidence: 85 }), NOW, DEFAULT_THRESHOLDS, 100);
+    expect(w.leadUpdate.ai_score).toBe(90);
+    expect(w.leadUpdate.temperature).toBe('hot');
+  });
 });
