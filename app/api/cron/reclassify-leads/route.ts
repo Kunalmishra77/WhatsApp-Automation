@@ -4,7 +4,9 @@ import { classifyLeadPipeline } from '@/lib/lead-classifier';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+// Self-hosted (Coolify/Node) — no serverless function cap, so a run can process a
+// large batch in one pass. (maxDuration is only enforced on serverless platforms.)
+export const maxDuration = 300;
 
 type LeadCandidate = {
   id: string;
@@ -32,14 +34,15 @@ async function run(request: NextRequest) {
   }
 
   const supabase = createAdminClient() as any;
-  const deadline = Date.now() + 55_000; // stop cleanly before maxDuration
+  const deadline = Date.now() + 280_000; // long run on self-hosted; stop before maxDuration
 
-  // Throughput: classify with bounded concurrency instead of one-at-a-time, so each
-  // 55s run clears a large batch (a sequential loop only managed ~25/run, which made
-  // backfilling a big historical backlog take days). Concurrency is kept moderate to
-  // stay gentle on the AI provider; the run is near-idle once the backlog is cleared.
-  const CONCURRENCY = 5;
-  const PROCESS_CAP = 250;
+  // Throughput: classify with bounded concurrency. Per-client guidance makes each AI
+  // call heavier/slower, so a big one-time backlog (e.g. a full re-score with new
+  // rules) was draining at only ~30-40/hr. On self-hosted there's no serverless cap,
+  // so we run a long pass with higher concurrency to clear a large batch each run
+  // (~a few thousand); once the backlog is gone the run goes near-idle in seconds.
+  const CONCURRENCY = 10;
+  const PROCESS_CAP = 2000;
 
   // Candidate leads: has a conversation, oldest/never classified first. Over-fetch
   // beyond the cap since some candidates will turn out to still be fresh (classified
@@ -56,7 +59,7 @@ async function run(request: NextRequest) {
     .select('id, workspace_id, conversation_id, ai_classified_at, stage')
     .not('conversation_id', 'is', null)
     .order('ai_classified_at', { ascending: true, nullsFirst: true })
-    .limit(600);
+    .limit(2500);
 
   const rows = (candidates ?? []) as LeadCandidate[];
 
