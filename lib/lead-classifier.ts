@@ -199,10 +199,12 @@ export function applyLeadClassification(
     };
   }
 
-  // Temperature is DERIVED from the score. Only move it when the AI is at least
-  // moderately confident (no aggressive flip on an uncertain read). Converted leads
-  // are terminal and excluded from hot/warm/cold, so we don't touch temperature then.
-  if (!converted && c.confidence >= TEMPERATURE_CONFIDENCE_THRESHOLD) {
+  // Temperature is a pure DISPLAY band of the score (the canonical value, always
+  // written above), so it must always track the score — otherwise a lead can show
+  // e.g. score 72 with a "Cold" badge. We derive it on every classification (logging
+  // the band transition only when it actually changes). Converted leads are terminal
+  // and excluded from hot/warm/cold, so we don't touch temperature then.
+  if (!converted) {
     const newTemp = scoreToTemperature(c.score, thresholds);
     if (newTemp !== (lead.temperature ?? null)) {
       leadUpdate.temperature = newTemp;

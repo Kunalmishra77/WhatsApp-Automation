@@ -143,11 +143,11 @@ describe('applyLeadClassification', () => {
     expect(scoreToTemperature(15)).toBe('cold');
     expect(w.scoreHistoryRow).toBeNull();
   });
-  it('does NOT change temperature below the confidence threshold', () => {
+  it('derives temperature from the score even at low confidence (badge must track the score)', () => {
     const w = applyLeadClassification(lead({ temperature: 'cold' }), cls({ score: 90, confidence: 40 }), NOW);
-    expect(w.leadUpdate.temperature).toBeUndefined();
-    expect(w.scoreHistoryRow).toBeNull();
-    expect(w.leadUpdate.ai_score).toBe(90); // score still recorded (metadata)
+    expect(w.leadUpdate.temperature).toBe('hot');
+    expect(w.scoreHistoryRow).toMatchObject({ from_temperature: 'cold', to_temperature: 'hot', score: 90 });
+    expect(w.leadUpdate.ai_score).toBe(90);
   });
   it('can cool a lead down (hot → warm) — no longer escalate-only', () => {
     const w = applyLeadClassification(lead({ temperature: 'hot' }), cls({ score: 45, confidence: 70 }), NOW);
