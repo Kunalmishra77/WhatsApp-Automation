@@ -10,10 +10,22 @@ export const runtime = 'nodejs';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// Instagram ad referral (present when the DM originates from an ad that clicks to
+// Instagram Direct, or an ig.me link). Can arrive at the messaging level or on the
+// message itself. `ads_context_data.ad_title` is the human-readable ad name.
+interface IgReferral {
+  ref?:    string;
+  ad_id?:  string;
+  source?: string;   // 'ADS' | 'SHORTLINK' | ...
+  type?:   string;   // 'OPEN_THREAD' | ...
+  ads_context_data?: { ad_title?: string; photo_url?: string; video_url?: string; post_id?: string };
+}
+
 interface IgMessage {
   mid: string;
   text?: string;
   attachments?: Array<{ type: string; payload: { url: string } }>;
+  referral?: IgReferral;
 }
 
 interface IgMessaging {
@@ -21,6 +33,7 @@ interface IgMessaging {
   recipient: { id: string };
   timestamp: number;
   message?:  IgMessage;
+  referral?: IgReferral;
 }
 
 interface IgEntry {
@@ -174,15 +187,51 @@ async function handleIncomingDM(db: any, igAccount: IgAccount, ev: IgMessaging) 
 
   if (!conversation) throw new Error('Failed to upsert Instagram conversation');
 
-  if (!priorConv) {
+  // Instagram ad referral — if this DM came from an ad (not organic), attribute it
+  // to meta_ads with the ad id/title instead of a generic "Instagram DM" touch.
+  const referral = ev.referral ?? ev.message?.referral;
+  const isAdReferral = !!referral && (referral.source === 'ADS' || !!referral.ad_id);
+  const adTitle = referral?.ads_context_data?.ad_title ?? null;
+
+  if (isAdReferral) {
+    const adSource = {
+      headline:    adTitle ?? 'Instagram Ad',
+      ad_id:       referral?.ad_id ?? null,
+      ref:         referral?.ref ?? null,
+      platform:    'instagram',
+      detected_at: new Date(ev.timestamp).toISOString(),
+      source:      'ig_referral',
+    };
+    // Persist ad context on the conversation (mirrors WhatsApp CTWA).
+    void db
+      .from('conversations')
+      .update({ meta: { ig_sender_id: senderIgsid, ig_account_id: igUserId, ad_source: adSource } })
+      .eq('id', conversation.id);
+    // Stamp any existing lead for this contact with per-ad attribution.
+    void db
+      .from('leads')
+      .update({
+        source: 'instagram_ad',
+        channel: 'meta_ads',
+        source_detail: adSource.headline,
+        ad_id: adSource.ad_id ? String(adSource.ad_id) : null,
+        ad_name: adTitle,
+        ad_platform: 'instagram',
+      })
+      .eq('contact_id', contact.id)
+      .eq('workspace_id', workspaceId);
+  }
+
+  if (!priorConv || isAdReferral) {
     void recordTouchpoint(db, {
       workspaceId,
       contactId: contact.id as string,
-      channel: 'instagram',
-      sourceDetail: 'Instagram DM',
-      refType: 'conversation',
-      refId: conversation.id as string,
+      channel: isAdReferral ? 'meta_ads' : 'instagram',
+      sourceDetail: isAdReferral ? (adTitle ?? 'Instagram Ad') : 'Instagram DM',
+      refType: isAdReferral ? 'meta_lead' : 'conversation',
+      refId: isAdReferral ? (referral?.ad_id ?? conversation.id as string) : conversation.id as string,
       occurredAt: new Date(ev.timestamp).toISOString(),
+      metadata: isAdReferral ? { platform: 'instagram', ref: referral?.ref ?? null, source: referral?.source ?? null } : undefined,
     });
   }
 

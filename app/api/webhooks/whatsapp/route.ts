@@ -913,6 +913,12 @@ async function handleIncomingMessage(
           tags: ['meta', 'facebook_ad'],
           channel: 'meta_ads',
           source_detail: adSource.headline ?? 'Meta Ad',
+          // Per-ad attribution (migration 109): typed columns so revenue can be
+          // grouped by the individual ad, not just the channel.
+          ad_id:       adSource.ad_id ? String(adSource.ad_id) : null,
+          ad_name:     adSource.headline ? String(adSource.headline) : null,
+          ad_platform: adSource.platform ? String(adSource.platform) : null,
+          ctwa_clid:   adSource.ctwa_clid ? String(adSource.ctwa_clid) : null,
         })
         .eq('contact_id', contact.id)
         .eq('workspace_id', workspaceId);

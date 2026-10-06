@@ -50,7 +50,16 @@ export default function MarketingRoiPage() {
     staleTime: 20_000,
   });
 
+  const { data: adData } = useQuery({
+    queryKey: ['ad-performance', workspaceId, from, to],
+    queryFn: () => fetch(`/api/analytics/ad-performance?${params}`).then((r) => r.json()),
+    enabled: !!workspaceId,
+    staleTime: 20_000,
+  });
+
   const channels: ChannelRoi[] = data?.channels ?? [];
+  type AdRow = { ad_id: string; ad_name: string; ad_platform: string | null; leads: number; conversions: number; conversion_rate: number; revenue: number };
+  const ads: AdRow[] = adData?.ads ?? [];
   const totals = data?.totals ?? { leads: 0, conversions: 0, spend: 0, ad_spend: 0, conversion_rate: 0, cost_per_lead: null, revenue: 0, roas: null, net_roi: null };
   const currency: string = data?.currency ?? 'INR';
   const money = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
@@ -161,6 +170,43 @@ export default function MarketingRoiPage() {
           </table>
         </div>
       </div>
+
+      {/* Top performing ads (CTWA + Instagram ads) */}
+      {ads.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100">
+            <h2 className="text-sm font-semibold text-gray-900">Top performing ads</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Leads &amp; revenue by individual ad (Click-to-WhatsApp &amp; Instagram)</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100">
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Ad</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Leads</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Conv.</th>
+                  <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ads.map((a) => (
+                  <tr key={a.ad_id} className="border-b border-gray-50">
+                    <td className="px-5 py-3">
+                      <span className="font-medium text-gray-900">{a.ad_name}</span>
+                      <span className={`ml-2 text-xs px-2 py-0.5 rounded-full ${a.ad_platform === 'instagram' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                        {a.ad_platform === 'instagram' ? 'Instagram' : 'Facebook'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums text-gray-900">{a.leads.toLocaleString('en-IN')}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-gray-600">{a.conversions.toLocaleString('en-IN')} · {a.conversion_rate}%</td>
+                    <td className="px-5 py-3 text-right tabular-nums font-medium text-gray-900">{a.revenue > 0 ? money(a.revenue) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <p className="text-xs text-gray-400 px-1">
         Revenue counts a converted lead&apos;s deal value, falling back to any linked order total. ROAS = revenue ÷ spend;
