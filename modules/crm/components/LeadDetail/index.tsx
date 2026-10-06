@@ -56,6 +56,8 @@ export function LeadDetail({ leadId, onClose }: LeadDetailProps) {
   const [editOpen,       setEditOpen]       = useState(false);
   const [confirmDelete,  setConfirmDelete]  = useState(false);
   const [deleting,       setDeleting]       = useState(false);
+  const [editingValue,   setEditingValue]   = useState(false);
+  const [valueInput,     setValueInput]     = useState('');
   const remove         = useDeleteLead();
   const reclassify     = useReclassifyLead(leadId);
   const reviewConversion = useReviewConversion(leadId);
@@ -84,6 +86,34 @@ export function LeadDetail({ leadId, onClose }: LeadDetailProps) {
       void queryClient.invalidateQueries({ queryKey: ['leads', workspaceId] });
     },
   });
+
+  const saveValue = useMutation({
+    mutationFn: (value: number | null) =>
+      fetch(`/api/leads/${leadId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value }),
+      }).then(async (r) => {
+        if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { error?: string }).error ?? 'Failed to save');
+        return r.json();
+      }),
+    onSuccess: () => {
+      toast.success('Deal value saved');
+      setEditingValue(false);
+      void queryClient.invalidateQueries({ queryKey: ['lead', leadId] });
+      void queryClient.invalidateQueries({ queryKey: ['leads', workspaceId] });
+      void queryClient.invalidateQueries({ queryKey: ['marketing-roi'] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Failed to save'),
+  });
+
+  const handleSaveValue = () => {
+    const trimmed = valueInput.trim();
+    if (trimmed === '') { saveValue.mutate(null); return; }
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || n < 0) { toast.error('Enter a valid amount'); return; }
+    saveValue.mutate(Math.round(n * 100) / 100);
+  };
 
   const handleDelete = async () => {
     if (!lead) return;
@@ -206,14 +236,53 @@ export function LeadDetail({ leadId, onClose }: LeadDetailProps) {
               )}
 
               <div className="grid grid-cols-2 gap-3">
-                {lead.value != null && (
-                  <div className="rounded-lg border border-border p-3">
+                <div className="rounded-lg border border-border p-3">
+                  <div className="flex items-center justify-between">
                     <p className="text-[11px] text-muted-foreground">Deal Value</p>
+                    {!editingValue && (
+                      <button
+                        type="button"
+                        onClick={() => { setValueInput(lead.value != null ? String(lead.value) : ''); setEditingValue(true); }}
+                        className="text-muted-foreground hover:text-foreground"
+                        title="Edit deal value"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                  {editingValue ? (
+                    <div className="mt-1 flex items-center gap-1">
+                      <input
+                        type="number"
+                        min={0}
+                        autoFocus
+                        value={valueInput}
+                        onChange={(e) => setValueInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleSaveValue(); if (e.key === 'Escape') setEditingValue(false); }}
+                        placeholder="0"
+                        className="w-full rounded border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                      />
+                      <button type="button" onClick={handleSaveValue} disabled={saveValue.isPending} className="text-emerald-600 hover:text-emerald-700" title="Save">
+                        <Check className="h-4 w-4" />
+                      </button>
+                      <button type="button" onClick={() => setEditingValue(false)} className="text-muted-foreground hover:text-foreground" title="Cancel">
+                        <Undo2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : lead.value != null ? (
                     <p className="mt-0.5 flex items-center gap-0.5 text-lg font-semibold text-emerald-600">
                       <DollarSign className="h-4 w-4" />{lead.value.toLocaleString()}
                     </p>
-                  </div>
-                )}
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { setValueInput(''); setEditingValue(true); }}
+                      className="mt-0.5 text-sm text-brand-600 hover:text-brand-700"
+                    >
+                      + Set value
+                    </button>
+                  )}
+                </div>
                 <div className="rounded-lg border border-border p-3">
                   <p className="text-[11px] text-muted-foreground">Priority</p>
                   <p className="mt-0.5 text-sm font-semibold capitalize">{lead.priority}</p>

@@ -14,14 +14,21 @@ interface ChannelRoi {
   spend: number;                 // whole currency units
   cost_per_lead: number | null;  // null when spend or leads is 0
   spend_kind: 'ad' | 'messaging' | null;
+  revenue: number;               // realized value from converted leads (deal value ?? linked orders)
+  roas: number | null;           // revenue / spend, 2 decimals; null when spend is 0
+  net_roi: number | null;        // (revenue - spend) / spend * 100, one decimal; null when spend is 0
 }
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 // GET /api/analytics/roi?workspaceId=&from=&to=
 // Cross-channel marketing ROI: per-channel leads + conversions (from the Unified
-// Lead Hub) joined with spend where a source exists — Google Ads (real ad spend)
-// and WhatsApp (messaging cost). Computes cost-per-lead + conversion rate.
+// Lead Hub) joined with spend where a source exists — Google Ads / Meta (ad spend)
+// and WhatsApp (messaging cost) — AND revenue from converted leads. Revenue per
+// converted lead is its deal value (leads.value) when set, else the total of any
+// non-cancelled orders linked to its conversation. Computes cost-per-lead,
+// conversion rate, ROAS (revenue ÷ spend) and net ROI %.
 export async function GET(request: NextRequest) {
   try {
     const sp = request.nextUrl.searchParams;
@@ -33,11 +40,31 @@ export async function GET(request: NextRequest) {
     const from = sp.get('from');
     const to = sp.get('to');
 
-    // ── 1) Leads + conversions by channel (exact, paginated) ────────────────
-    const leadTotals = new Map<string, { leads: number; conversions: number }>();
+    // ── 0) Realized revenue from orders, mapped by conversation (fallback for
+    //        converted leads with no deal value). Excludes cancelled/refunded. ──
+    const orderRevenueByConversation = new Map<string, number>();
+    {
+      let oq = db
+        .from('orders')
+        .select('conversation_id, total_amount, status')
+        .eq('workspace_id', workspaceId)
+        .not('conversation_id', 'is', null)
+        .not('status', 'in', '(cancelled,refunded)');
+      const { data } = await oq.limit(10000);
+      for (const r of (data ?? []) as Array<{ conversation_id: string | null; total_amount: number | null }>) {
+        if (!r.conversation_id) continue;
+        orderRevenueByConversation.set(
+          r.conversation_id,
+          (orderRevenueByConversation.get(r.conversation_id) ?? 0) + Number(r.total_amount ?? 0),
+        );
+      }
+    }
+
+    // ── 1) Leads + conversions + revenue by channel (exact, paginated) ───────
+    const leadTotals = new Map<string, { leads: number; conversions: number; revenue: number }>();
     const PAGE = 1000;
     for (let offset = 0; ; offset += PAGE) {
-      let q = db.from('leads').select('channel, stage').eq('workspace_id', workspaceId);
+      let q = db.from('leads').select('channel, stage, value, conversation_id').eq('workspace_id', workspaceId);
       if (from) q = q.gte('created_at', `${from}T00:00:00.000Z`);
       if (to) q = q.lte('created_at', `${to}T23:59:59.999Z`);
       const { data, error } = await q.order('id', { ascending: true }).range(offset, offset + PAGE - 1);
@@ -45,12 +72,18 @@ export async function GET(request: NextRequest) {
         console.error('[ROI leads]', error);
         return NextResponse.json({ error: 'Failed to aggregate leads' }, { status: 500 });
       }
-      const rows = (data ?? []) as Array<{ channel: string | null; stage: string | null }>;
+      const rows = (data ?? []) as Array<{ channel: string | null; stage: string | null; value: number | null; conversation_id: string | null }>;
       for (const r of rows) {
         const ch = r.channel ?? 'other';
-        const b = leadTotals.get(ch) ?? { leads: 0, conversions: 0 };
+        const b = leadTotals.get(ch) ?? { leads: 0, conversions: 0, revenue: 0 };
         b.leads += 1;
-        if (r.stage === 'converted') b.conversions += 1;
+        if (r.stage === 'converted') {
+          b.conversions += 1;
+          // Deal value wins; fall back to linked orders when it's unset/zero.
+          const dealValue = Number(r.value ?? 0);
+          const orderValue = r.conversation_id ? (orderRevenueByConversation.get(r.conversation_id) ?? 0) : 0;
+          b.revenue += dealValue > 0 ? dealValue : orderValue;
+        }
         leadTotals.set(ch, b);
       }
       if (rows.length < PAGE) break;
@@ -100,20 +133,24 @@ export async function GET(request: NextRequest) {
     const allChannels = new Set<string>([...leadTotals.keys(), ...Object.keys(spendByChannel)]);
     const channels: ChannelRoi[] = [];
     for (const ch of allChannels) {
-      const t = leadTotals.get(ch) ?? { leads: 0, conversions: 0 };
+      const t = leadTotals.get(ch) ?? { leads: 0, conversions: 0, revenue: 0 };
       const s = spendByChannel[ch];
-      const spend = s ? Math.round(s.spend * 100) / 100 : 0;
+      const spend = s ? round2(s.spend) : 0;
+      const revenue = round2(t.revenue);
       channels.push({
         channel: ch,
         leads: t.leads,
         conversions: t.conversions,
         conversion_rate: t.leads > 0 ? round1((t.conversions / t.leads) * 100) : 0,
         spend,
-        cost_per_lead: spend > 0 && t.leads > 0 ? Math.round((spend / t.leads) * 100) / 100 : null,
+        cost_per_lead: spend > 0 && t.leads > 0 ? round2(spend / t.leads) : null,
         spend_kind: s?.kind ?? null,
+        revenue,
+        roas: spend > 0 ? round2(revenue / spend) : null,
+        net_roi: spend > 0 ? round1(((revenue - spend) / spend) * 100) : null,
       });
     }
-    channels.sort((a, b) => b.leads - a.leads || b.spend - a.spend);
+    channels.sort((a, b) => b.revenue - a.revenue || b.leads - a.leads || b.spend - a.spend);
 
     const totals = channels.reduce(
       (acc, c) => ({
@@ -121,19 +158,26 @@ export async function GET(request: NextRequest) {
         conversions: acc.conversions + c.conversions,
         spend: acc.spend + c.spend,
         ad_spend: acc.ad_spend + (c.spend_kind === 'ad' ? c.spend : 0),
+        revenue: acc.revenue + c.revenue,
       }),
-      { leads: 0, conversions: 0, spend: 0, ad_spend: 0 },
+      { leads: 0, conversions: 0, spend: 0, ad_spend: 0, revenue: 0 },
     );
+    const totalSpend = round2(totals.spend);
+    const totalRevenue = round2(totals.revenue);
 
     return NextResponse.json({
       channels,
       currency,
       totals: {
         ...totals,
+        spend: totalSpend,
+        revenue: totalRevenue,
         conversion_rate: totals.leads > 0 ? round1((totals.conversions / totals.leads) * 100) : 0,
         cost_per_lead: totals.ad_spend > 0 && totals.leads > 0
-          ? Math.round((totals.ad_spend / totals.leads) * 100) / 100
+          ? round2(totals.ad_spend / totals.leads)
           : null,
+        roas: totalSpend > 0 ? round2(totalRevenue / totalSpend) : null,
+        net_roi: totalSpend > 0 ? round1(((totalRevenue - totalSpend) / totalSpend) * 100) : null,
       },
     });
   } catch (error) {
