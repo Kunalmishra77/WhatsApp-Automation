@@ -191,13 +191,26 @@ async function processPayload(supabase: AdminClient, payload: WhatsAppPayload) {
       if (change.field !== 'messages') continue;
       const value = change.value;
 
+      // Per-item isolation: one failing message/status must NOT abort the rest of the
+      // payload. A thrown error here used to 500 the whole webhook, so every remaining
+      // status (delivered/read receipts) in the batch was lost until Meta's retry — and
+      // idempotency dedup could then skip it entirely. Isolating each item means a
+      // single bad row is logged and skipped while all other receipts still apply.
       for (const msg of value.messages ?? []) {
-        await handleIncomingMessage(supabase, msg, value.metadata, value.contacts ?? []);
+        try {
+          await handleIncomingMessage(supabase, msg, value.metadata, value.contacts ?? []);
+        } catch (e) {
+          console.error('[Webhook] handleIncomingMessage failed (skipping this message):', e instanceof Error ? e.message : String(e));
+        }
         messagesProcessed += 1;
       }
 
       for (const status of value.statuses ?? []) {
-        await handleStatusUpdate(supabase, status);
+        try {
+          await handleStatusUpdate(supabase, status);
+        } catch (e) {
+          console.error('[Webhook] handleStatusUpdate failed (skipping this status):', e instanceof Error ? e.message : String(e));
+        }
         statusesProcessed += 1;
       }
     }
@@ -2672,12 +2685,16 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
 
   const db = supabase as any;
 
+  // Update messages first, but NEVER let its failure block the campaign_recipients
+  // update below — the two are independent, and the recipients row is what drives the
+  // campaign's Delivered/Read stats. A thrown error here previously skipped the
+  // recipients update entirely and 500'd the webhook (permanently under-counting
+  // delivered/read). Log and continue instead.
   const { error } = await db
     .from('messages')
     .update(messagesPatch)
     .eq('whatsapp_msg_id', status.id);
-
-  if (error) throw new Error(error.message);
+  if (error) console.error('[StatusUpdate] messages update failed (continuing to campaign_recipients):', error.message);
 
   // Mirror status to campaign_recipients and sync aggregate counts on campaigns table.
   // IMPORTANT: Never overwrite 'replied' or 'filtered' — a late 'delivered'/'read' receipt
