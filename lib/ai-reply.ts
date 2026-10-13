@@ -446,13 +446,32 @@ Supported languages: English, Hindi, Hinglish (Roman-script Hindi), Marathi, Tam
     : '';
   const finalSystemPrompt = systemPrompt + classifySuffix;
 
-  // Extracts + strips the routing tag from a reply, recording it on outMeta.
+  // Normalise any markdown the model emitted into WhatsApp-safe formatting, so the
+  // customer never sees stray asterisks/markup. WhatsApp bold is a SINGLE asterisk
+  // (*bold*) and renders without showing the asterisk; markdown double-asterisk
+  // (**bold**) shows literal stars on WhatsApp. Also strip markdown headings and
+  // collapse stray runs of asterisks.
+  const formatForWhatsApp = (text: string): string =>
+    text
+      .replace(/\*\*\*(.+?)\*\*\*/g, '*$1*')   // ***bold-italic*** → *bold*
+      .replace(/\*\*(.+?)\*\*/g, '*$1*')       // **bold** → *bold*
+      .replace(/__(.+?)__/g, '*$1*')           // __bold__ → *bold*
+      .replace(/^\s*#{1,6}\s+/gm, '')          // markdown headings "## x" → "x"
+      .replace(/\*{2,}/g, '*')                  // any leftover run of asterisks → single
+      .replace(/[ \t]+\n/g, '\n')               // trailing spaces
+      .trim();
+
+  // Extracts + strips the routing tag from a reply, records it on outMeta, and
+  // normalises WhatsApp formatting.
   const applyClassification = (text: string | null): string | null => {
     if (!text) return text;
-    if (!outMeta) return text;
-    const m = text.match(/<<\s*(OK|OFFTOPIC|ABUSE)\s*>>/i);
-    outMeta.classification = (m?.[1]?.toLowerCase() as 'ok' | 'offtopic' | 'abuse' | undefined) ?? 'ok';
-    return text.replace(/\s*<<\s*(OK|OFFTOPIC|ABUSE)\s*>>\s*$/i, '').replace(/<<\s*(OK|OFFTOPIC|ABUSE)\s*>>/ig, '').trim();
+    let cleaned = text;
+    if (outMeta) {
+      const m = text.match(/<<\s*(OK|OFFTOPIC|ABUSE)\s*>>/i);
+      outMeta.classification = (m?.[1]?.toLowerCase() as 'ok' | 'offtopic' | 'abuse' | undefined) ?? 'ok';
+      cleaned = text.replace(/\s*<<\s*(OK|OFFTOPIC|ABUSE)\s*>>\s*$/i, '').replace(/<<\s*(OK|OFFTOPIC|ABUSE)\s*>>/ig, '').trim();
+    }
+    return formatForWhatsApp(cleaned);
   };
 
   // Vision path: multimodal content (image URL array) requires direct OpenRouter fetch
