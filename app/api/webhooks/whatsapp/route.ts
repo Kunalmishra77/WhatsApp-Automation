@@ -760,6 +760,25 @@ async function handleIncomingMessage(
 
   const isFirstMessage = (msgCount ?? 0) <= 1;
 
+  // Greeting-specific "first message": judged per CONTACT, not per conversation.
+  // Conversations auto-resolve after inactivity, so a customer who pauses a few
+  // minutes lands in a NEW conversation and any first_message greeting/menu fires
+  // again — the client saw the welcome menu re-sent three times in one session.
+  // `isFirstMessage` above is left alone because the conversation.created webhook
+  // legitimately fires per new conversation.
+  let isFirstContactMessage = isFirstMessage;
+  if (isFirstContactMessage) {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { count: recentInbound } = await (supabase as any)
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId)
+      .eq('sender_id', contact.id)
+      .eq('direction', 'inbound')
+      .gte('created_at', since);
+    if ((recentInbound ?? 0) > 1) isFirstContactMessage = false;
+  }
+
   // ── Outbound webhooks (fire-and-forget) ────────────────────────────────────
   void dispatchWebhookEvent(workspaceId, 'message.received', {
     message_id: msg.id,
@@ -802,7 +821,7 @@ async function handleIncomingMessage(
       content,
       conversation.id,
       contact.id,
-      isFirstMessage,
+      isFirstContactMessage,
       wsForRules.phone_number_id,
       cleanToken,
     );
@@ -2629,6 +2648,25 @@ async function checkAndHandleAutoCsatReply(
   const sentAtRaw = meta.csat_sent_at as string | undefined;
   const sentAtMs = sentAtRaw ? new Date(sentAtRaw).getTime() : NaN;
   if (!Number.isFinite(sentAtMs) || Date.now() - sentAtMs > 48 * 60 * 60 * 1000) return false;
+
+  // The rating prompt must still be the LAST thing we sent. `csat_pending` stays set
+  // for 48h and is only cleared by a valid rating, so without this check a customer
+  // picking option "2" from a numbered menu we sent afterwards gets swallowed as a
+  // CSAT score — their menu choice is lost and they just get "Thank you for your
+  // feedback". If we have sent anything else since the prompt, treat "1".."5" as a
+  // normal message and let the flow/AI handle it. (60s buffer so the prompt message
+  // itself, recorded moments after csat_sent_at, doesn't count as "something else".)
+  const { data: newerOutbound } = await db
+    .from('messages')
+    .select('id')
+    .eq('conversation_id', conversationId)
+    .eq('direction', 'outbound')
+    .gt('created_at', new Date(sentAtMs + 60_000).toISOString())
+    .limit(1);
+  if (newerOutbound && newerOutbound.length > 0) {
+    console.log('[AutoCSAT] Ignoring numeric reply — a newer outbound message was sent after the rating prompt');
+    return false;
+  }
 
   const { error: insErr } = await db.from('csat_responses').insert({
     workspace_id: workspaceId,

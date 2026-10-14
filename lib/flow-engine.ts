@@ -658,7 +658,31 @@ export async function processFlowForMessage(
       .eq('workspace_id', workspaceId)
       .eq('direction', 'inbound');
 
-    const isFirstMessage = (msgCount ?? 0) <= 1;
+    // "First message" must be judged per-CONTACT, not per-conversation. Conversations
+    // get auto-resolved after inactivity, so a customer who pauses a few minutes lands
+    // in a brand-new conversation and this flow re-fires — the client saw the welcome
+    // menu re-sent three times inside one session. Only greet if this contact hasn't
+    // already messaged us in the last 24h.
+    let isFirstMessage = (msgCount ?? 0) <= 1;
+    if (isFirstMessage) {
+      const { data: convRow } = await (supabase as any)
+        .from('conversations')
+        .select('contact_id')
+        .eq('id', conversationId)
+        .maybeSingle();
+      const contactId = convRow?.contact_id as string | undefined;
+      if (contactId) {
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { count: recentInbound } = await (supabase as any)
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('workspace_id', workspaceId)
+          .eq('sender_id', contactId)
+          .eq('direction', 'inbound')
+          .gte('created_at', since);
+        if ((recentInbound ?? 0) > 1) isFirstMessage = false;
+      }
+    }
     const lowerContent = messageContent.toLowerCase().trim();
 
     let matchedFlow: ChatbotFlow | null = null;
