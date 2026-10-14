@@ -1013,13 +1013,29 @@ async function handleIncomingMessage(
   // Previously sequential (6-8s overhead). Now parallel: total wait = slowest of the three.
   const keywordEscalation = checkEscalationKeywords(content);
 
+  // Hard-bound the two pre-reply AI calls. They are "nice to have" signals (an intent
+  // label and sentiment escalation) — the customer's actual reply must NEVER wait on
+  // them. They had no timeout: if a provider hangs, the retry budget alone can push
+  // this request past maxDuration (60s), the webhook dies with no reply recorded, and
+  // the customer only hears back minutes later via the reply-sweep. That was a real
+  // source of the multi-minute delays. On timeout we fall back to the same values the
+  // existing .catch() handlers already use, so downstream behaviour is unchanged.
+  const withTimeout = <T,>(p: Promise<T>, ms: number, fallback: T): Promise<T> =>
+    new Promise<T>((resolve) => {
+      let settled = false;
+      const finish = (v: T) => { if (!settled) { settled = true; resolve(v); } };
+      const timer = setTimeout(() => finish(fallback), ms);
+      p.then((v) => { clearTimeout(timer); finish(v); })
+       .catch(() => { clearTimeout(timer); finish(fallback); });
+    });
+
   const [intentLabel, aiSentimentResult, bhConfigResult] = await Promise.all([
-    // 1. Intent categorization — 5s timeout, gpt-4o-mini is fast enough to always finish
-    categorizeMessage(content).catch(() => null),
+    // 1. Intent categorization — capped so a slow provider can't delay the reply
+    withTimeout(categorizeMessage(content).catch(() => null), 8000, null),
 
     // 2. AI sentiment escalation (only if no keyword match and message is long enough)
     (!keywordEscalation && content.length > 20)
-      ? detectNegativeSentiment(content).catch(() => false)
+      ? withTimeout(detectNegativeSentiment(content).catch(() => false), 8000, false)
       : Promise.resolve(false),
 
     // 3. Business hours config fetch
@@ -1161,7 +1177,9 @@ async function handleIncomingMessage(
     }
   }
 
-  // Rate limit: max 1 auto-reply per 30s per contact
+  // Burst guard: max 1 auto-reply per 5s per contact (lib/rate-limit.ts). Only
+  // suppresses rapid-fire bursts; a suppressed message is still picked up by the
+  // reply-sweep safety net. (The old comment here said 30s — the limiter is 5s.)
   const canReply = await checkAutoReplyLimit(contact.id);
   if (canReply) {
     // Vision AI: if image, download the bytes as a base64 data URL for multimodal
