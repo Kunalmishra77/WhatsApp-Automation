@@ -41,7 +41,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useWorkspaceStore } from '@/store/workspace.store';
 
 type UserRole = Database['public']['Tables']['workspace_members']['Row']['role'];
-const ROLES: UserRole[] = ['super_admin', 'admin', 'manager', 'agent'];
+// Roles an admin can actually assign. 'super_admin' is the workspace owner and
+// is deliberately absent: the API rejects it, so offering it here only produced
+// an "Invalid role" error.
+const ROLES: UserRole[] = ['admin', 'manager', 'agent'];
 
 interface WorkloadAgent {
   userId: string; name: string; email: string; avatarUrl: string | null;
@@ -398,7 +401,9 @@ export function TeamPage() {
                           <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-semibold text-brand-700">
                             {m.custom_role_name}
                           </span>
-                        ) : isSelf ? (
+                        ) : (isSelf || m.role === 'super_admin') ? (
+                          // The owner's role is not editable by anyone else, so show
+                          // it rather than a dropdown that cannot be submitted.
                           <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', ROLE_COLORS[m.role])}>
                             {ROLE_LABELS[m.role]}
                           </span>
