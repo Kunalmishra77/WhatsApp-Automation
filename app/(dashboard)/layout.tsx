@@ -48,7 +48,24 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
   const cookieStore  = await cookies();
   const preferredId  = cookieStore.get('active_workspace_id')?.value;
   const preferredWs  = preferredId ? workspaces.find((w) => w.id === preferredId) : undefined;
-  const activeWorkspace = preferredWs ?? workspaces[0]!;
+
+  // With no workspace explicitly chosen, land the user in one they can actually
+  // work in. Someone who belongs to two — say their own half-finished signup
+  // plus a team they were invited to — used to get whichever row Postgres
+  // returned first, and if that was the unfinished one the gates below dropped
+  // them into its setup wizard asking for payment and WhatsApp credentials,
+  // even though the workspace they were invited to was ready to use.
+  //
+  // A single-workspace user is unaffected: there is nothing to choose between,
+  // so a genuinely unfinished workspace still routes to its wizard.
+  const usable = (w: (typeof workspaces)[number]) =>
+    w.is_active !== false
+    && !(
+      (w.role === 'super_admin' || w.role === 'admin')
+      && !(w.phone_number_id ?? '').trim()
+    );
+
+  const activeWorkspace = preferredWs ?? workspaces.find(usable) ?? workspaces[0]!;
 
   // Fetch workspace status fields in a single query
   const { data: ws } = await db
@@ -133,7 +150,7 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
 
   return (
     <AppShell>
-      <StoreInitializer user={initUser} workspace={activeWorkspace} />
+      <StoreInitializer user={initUser} workspace={activeWorkspace} workspaces={workspaces} />
       {children}
     </AppShell>
   );

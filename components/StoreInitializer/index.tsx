@@ -24,19 +24,28 @@ interface InitWorkspace {
 interface StoreInitializerProps {
   user: InitUser;
   workspace: InitWorkspace;
+  /**
+   * Every workspace this user belongs to. Seeded so the UI can offer a switcher
+   * to anyone who is in more than one — previously the store only ever knew
+   * about the active workspace, so a member of two teams had no way back to the
+   * other one from inside the portal.
+   */
+  workspaces?: InitWorkspace[];
 }
 
-export function StoreInitializer({ user, workspace }: StoreInitializerProps) {
+export function StoreInitializer({ user, workspace, workspaces }: StoreInitializerProps) {
   const setUser            = useAuthStore((s) => s.setUser);
   const setLoading         = useAuthStore((s) => s.setLoading);
   const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace);
+  const setWorkspaces      = useWorkspaceStore((s) => s.setWorkspaces);
 
   useEffect(() => {
     setUser(user);
     setLoading(false);
     setActiveWorkspace(workspace);
+    setWorkspaces(workspaces ?? [workspace]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user.id, workspace.id]);
+  }, [user.id, workspace.id, workspaces?.length]);
 
   return null;
 }

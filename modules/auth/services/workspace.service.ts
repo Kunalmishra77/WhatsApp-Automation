@@ -12,6 +12,11 @@ export interface WorkspaceWithRole {
   waba_id:         string | null;
   phone_number_id: string | null;
   role:            string;
+  // Gate state, so a caller can tell a usable workspace from one still
+  // mid-setup without a second round of queries per workspace.
+  is_active:           boolean | null;
+  onboarding_complete: boolean | null;
+  subscription_status: string | null;
 }
 
 export async function getUserWorkspaces(userId: string): Promise<WorkspaceWithRole[]> {
@@ -19,8 +24,18 @@ export async function getUserWorkspaces(userId: string): Promise<WorkspaceWithRo
 
   const { data, error } = await (supabase as any)
     .from('workspace_members')
-    .select('role, workspace:workspaces(id, name, slug, logo_url, plan, waba_id, phone_number_id)')
-    .eq('user_id', userId);
+    .select(`
+      role, joined_at,
+      workspace:workspaces(
+        id, name, slug, logo_url, plan, waba_id, phone_number_id,
+        is_active, onboarding_complete, subscription_status
+      )
+    `)
+    .eq('user_id', userId)
+    // Deterministic order. Without it Postgres returned rows in whatever order
+    // it liked, so a user in more than one workspace could be dropped into a
+    // different one on each request.
+    .order('joined_at', { ascending: true });
 
   if (error || !data) return [];
 

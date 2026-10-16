@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import {
   MessageSquare, Users, Kanban, Megaphone, FileText,
-  BarChart3, Settings, UserCircle, ChevronLeft, ChevronRight,
+  BarChart3, Settings, UserCircle, ChevronLeft, ChevronRight, Repeat,
   Users2, GitBranch, BookOpen, TrendingUp, LifeBuoy, CalendarCheck,
   LayoutDashboard, LogOut, Brain, CheckSquare, Receipt, Radar, Store, MousePointerClick, PieChart, Lightbulb, Boxes, HeartHandshake, Gift, MapPin,
 } from 'lucide-react';
@@ -81,6 +81,7 @@ export function Sidebar() {
   const toggleSidebar  = useUIStore((s) => s.toggleSidebar);
   const user           = useAuthStore((s) => s.user);
   const workspace      = useWorkspaceStore((s) => s.activeWorkspace);
+  const workspaceCount = useWorkspaceStore((s) => s.workspaces.length);
   const plan           = workspace?.plan ?? 'free';
   const { data: role } = useCurrentRole();
   const { data: myAccess } = useMyAccess();
@@ -256,6 +257,13 @@ export function Sidebar() {
                 <DropdownMenuItem asChild>
                   <Link href="/settings" className="flex items-center gap-2">
                     <Settings className="h-4 w-4" /> Settings
+                  </Link>
+                </DropdownMenuItem>
+              )}
+              {workspaceCount > 1 && (
+                <DropdownMenuItem asChild>
+                  <Link href="/workspace/select" className="flex items-center gap-2">
+                    <Repeat className="h-4 w-4" /> Switch workspace
                   </Link>
                 </DropdownMenuItem>
               )}

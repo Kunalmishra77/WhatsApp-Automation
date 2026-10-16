@@ -150,7 +150,21 @@ export async function POST(request: NextRequest) {
       .update({ status: 'accepted', accepted_at: new Date().toISOString() })
       .eq('id', invite.id);
 
-    return NextResponse.json({ success: true });
+    const response = NextResponse.json({ success: true, workspaceId: invite.workspace_id });
+
+    // Land them in the workspace they were just invited to. Without this the
+    // dashboard picked one of their memberships on its own, so anyone who
+    // already had a workspace of their own — a half-finished signup, say —
+    // could be dropped into THAT one's setup wizard instead of the team they
+    // had just joined.
+    response.cookies.set('active_workspace_id', invite.workspace_id as string, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+    });
+
+    return response;
   } catch (error) {
     console.error('[AcceptInvite POST]', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
