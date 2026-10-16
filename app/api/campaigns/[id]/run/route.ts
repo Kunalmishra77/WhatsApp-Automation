@@ -3,6 +3,7 @@ import { authzResponse, requireWorkspacePermission, AuthzError } from '@/lib/aut
 import { createAdminClient } from '@/services/supabase/admin';
 import { assertWorkspaceActive, suspendedResponse, SuspendedError } from '@/lib/billing-guard';
 import { getWorkspaceEntitlements } from '@/lib/entitlements';
+import { logActivity } from '@/lib/activity-log';
 
 // POST /api/campaigns/[id]/run
 // Instead of executing synchronously (timeout risk), enqueues to campaign_queue.
@@ -18,7 +19,7 @@ export async function POST(
 
     const { data: campaign, error: campError } = await db
       .from('campaigns')
-      .select('workspace_id, status, audience_type, audience_filter, scheduled_at')
+      .select('workspace_id, status, name, audience_type, audience_filter, scheduled_at')
       .eq('id', campaignId)
       .single();
 
@@ -26,7 +27,7 @@ export async function POST(
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     }
 
-    await requireWorkspacePermission(campaign.workspace_id, 'create_campaigns');
+    const auth = await requireWorkspacePermission(campaign.workspace_id, 'create_campaigns');
 
     // Suspension guard — deny running a campaign for a suspended/cancelled
     // workspace. Fails open on any internal error (see lib/billing-guard.ts).
@@ -119,6 +120,12 @@ export async function POST(
       const { executeCampaign } = await import('@/lib/campaign-executor');
       const result = await executeCampaign(campaignId);
       void import('@/lib/usage-tracker').then(({ trackCampaignRun }) => trackCampaignRun(campaign.workspace_id)).catch(() => {});
+      await logActivity({
+        workspaceId: campaign.workspace_id, actorId: auth.userId,
+        action: 'campaign.sent', entityType: 'campaign',
+        entityId: campaignId, entityLabel: campaign.name ?? null,
+        metadata: { mode: 'sync', audience: audienceCount },
+      });
       return NextResponse.json({ success: true, mode: 'sync', ...result });
     }
 
@@ -145,6 +152,13 @@ export async function POST(
 
     // Mark campaign as running so UI updates immediately
     await db.from('campaigns').update({ status: 'running' }).eq('id', campaignId);
+
+    await logActivity({
+      workspaceId: campaign.workspace_id, actorId: auth.userId,
+      action: 'campaign.sent', entityType: 'campaign',
+      entityId: campaignId, entityLabel: campaign.name ?? null,
+      metadata: { mode: 'queued', audience: audienceCount, queue_id: queueEntry?.id ?? null },
+    });
 
     void import('@/lib/usage-tracker').then(({ trackCampaignRun }) => trackCampaignRun(campaign.workspace_id)).catch(() => {});
 

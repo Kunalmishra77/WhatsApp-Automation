@@ -46,6 +46,8 @@ export function AgentPageAccess() {
       if (!res.ok) throw new Error('Failed to save');
       toast.success('Page access updated for Support Agents');
       void queryClient.invalidateQueries({ queryKey: ['agent-page-access', workspaceId] });
+      // The viewer's own resolved access drives the nav, so refresh it too.
+      void queryClient.invalidateQueries({ queryKey: ['my-access', workspaceId] });
     } catch {
       toast.error('Failed to save page access');
     } finally {

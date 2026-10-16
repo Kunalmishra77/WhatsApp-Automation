@@ -3,6 +3,7 @@ import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { invalidateWorkspace } from '@/lib/workspace-cache';
 import type { Json } from '@/types/database.types';
+import { logActivity } from '@/lib/activity-log';
 
 export async function GET(request: NextRequest) {
   try {
@@ -55,7 +56,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    const auth = await requireWorkspacePermission(workspaceId, 'manage_workspace');
 
     if (!body.settings && !('custom_domain' in body)) {
       return NextResponse.json({ error: 'settings object or custom_domain required' }, { status: 400 });
@@ -106,6 +107,14 @@ export async function PATCH(request: NextRequest) {
 
     // phone_number_id isn't in scope here — the 60s cache TTL covers the pnid key.
     await invalidateWorkspace({ id: workspaceId });
+
+    await logActivity({
+      workspaceId, actorId: auth.userId,
+      action: 'settings.updated', entityType: 'workspace', entityId: workspaceId,
+      // Keys only — settings holds secrets (razorpay_key_secret, tokens) that
+      // must never land in an audit row.
+      metadata: { fields: Object.keys(body.settings ?? {}) },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

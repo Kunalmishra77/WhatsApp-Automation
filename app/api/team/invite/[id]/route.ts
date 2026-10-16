@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { logActivity } from '@/lib/activity-log';
 import { sendMail } from '@/lib/mailer';
 import { APP_URL } from '@/lib/constants';
 
@@ -22,10 +23,13 @@ export async function DELETE(
     const workspaceId = request.nextUrl.searchParams.get('workspaceId');
     if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
 
-    await requireWorkspacePermission(workspaceId, 'manage_team');
+    const auth = await requireWorkspacePermission(workspaceId, 'manage_team');
 
     const { createAdminClient } = await import('@/services/supabase/admin');
     const db = createAdminClient() as any;
+
+    const { data: invite } = await db
+      .from('team_invites').select('email, role').eq('id', id).eq('workspace_id', workspaceId).maybeSingle();
 
     const { error } = await db
       .from('team_invites')
@@ -34,6 +38,14 @@ export async function DELETE(
       .eq('workspace_id', workspaceId);
 
     if (error) throw new Error(error.message);
+
+    await logActivity({
+      workspaceId, actorId: auth.userId,
+      action: 'team.invite_revoked', entityType: 'team_invite',
+      entityId: id, entityLabel: invite?.email ?? null,
+      metadata: { role: invite?.role ?? null },
+    });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);

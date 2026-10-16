@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { sendMail } from '@/lib/mailer';
 import { APP_URL } from '@/lib/constants';
+import { logActivity } from '@/lib/activity-log';
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: 'Super Admin',
@@ -110,14 +111,17 @@ export async function POST(request: NextRequest) {
       console.error('[TeamInvite] mail send failed:', mailError);
     }
 
-    try {
-      await db.from('audit_logs').insert({
-        workspace_id: workspaceId,
-        action: 'team.invite_sent',
-        resource_type: 'workspace_member',
-        metadata: { email: normalizedEmail, role },
-      });
-    } catch { /* table may not exist yet */ }
+    // This used to insert into `audit_logs`, a table that does not exist — the
+    // write silently failed inside its own try/catch, which is why the audit
+    // trail was empty. public.activities is the real trail.
+    await logActivity({
+      workspaceId,
+      actorId: auth.userId,
+      action: 'team.invite_sent',
+      entityType: 'workspace_member',
+      entityLabel: normalizedEmail,
+      metadata: { email: normalizedEmail, role, email_sent: emailSent },
+    });
 
     return NextResponse.json({
       success: true,

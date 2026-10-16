@@ -15,12 +15,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Phone, Mail, Building2, Globe, Tag, Pencil, Trash2, Ban, X, ListChecks, Star, TrendingUp, Route, Gift } from 'lucide-react';
+import { Phone, Mail, Building2, Globe, Tag, Pencil, Trash2, Ban, X, ListChecks, Star, TrendingUp, Route, Gift, UserCog } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { format } from 'date-fns';
 import { useContact, useUpdateContact, useDeleteContact } from '../../hooks/useContacts';
 import { ContactForm } from '../ContactForm';
 import { useSequences } from '@/modules/settings/hooks/useSequences';
+import { useTeam, useSetContactOwner } from '@/modules/team/hooks/useTeam';
 import { toast } from 'sonner';
 
 interface ContactDetailProps {
@@ -41,7 +42,11 @@ function Row({ icon: Icon, label, value }: { icon: React.ElementType; label: str
   );
 }
 
+const UNASSIGNED = '__unassigned__';
+
 export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
+  const { data: teamMembers = [] } = useTeam();
+  const setOwner = useSetContactOwner();
   const [editOpen,       setEditOpen]       = useState(false);
   const [selectedSeqId,  setSelectedSeqId]  = useState('');
   const [enrolling,      setEnrolling]      = useState(false);
@@ -219,6 +224,41 @@ export function ContactDetail({ contactId, onClose }: ContactDetailProps) {
               <span className="mt-0.5 text-[11px] text-muted-foreground">Added</span>
               <p className="text-sm text-foreground">{format(new Date(contact.created_at), 'MMM d, yyyy')}</p>
             </div>
+          </div>
+
+          <Separator />
+
+          {/* Account owner — the client -> team half of the link. The team -> client
+              half is the member profile's Clients tab, reading the same column. */}
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+              <UserCog className="h-3.5 w-3.5" />
+              Account owner
+            </p>
+            <Select
+              value={(contact as { owner_id?: string | null }).owner_id ?? UNASSIGNED}
+              onValueChange={(v) => {
+                setOwner.mutate(
+                  { contactId, ownerId: v === UNASSIGNED ? null : v },
+                  {
+                    onSuccess: () => toast.success(v === UNASSIGNED ? 'Owner cleared' : 'Client reassigned'),
+                    onError: (e) => toast.error(e instanceof Error ? e.message : 'Failed to reassign'),
+                  },
+                );
+              }}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Unassigned" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={UNASSIGNED} className="text-xs">Unassigned</SelectItem>
+                {teamMembers.map((m) => (
+                  <SelectItem key={m.user_id} value={m.user_id} className="text-xs">
+                    {m.full_name}{m.title ? ` · ${m.title}` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {contact.tags.length > 0 && (

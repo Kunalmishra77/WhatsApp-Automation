@@ -1,4 +1,4 @@
-import { ROLE_PERMISSIONS, type Permission } from '@/types/auth.types';
+import { type Permission } from '@/types/auth.types';
 
 // Pages an admin can grant/revoke for the 'agent' (employee) role, beyond the
 // always-on core work surface (Dashboard, Conversations, Contacts, CRM-as-leads).
@@ -71,14 +71,3 @@ export const AGENT_PAGE_PERMISSIONS: Record<AgentPageKey, Permission[]> = {
   'knowledge-base':    ['manage_knowledge_base'],
   'settings':          ['manage_workspace'],
 };
-
-// Every permission an agent holds: their role's static set, plus whatever the pages
-// their admin granted imply. `granted` is workspaces.settings.agent_page_access.
-export function agentEffectivePermissions(granted: readonly string[]): Permission[] {
-  const out = new Set<Permission>(ROLE_PERMISSIONS.agent);
-  for (const key of granted) {
-    const perms = AGENT_PAGE_PERMISSIONS[key as AgentPageKey];
-    if (perms) for (const p of perms) out.add(p);
-  }
-  return [...out];
-}

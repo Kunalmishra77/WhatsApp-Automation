@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { logActivity } from '@/lib/activity-log';
 import { createClient } from '@/services/supabase/server';
 import { signUp, signInWithPassword } from '@/modules/auth/services/auth.service';
 
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
 
     const { data: invite } = await db
       .from('team_invites')
-      .select('id, email, role, status, expires_at, workspace_id')
+      .select('id, email, role, status, expires_at, workspace_id, invited_by')
       .eq('token', token).maybeSingle();
 
     if (!invite) return NextResponse.json({ error: 'Invite not found' }, { status: 404 });
@@ -128,10 +129,21 @@ export async function POST(request: NextRequest) {
         workspace_id: invite.workspace_id,
         user_id:      userId,
         role:         invite.role,
+        // Recorded so the member's profile can show who brought them in.
+        invited_by:   invite.invited_by ?? null,
       });
       if (memberError) {
         return NextResponse.json({ error: memberError.message }, { status: 500 });
       }
+
+      await logActivity({
+        workspaceId: invite.workspace_id,
+        actorId: userId,
+        action: 'team.member_joined',
+        entityType: 'workspace_member',
+        entityLabel: fullName?.trim() || invite.email,
+        metadata: { email: invite.email, role: invite.role },
+      });
     }
 
     await db.from('team_invites')

@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { validateTaskInput } from '@/lib/tasks';
+import { logActivity } from '@/lib/activity-log';
 
 const SELECT = `
   id, workspace_id, title, description, status, priority, due_date, completed_at,
@@ -76,6 +77,13 @@ export async function POST(request: NextRequest) {
         data: { task_id: task.id }, created_at: new Date().toISOString(),
       }).then(() => {}, () => {});
     }
+    await logActivity({
+      workspaceId, actorId: ctx.userId,
+      action: 'task.created', entityType: 'task',
+      entityId: task.id, entityLabel: task.title,
+      metadata: { assigned_to: task.assigned_to ?? null, priority: task.priority },
+    });
+
     return NextResponse.json({ task }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);

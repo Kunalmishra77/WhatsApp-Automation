@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { generateEmbedding, formatEmbedding } from '@/lib/embeddings';
+import { logActivity } from '@/lib/activity-log';
 
 // GET /api/knowledge-base?workspaceId=
 export async function GET(request: NextRequest) {
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'workspaceId, title and content are required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
+    const auth = await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
 
     const db = createAdminClient() as any;
 
@@ -57,6 +58,14 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await logActivity({
+      workspaceId, actorId: auth.userId,
+      action: 'kb.created', entityType: 'knowledge_base',
+      entityId: data?.id ?? null, entityLabel: title.trim(),
+      metadata: { category },
+    });
+
     return NextResponse.json({ entry: data });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);
@@ -80,7 +89,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'id and workspaceId are required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
+    const auth = await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (title !== undefined) updates.title = title.trim();
@@ -98,6 +107,14 @@ export async function PATCH(request: NextRequest) {
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await logActivity({
+      workspaceId, actorId: auth.userId,
+      action: 'kb.updated', entityType: 'knowledge_base',
+      entityId: id, entityLabel: (data?.title as string | undefined) ?? null,
+      metadata: { changed: Object.keys(updates).filter((k) => k !== 'updated_at') },
+    });
+
     return NextResponse.json({ entry: data });
   } catch (error) {
     return authzResponse(error);
@@ -114,9 +131,12 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'id and workspaceId are required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
+    const auth = await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
 
     const db = createAdminClient() as any;
+    const { data: existing } = await db
+      .from('knowledge_base').select('title').eq('id', id).eq('workspace_id', workspaceId).maybeSingle();
+
     const { error } = await db
       .from('knowledge_base')
       .delete()
@@ -124,6 +144,13 @@ export async function DELETE(request: NextRequest) {
       .eq('workspace_id', workspaceId);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await logActivity({
+      workspaceId, actorId: auth.userId,
+      action: 'kb.deleted', entityType: 'knowledge_base',
+      entityId: id, entityLabel: existing?.title ?? null,
+    });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     return authzResponse(error);

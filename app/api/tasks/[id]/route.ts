@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { validateTaskInput, completedAtForStatus } from '@/lib/tasks';
+import { logActivity } from '@/lib/activity-log';
 
 // PATCH /api/tasks/[id]  — update status / assignee / fields
 export async function PATCH(
@@ -53,6 +54,13 @@ export async function PATCH(
         title: 'Task assigned to you', body: task.title, data: { task_id: id }, created_at: new Date().toISOString(),
       }).then(() => {}, () => {});
     }
+    await logActivity({
+      workspaceId: existing.workspace_id, actorId: ctx.userId,
+      action: 'task.updated', entityType: 'task',
+      entityId: id, entityLabel: task.title,
+      metadata: { changed: Object.keys(patch) },
+    });
+
     return NextResponse.json({ task });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);
@@ -68,12 +76,18 @@ export async function DELETE(
   try {
     const { id } = await params;
     const db = createAdminClient() as any;
-    const { data: existing } = await db.from('tasks').select('workspace_id').eq('id', id).single();
+    const { data: existing } = await db.from('tasks').select('workspace_id, title').eq('id', id).single();
     if (!existing) return NextResponse.json({ error: 'Task not found' }, { status: 404 });
-    await requireWorkspacePermission(existing.workspace_id, 'handle_conversations');
+    const ctx = await requireWorkspacePermission(existing.workspace_id, 'handle_conversations');
 
     const { error } = await db.from('tasks').delete().eq('id', id).eq('workspace_id', existing.workspace_id);
     if (error) return NextResponse.json({ error: 'Failed to delete task' }, { status: 500 });
+    await logActivity({
+      workspaceId: existing.workspace_id, actorId: ctx.userId,
+      action: 'task.deleted', entityType: 'task',
+      entityId: id, entityLabel: existing.title,
+    });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);

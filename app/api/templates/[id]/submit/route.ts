@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/services/supabase/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { authzResponse, requireWorkspacePermission } from '@/lib/authz';
+import { logActivity } from '@/lib/activity-log';
 
 export async function POST(
   request: NextRequest,
@@ -24,7 +25,7 @@ export async function POST(
       return NextResponse.json({ error: 'Template not found' }, { status: 404 });
     }
 
-    await requireWorkspacePermission(template.workspace_id, 'manage_templates');
+    const auth = await requireWorkspacePermission(template.workspace_id, 'manage_templates');
 
     const { data: workspace } = await adminDb
       .from('workspaces')
@@ -124,6 +125,13 @@ export async function POST(
         updated_at:  new Date().toISOString(),
       })
       .eq('id', templateId);
+
+    await logActivity({
+      workspaceId: template.workspace_id, actorId: auth.userId,
+      action: 'template.submitted', entityType: 'template',
+      entityId: templateId, entityLabel: template.name ?? null,
+      metadata: { meta_id: metaData.id, meta_status: metaData.status },
+    });
 
     return NextResponse.json({
       success:    true,

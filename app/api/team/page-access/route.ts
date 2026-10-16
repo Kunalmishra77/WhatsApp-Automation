@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { logActivity } from '@/lib/activity-log';
 import { ALL_AGENT_PAGE_KEYS, DEFAULT_AGENT_ALLOWED_PAGES } from '@/lib/agent-pages';
 
 // GET /api/team/page-access?workspaceId=
@@ -44,7 +45,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'workspaceId and agentPageAccess array required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_team');
+    const auth = await requireWorkspacePermission(workspaceId, 'manage_team');
 
     const validated = agentPageAccess.filter((k) => ALL_AGENT_PAGE_KEYS.includes(k as never));
 
@@ -60,6 +61,17 @@ export async function PATCH(request: NextRequest) {
       .eq('id', workspaceId);
 
     if (error) throw new Error(error.message);
+
+    await logActivity({
+      workspaceId, actorId: auth.userId,
+      action: 'team.page_access_changed', entityType: 'workspace',
+      entityId: workspaceId,
+      metadata: {
+        from: (existingSettings['agent_page_access'] as string[] | undefined) ?? [],
+        to: validated,
+      },
+    });
+
     return NextResponse.json({ success: true, agentPageAccess: validated });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);

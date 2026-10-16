@@ -6,6 +6,7 @@ import { getUser } from '@/modules/auth/services/auth.service';
 import { getUserWorkspaces } from '@/modules/auth/services/workspace.service';
 import { getProfile } from '@/modules/auth/services/profile.service';
 import { createAdminClient } from '@/services/supabase/admin';
+import { resolveMemberAccess } from '@/lib/permissions';
 import { ROUTES } from '@/lib/constants';
 import {
   SESSION_COOKIE_NAME,
@@ -59,6 +60,11 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
   // This member's role in the active workspace, needed by both gates below.
   const role         = (activeWorkspace as any).role as string | undefined;
   const isPrivileged = role === 'super_admin' || role === 'admin';
+
+  // A member whose access an admin suspended keeps their account and history but
+  // must not reach the portal. Checked here so it covers every page at once.
+  const access = await resolveMemberAccess(activeWorkspace.id, user.id);
+  if (access?.isSuspended) redirect('/workspace-unavailable?reason=suspended');
 
   // Route by workspace state. An ACTIVE workspace is fully live and always passes through:
   // its `onboarding_complete` flag can legitimately lag behind (admin-approved / comped /

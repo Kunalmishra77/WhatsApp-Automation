@@ -14,8 +14,12 @@ import { Switch } from '@/components/ui/switch';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { UserPlus, BarChart2, Users2, Shuffle, Mail, X, RotateCw, Trash2, Clock, ShieldCheck, ClipboardList } from 'lucide-react';
+import { UserPlus, BarChart2, Users2, Shuffle, Mail, X, RotateCw, Trash2, Clock, ShieldCheck, ClipboardList, ShieldPlus, History, Settings2, AlertTriangle } from 'lucide-react';
+import Link from 'next/link';
 import { AgentPageAccess } from '../AgentPageAccess';
+import { RolesManager } from '../RolesManager';
+import { ActivityTrail } from '../ActivityTrail';
+import { MemberAccessDialog } from '../MemberAccessDialog';
 import { AssignedWork } from '../AssignedWork';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -28,6 +32,7 @@ import {
   useTeam, useUpdateMemberRole, useRemoveMember,
   usePendingInvites, useRevokeInvite, useResendInvite,
 } from '../../hooks/useTeam';
+import type { TeamMember } from '../../services/team.service';
 import { ROLE_LABELS, ROLE_COLORS } from '../../services/team.service';
 import type { Database } from '@/types/database.types';
 import { toast } from 'sonner';
@@ -55,6 +60,9 @@ export function TeamPage() {
   const resendInvite  = useResendInvite();
   const [resendingId, setResendingId] = useState<string | null>(null);
   const queryClient = useQueryClient();
+
+  // Which member's access dialog is open.
+  const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
 
   const [inviteOpen,  setInviteOpen]  = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -181,6 +189,8 @@ export function TeamPage() {
           <TabsTrigger value="work" className="gap-1.5 text-xs"><ClipboardList className="h-3.5 w-3.5" />Assigned Work</TabsTrigger>
           <TabsTrigger value="workload" className="gap-1.5 text-xs"><BarChart2 className="h-3.5 w-3.5" />Workload</TabsTrigger>
           <TabsTrigger value="access" className="gap-1.5 text-xs"><ShieldCheck className="h-3.5 w-3.5" />Page Access</TabsTrigger>
+          <TabsTrigger value="roles" className="gap-1.5 text-xs"><ShieldPlus className="h-3.5 w-3.5" />Roles</TabsTrigger>
+          <TabsTrigger value="activity" className="gap-1.5 text-xs"><History className="h-3.5 w-3.5" />Activity</TabsTrigger>
         </TabsList>
 
         <TabsContent value="work" className="flex-1 overflow-auto p-6 space-y-4">
@@ -360,15 +370,35 @@ export function TeamPage() {
                               m.is_online ? 'bg-emerald-500' : 'bg-gray-300',
                             )} />
                           </div>
-                          <div>
-                            <p className="text-sm font-medium text-foreground">{m.full_name}</p>
-                            {isSelf && <p className="text-[10px] text-muted-foreground">You</p>}
+                          <div className="min-w-0">
+                            <Link
+                              href={`/team/${m.member_id}`}
+                              className="text-sm font-medium text-foreground hover:text-brand-600 hover:underline truncate block"
+                            >
+                              {m.full_name}
+                            </Link>
+                            <p className="text-[10px] text-muted-foreground truncate">
+                              {m.title ?? (isSelf ? 'You' : '')}
+                              {m.title && isSelf && ' · You'}
+                            </p>
                           </div>
+                          {m.is_suspended && (
+                            <Badge variant="destructive" className="gap-1 text-[10px] shrink-0">
+                              <AlertTriangle className="h-3 w-3" /> Suspended
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">{m.email}</TableCell>
                       <TableCell>
-                        {isSelf ? (
+                        {m.custom_role_name ? (
+                          // A custom role replaces the built-in one, so showing the
+                          // enum picker here would misrepresent their access. Edit
+                          // access opens the full editor instead.
+                          <span className="rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-semibold text-brand-700">
+                            {m.custom_role_name}
+                          </span>
+                        ) : isSelf ? (
                           <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', ROLE_COLORS[m.role])}>
                             {ROLE_LABELS[m.role]}
                           </span>
@@ -403,6 +433,14 @@ export function TeamPage() {
                         {format(new Date(m.joined_at), 'MMM d, yyyy')}
                       </TableCell>
                       <TableCell>
+                        <div className="flex items-center gap-0.5">
+                        <Button
+                          size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground"
+                          title="Edit access"
+                          onClick={() => setEditingMember(m)}
+                        >
+                          <Settings2 className="h-3.5 w-3.5" />
+                        </Button>
                         {!isSelf && (
                           <Button
                             size="icon" variant="ghost"
@@ -420,6 +458,7 @@ export function TeamPage() {
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -431,7 +470,21 @@ export function TeamPage() {
         <TabsContent value="access" className="flex-1 overflow-auto">
           <AgentPageAccess />
         </TabsContent>
+
+        <TabsContent value="roles" className="flex-1 overflow-auto">
+          <RolesManager />
+        </TabsContent>
+
+        <TabsContent value="activity" className="flex-1 overflow-auto">
+          <ActivityTrail />
+        </TabsContent>
       </Tabs>
+
+      <MemberAccessDialog
+        member={editingMember}
+        isSelf={editingMember?.user_id === currentUserId}
+        onClose={() => setEditingMember(null)}
+      />
 
       {/* Invite Member Dialog */}
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>

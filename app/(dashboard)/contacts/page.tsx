@@ -29,7 +29,14 @@ const FOLDER_COLORS: Record<string, string> = {
 };
 
 export default function ContactsPage() {
-  const [selectedId,     setSelectedId]     = useState<string | null>(null);
+  // Deep link: /contacts?contactId=… opens that client straight away, so the
+  // Clients list on a team member's profile can link to the client it names.
+  // Read once on mount rather than via useSearchParams, which would require
+  // wrapping this page in a Suspense boundary it does not otherwise need.
+  const [selectedId,     setSelectedId]     = useState<string | null>(() =>
+    typeof window === 'undefined'
+      ? null
+      : new URLSearchParams(window.location.search).get('contactId'));
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [lists,          setLists]          = useState<ContactList[]>([]);
 

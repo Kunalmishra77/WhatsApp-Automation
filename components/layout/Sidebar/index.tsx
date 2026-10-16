@@ -19,7 +19,7 @@ import { useUIStore } from '@/store/ui.store';
 import { useAuthStore } from '@/store/auth.store';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { useCurrentRole } from '@/hooks/useCurrentRole';
-import { useAgentPageAccess } from '@/hooks/useAgentPageAccess';
+import { useMyAccess } from '@/hooks/useMyAccess';
 import { signOutAction } from '@/app/actions/auth.actions';
 import { hasFeature } from '@/lib/plan-features';
 import { cn } from '@/lib/utils';
@@ -37,8 +37,8 @@ const NAV_ITEMS: Array<{
   requiredFeature?: string;
   requiredPlan?:    string;
   // Omitted = always visible to every role (core work surface: Dashboard,
-  // Conversations, Contacts). Present = admin-configurable for 'agent' role
-  // via Team page > Page Access, checked against useAgentPageAccess().
+  // Conversations, Contacts). Present = admin-configurable per member or per
+  // custom role, checked against the viewer's resolved access (useMyAccess).
   agentPageKey?:    AgentPageKey;
   // Add-on module this page belongs to — locked when the workspace isn't
   // entitled to it (plan/trial), driving the upgrade prompt.
@@ -83,13 +83,19 @@ export function Sidebar() {
   const workspace      = useWorkspaceStore((s) => s.activeWorkspace);
   const plan           = workspace?.plan ?? 'free';
   const { data: role } = useCurrentRole();
-  const isAgent        = role === 'agent';
-  const { data: agentAllowedPages = [] } = useAgentPageAccess();
+  const { data: myAccess } = useMyAccess();
+  // null = this member is not page-restricted, so every item stays visible.
+  // Resolved by the server from their role, custom role and per-member list, so
+  // the nav shows exactly what the page guards will let them open.
+  const allowedPages = myAccess?.pageAccess ?? null;
+  // Settings sits outside NAV_ITEMS (it lives under the divider and in the user
+  // menu), so it gets the same check by hand.
+  const canSeeSettings = allowedPages === null || allowedPages.includes('settings');
   const { entitlements } = useEntitlements();
   const [supportOpen, setSupportOpen] = useState(false);
 
   const visibleNavItems = NAV_ITEMS.filter((item) =>
-    !(isAgent && item.agentPageKey && !agentAllowedPages.includes(item.agentPageKey)));
+    !(allowedPages !== null && item.agentPageKey && !allowedPages.includes(item.agentPageKey)));
 
   const initials = user?.full_name
     ? user.full_name.split(' ').map((n) => n[0] ?? '').join('').slice(0, 2).toUpperCase()
@@ -189,7 +195,7 @@ export function Sidebar() {
           {/* Divider */}
           <div className="mx-2 my-2 h-px bg-white/[0.07]" />
 
-          {!isAgent && (
+          {canSeeSettings && (
             <NavItem href="/settings" icon={Settings} label="Settings" collapsed={collapsed} />
           )}
 
@@ -246,7 +252,7 @@ export function Sidebar() {
                   <UserCircle className="h-4 w-4" /> Profile
                 </Link>
               </DropdownMenuItem>
-              {!isAgent && (
+              {canSeeSettings && (
                 <DropdownMenuItem asChild>
                   <Link href="/settings" className="flex items-center gap-2">
                     <Settings className="h-4 w-4" /> Settings

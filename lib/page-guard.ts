@@ -2,8 +2,8 @@ import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import { getUser } from '@/modules/auth/services/auth.service';
 import { getUserWorkspaces } from '@/modules/auth/services/workspace.service';
-import { createAdminClient } from '@/services/supabase/admin';
-import { DEFAULT_AGENT_ALLOWED_PAGES, type AgentPageKey } from '@/lib/agent-pages';
+import { resolveMemberAccess, canOpenPage } from '@/lib/permissions';
+import { type AgentPageKey } from '@/lib/agent-pages';
 
 // Page-level guard for restricted pages (Team, Analytics, Campaigns, etc).
 // RLS stops data leaks, but doesn't stop the 'agent' role from navigating to a
@@ -11,10 +11,10 @@ import { DEFAULT_AGENT_ALLOWED_PAGES, type AgentPageKey } from '@/lib/agent-page
 // the page even renders, mirroring DashboardLayout's own cookie-based
 // active-workspace resolution so the check matches what the user is looking at.
 //
-// Only the 'agent' role is ever restricted here — every other role always
-// passes. Which pages an agent CAN see is admin-configurable per workspace
-// (workspaces.settings.agent_page_access, edited from the Team page), not
-// hardcoded, so an admin decides exactly what their employees can access.
+// Access is admin-configurable, not hardcoded: a member's own page list wins,
+// then their custom role's, then — for agents — the workspace default. Members
+// with no list configured (admins, managers by default) are unrestricted, so
+// this only ever narrows access that an admin chose to narrow.
 export async function requirePageRole(pageKey: AgentPageKey): Promise<void> {
   const user = await getUser();
   if (!user) redirect('/login');
@@ -26,21 +26,14 @@ export async function requirePageRole(pageKey: AgentPageKey): Promise<void> {
   const preferredId = cookieStore.get('active_workspace_id')?.value;
   const activeWorkspace = (preferredId ? workspaces.find((w) => w.id === preferredId) : undefined) ?? workspaces[0]!;
 
-  const db = createAdminClient() as any;
-  const { data: member } = await db
-    .from('workspace_members')
-    .select('role')
-    .eq('workspace_id', activeWorkspace.id)
-    .eq('user_id', user.id)
-    .maybeSingle();
+  // Page access is resolved by the same code that guards the API routes
+  // (lib/permissions.ts), so the two can never disagree: a member override, a
+  // custom role's list, or — for agents — the workspace default.
+  const access = await resolveMemberAccess(activeWorkspace.id, user.id);
+  if (!access) redirect('/workspace/select');
+  if (access.isSuspended) redirect('/workspace-unavailable');
 
-  if (member?.role !== 'agent') return;
-
-  const { data: ws } = await db.from('workspaces').select('settings').eq('id', activeWorkspace.id).maybeSingle();
-  const settings = (ws?.settings ?? {}) as Record<string, unknown>;
-  const allowed = (settings.agent_page_access as AgentPageKey[] | undefined) ?? DEFAULT_AGENT_ALLOWED_PAGES;
-
-  if (!allowed.includes(pageKey)) {
+  if (!canOpenPage(access, pageKey)) {
     redirect('/conversations');
   }
 }

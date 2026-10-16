@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Building2, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -13,7 +14,16 @@ import { Button } from '@/components/ui/button';
  * would be stuck in a flow they can never finish. They get this explanation instead.
  */
 export default function WorkspaceUnavailablePage() {
+  return (
+    <Suspense fallback={null}>
+      <Explanation />
+    </Suspense>
+  );
+}
+
+function Explanation() {
   const [checking, setChecking] = useState(false);
+  const suspended = useSearchParams().get('reason') === 'suspended';
 
   const checkAgain = () => {
     setChecking(true);
@@ -30,15 +40,31 @@ export default function WorkspaceUnavailablePage() {
         </div>
 
         <div className="space-y-3">
-          <h1 className="text-2xl font-bold text-foreground">Workspace not active yet</h1>
-          <p className="text-muted-foreground text-sm leading-relaxed">
-            Your account is set up correctly, but your organisation&apos;s workspace
-            isn&apos;t active yet. Only an administrator of your organisation can
-            complete this — please ask them to finish the setup.
-          </p>
-          <p className="text-muted-foreground text-sm">
-            Once they do, your access opens automatically. Nothing is needed from you.
-          </p>
+          <h1 className="text-2xl font-bold text-foreground">
+            {suspended ? 'Your access is on hold' : 'Workspace not active yet'}
+          </h1>
+          {suspended ? (
+            <>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                An administrator has paused your access to this workspace. Your
+                account and your work are untouched.
+              </p>
+              <p className="text-muted-foreground text-sm">
+                Ask them to restore it from the Team page and you are back in.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                Your account is set up correctly, but your organisation&apos;s workspace
+                isn&apos;t active yet. Only an administrator of your organisation can
+                complete this — please ask them to finish the setup.
+              </p>
+              <p className="text-muted-foreground text-sm">
+                Once they do, your access opens automatically. Nothing is needed from you.
+              </p>
+            </>
+          )}
         </div>
 
         <Button variant="outline" size="sm" onClick={checkAgain} disabled={checking} className="gap-2">
