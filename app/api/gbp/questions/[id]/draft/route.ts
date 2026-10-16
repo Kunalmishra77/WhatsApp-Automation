@@ -14,7 +14,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const { id } = await params;
     const { workspaceId } = await request.json() as { workspaceId?: string };
     if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_gbp');
 
     const db = createAdminClient() as any;
     const { data: question } = await db

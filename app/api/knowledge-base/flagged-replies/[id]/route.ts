@@ -16,7 +16,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return NextResponse.json({ error: 'Flag not found' }, { status: 404 });
     }
 
-    await requireWorkspacePermission(flag.workspace_id, 'manage_workspace');
+    await requireWorkspacePermission(flag.workspace_id, 'manage_knowledge_base');
 
     const { error } = await (supabase as any)
       .from('bot_reply_feedback')

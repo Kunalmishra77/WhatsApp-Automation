@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'workspaceId, title and content are required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
 
     const db = createAdminClient() as any;
 
@@ -80,7 +80,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'id and workspaceId are required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (title !== undefined) updates.title = title.trim();
@@ -114,7 +114,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'id and workspaceId are required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
 
     const db = createAdminClient() as any;
     const { error } = await db

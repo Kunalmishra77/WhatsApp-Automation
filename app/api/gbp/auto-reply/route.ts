@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     if (!workspaceId || typeof enabled !== 'boolean') {
       return NextResponse.json({ error: 'workspaceId and enabled required' }, { status: 400 });
     }
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_gbp');
 
     const db = createAdminClient() as any;
     const { data: ws } = await db.from('workspaces').select('settings').eq('id', workspaceId).single();

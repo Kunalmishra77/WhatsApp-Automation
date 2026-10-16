@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
 
     const supabase = createAdminClient();
     const { data: flags, error } = await (supabase as any)

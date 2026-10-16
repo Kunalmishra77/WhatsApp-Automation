@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
-import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { requireWorkspacePermissionAny, authzResponse, AuthzError } from '@/lib/authz';
 
 export const maxDuration = 30;
 
@@ -22,7 +22,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(mediaId);
     }
 
-    await requireWorkspacePermission(workspaceId, 'view_analytics');
+    // Media in a conversation is proxied through here, so anyone who can handle
+    // conversations must be able to load it — otherwise agents see broken attachments.
+    await requireWorkspacePermissionAny(workspaceId, ['view_analytics', 'handle_conversations']);
 
     const db = createAdminClient() as any;
     const { data: ws } = await db

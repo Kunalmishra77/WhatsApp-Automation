@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     if (!body.workspaceId || !body.locationId || !body.summary?.trim()) {
       return NextResponse.json({ error: 'workspaceId, locationId and summary required' }, { status: 400 });
     }
-    const ctx = await requireWorkspacePermission(body.workspaceId, 'manage_workspace');
+    const ctx = await requireWorkspacePermission(body.workspaceId, 'manage_gbp');
 
     const db = createAdminClient() as any;
     const { data, error } = await db.from('gbp_posts').insert({

@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'workspaceId and companyDescription are required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
 
     const model = process.env.AI_MODEL?.trim() ?? 'openai/gpt-4o-mini';
 

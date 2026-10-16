@@ -56,31 +56,42 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
     .eq('id', activeWorkspace.id)
     .single();
 
+  // This member's role in the active workspace, needed by both gates below.
+  const role         = (activeWorkspace as any).role as string | undefined;
+  const isPrivileged = role === 'super_admin' || role === 'admin';
+
   // Route by workspace state. An ACTIVE workspace is fully live and always passes through:
   // its `onboarding_complete` flag can legitimately lag behind (admin-approved / comped /
   // free-activated clients don't always flip it), and gating an active workspace on it here
   // caused an infinite redirect loop — /conversations → /onboarding (which sends an active
   // workspace straight back to /conversations) → repeat.
+  //
+  // IMPORTANT: everything below this point is an OWNER/ADMIN task — paying for the
+  // subscription and entering the organisation's Meta credentials. An invited team member
+  // (agent / manager / viewer) can do neither, so sending them into those flows locks them
+  // out of the portal entirely with no way to finish. Members get a page that explains the
+  // situation and tells them to contact their administrator instead.
   if (ws?.is_active === false) {
+    if (!isPrivileged) redirect('/workspace-unavailable');
     if (ws?.subscription_status === 'pending_approval') redirect('/pending-approval');
     if (ws?.onboarding_complete === false || ws?.subscription_status === 'incomplete') redirect('/onboarding');
     redirect('/payment-required');
   }
 
-  // Active but WhatsApp not connected yet → guide the client through the WhatsApp setup
+  // Active but WhatsApp not connected yet → guide the OWNER/ADMIN through the WhatsApp setup
   // instead of dropping them on an empty dashboard. Once phone_number_id is saved (via the
   // wizard's /api/onboarding/complete), this passes and they land on the real dashboard.
   // Every live client already has phone_number_id set, so this only affects new/unconnected
   // workspaces. The setup page is in the (onboarding) group (no gate) so there's no loop.
+  // Members skip this: they cannot supply the WABA credentials, and the rest of the portal
+  // (CRM, tasks, team) works fine without WhatsApp connected.
   const phoneId = (ws?.phone_number_id as string | null | undefined) ?? '';
-  if (!phoneId.trim()) redirect('/onboarding/whatsapp');
+  if (isPrivileged && !phoneId.trim()) redirect('/onboarding/whatsapp');
 
   // ── Session Gate (super_admin / admin only) ───────────────────────────────
   // max_sessions stored in workspaces.settings.max_sessions.
   // null or absent = unlimited → skip gate entirely.
   const maxSessions = (ws?.settings as Record<string, unknown> | null)?.max_sessions;
-  const role        = (activeWorkspace as any).role as string | undefined;
-  const isPrivileged = role === 'super_admin' || role === 'admin';
 
   if (isPrivileged && typeof maxSessions === 'number') {
     const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;

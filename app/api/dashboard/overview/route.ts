@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
-import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { requireWorkspacePermissionAny, authzResponse, AuthzError } from '@/lib/authz';
 import { resolveRange, addDays, type QuickRange } from '@/lib/date-range';
 import { paginateAll } from '@/lib/export-stream';
 
@@ -52,7 +52,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'view_analytics');
+    // Dashboard is part of the always-on core surface (it is also the default landing
+    // page), so an 'agent' must be able to load it — their role has no 'view_analytics'.
+    await requireWorkspacePermissionAny(workspaceId, ['view_analytics', 'handle_conversations']);
 
     const db = createAdminClient() as any;
 

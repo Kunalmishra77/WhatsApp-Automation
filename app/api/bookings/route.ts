@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/services/supabase/server';
 import { createAdminClient } from '@/services/supabase/admin';
+import { requireWorkspacePermissionAny, authzResponse, AuthzError } from '@/lib/authz';
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -17,9 +18,14 @@ export async function GET(request: NextRequest) {
 
   const db = createAdminClient() as any;
 
-  // Verify membership
-  const { data: member } = await db.from('workspace_members').select('id').eq('workspace_id', workspaceId).eq('user_id', user.id).single();
-  if (!member) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  // Bookings is an admin-grantable page, so enforce the grant and not just membership —
+  // otherwise a revoked agent could keep reading it straight from the API.
+  try {
+    await requireWorkspacePermissionAny(workspaceId, ['view_analytics', 'manage_workspace']);
+  } catch (e) {
+    if (e instanceof AuthzError) return authzResponse(e);
+    throw e;
+  }
 
   let query = db
     .from('conversation_events')
@@ -55,10 +61,14 @@ export async function PATCH(request: NextRequest) {
 
   const { id, status, workspaceId } = await request.json() as { id: string; status: string; workspaceId: string };
 
-  const db = createAdminClient() as any;
-  const { data: member } = await db.from('workspace_members').select('id').eq('workspace_id', workspaceId).eq('user_id', user.id).single();
-  if (!member) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  try {
+    await requireWorkspacePermissionAny(workspaceId, ['view_analytics', 'manage_workspace']);
+  } catch (e) {
+    if (e instanceof AuthzError) return authzResponse(e);
+    throw e;
+  }
 
+  const db = createAdminClient() as any;
   const { error } = await db.from('conversation_events').update({ status, updated_at: new Date().toISOString() }).eq('id', id).eq('workspace_id', workspaceId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

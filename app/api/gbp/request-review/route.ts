@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     };
     const workspaceId = body.workspaceId;
     if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_gbp');
 
     const db = createAdminClient() as any;
     const templateName = (body.templateName ?? 'review_request').trim();

@@ -1,5 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/services/supabase/server';
+import { resolveActiveWorkspaceId } from '@/lib/active-workspace';
+import { requireWorkspacePermissionAny, authzResponse, AuthzError } from '@/lib/authz';
 import { paginateAll, streamingCsvResponse } from '@/lib/export-stream';
 
 export const dynamic = 'force-dynamic';
@@ -24,11 +26,18 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: member } = await (supabase as any)
-    .from('workspace_members').select('workspace_id').eq('user_id', user.id).single();
-  if (!member?.workspace_id) return NextResponse.json({ error: 'No workspace' }, { status: 403 });
+  // Resolves the workspace the user actually has open. The old `.single()` membership
+  // lookup here 403'd for anyone who belonged to more than one workspace.
+  const workspaceId = await resolveActiveWorkspaceId(user.id);
+  if (!workspaceId) return NextResponse.json({ error: 'No workspace' }, { status: 403 });
 
-  const workspaceId: string = member.workspace_id;
+  // Meta Leads is an admin-grantable page, so enforce the grant on its export too.
+  try {
+    await requireWorkspacePermissionAny(workspaceId, ['view_analytics']);
+  } catch (e) {
+    if (e instanceof AuthzError) return authzResponse(e);
+    throw e;
+  }
   const sp = new URL(req.url).searchParams;
   const from = sp.get('from');
   const to = sp.get('to');

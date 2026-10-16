@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'workspaceId and prompt required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
 
     const docTypeLabel = DOC_TYPES[docType ?? 'custom'] ?? 'Custom Document';
     const biz = businessName?.trim() || 'the business';
@@ -96,7 +96,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'workspaceId, content, and filename required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
 
     // Chunk the content
     const cleaned = content.replace(/[^\x20-\x7E\n\r\tऀ-ॿ਀-੿]/g, ' ').trim();

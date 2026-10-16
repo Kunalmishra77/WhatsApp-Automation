@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
     const workspaceId = request.nextUrl.searchParams.get('workspaceId');
     if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
 
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
 
     const db = createAdminClient() as any;
 
@@ -60,7 +60,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'workspaceId and filename required' }, { status: 400 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_knowledge_base');
 
     const db = createAdminClient() as any;
     await db.from('vector_documents').delete()

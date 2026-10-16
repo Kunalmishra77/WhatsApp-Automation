@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     if (!workspaceId || !keyword?.trim()) {
       return NextResponse.json({ error: 'workspaceId and keyword required' }, { status: 400 });
     }
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_local_rank');
 
     if (!process.env.GOOGLE_PLACES_API_KEY?.trim()) {
       return NextResponse.json({ error: 'Places API key not configured' }, { status: 400 });
@@ -71,7 +71,7 @@ export async function DELETE(request: NextRequest) {
     const workspaceId = request.nextUrl.searchParams.get('workspaceId');
     const id = request.nextUrl.searchParams.get('id');
     if (!workspaceId || !id) return NextResponse.json({ error: 'workspaceId and id required' }, { status: 400 });
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_local_rank');
 
     const db = createAdminClient() as any;
     const { error } = await db.from('local_rank_keywords').delete().eq('id', id).eq('workspace_id', workspaceId);

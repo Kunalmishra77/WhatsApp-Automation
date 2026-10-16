@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   try {
     const { workspaceId } = await request.json() as { workspaceId?: string };
     if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
-    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+    await requireWorkspacePermission(workspaceId, 'manage_local_rank');
 
     if (!process.env.GOOGLE_PLACES_API_KEY?.trim()) {
       return NextResponse.json({ error: 'Places API key not configured' }, { status: 400 });
