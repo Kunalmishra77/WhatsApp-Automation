@@ -85,12 +85,24 @@ export async function syncWorkspaceGbp(db: any, workspaceId: string): Promise<Gb
 
     // Resolve the account id (stored, else the first account).
     let accountId = conn.google_account_id as string | null;
+    let acctError: string | null = null;
     if (!accountId) {
       const accts = await listAccounts(accessToken);
-      if (accts.ok) accountId = idOf(accts.data.accounts?.[0]?.name);
+      if (accts.ok) {
+        accountId = idOf(accts.data.accounts?.[0]?.name);
+        // The call worked but Google returned nothing — a different problem from
+        // the call being refused, and the two need different fixes.
+        if (!accountId) acctError = 'google_returned_no_accounts';
+      } else {
+        // Google's own message, which says whether the Business Profile API is
+        // disabled for the project, the scope was never approved, or the token
+        // lacks access. Without this the sync reported a bare "no_account" and
+        // the real cause stayed invisible for weeks.
+        acctError = accts.error;
+      }
       if (accountId) await db.from('gbp_connections').update({ google_account_id: accountId }).eq('id', conn.id);
     }
-    if (!accountId) { result.error = 'no_account'; return result; }
+    if (!accountId) { result.error = acctError ?? 'no_account'; return result; }
 
     // Auto-reply config + business name (fetched once; used per new review below).
     const { data: wsRow } = await db

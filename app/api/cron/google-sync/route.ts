@@ -18,11 +18,16 @@ export async function POST(request: NextRequest) {
   }
 
   const db = createAdminClient() as any;
+  // `errors` exists because a bare failure COUNT hid a broken Google Business
+  // Profile sync for weeks: the job reported `failed: 1` with no reason, so there
+  // was nothing to act on. Each failure now names the workspace and what went
+  // wrong (token_refresh_failed / no_account / an API message).
   const result = {
     gbp: { synced: 0, failed: 0 },
     ads: { synced: 0, failed: 0 },
     meta_ads: { synced: 0, failed: 0 },
     local_rank: { workspaces: 0, keywords: 0 },
+    errors: [] as Array<{ source: string; workspace: string; error: string }>,
   };
 
   // GBP connections
@@ -32,7 +37,12 @@ export async function POST(request: NextRequest) {
     .eq('status', 'connected');
   for (const c of (gbpConns ?? []) as Array<{ workspace_id: string }>) {
     const r = await syncWorkspaceGbp(db, c.workspace_id);
-    if (r.ok) result.gbp.synced++; else result.gbp.failed++;
+    if (r.ok) result.gbp.synced++;
+    else {
+      result.gbp.failed++;
+      result.errors.push({ source: 'gbp', workspace: c.workspace_id, error: r.error ?? 'unknown' });
+      console.error('[cron google-sync] gbp failed', c.workspace_id, r.error);
+    }
   }
 
   // Google Ads connections
@@ -42,7 +52,12 @@ export async function POST(request: NextRequest) {
     .eq('status', 'connected');
   for (const c of (adsConns ?? []) as Array<{ workspace_id: string }>) {
     const r = await syncWorkspaceAds(db, c.workspace_id);
-    if (r.ok) result.ads.synced++; else result.ads.failed++;
+    if (r.ok) result.ads.synced++;
+    else {
+      result.ads.failed++;
+      result.errors.push({ source: 'ads', workspace: c.workspace_id, error: (r as { error?: string }).error ?? 'unknown' });
+      console.error('[cron google-sync] ads failed', c.workspace_id, (r as { error?: string }).error);
+    }
   }
 
   // Meta ad spend — workspaces that configured a Meta ad account id.
