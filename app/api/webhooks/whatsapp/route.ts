@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createAdminClient } from '@/services/supabase/admin';
+import { isLearnablePrefill, isTrustedPrefill, matchPrefill, type PrefillRow } from '@/lib/meta-prefill';
 import { getRequiredSecret } from '@/lib/supabase-env';
 import { chooseRecipientForReply, type RecipientCandidate } from '@/lib/campaign-reply-attribution';
 import { recordTouchpoint } from '@/lib/lead-touchpoint';
@@ -888,19 +889,59 @@ async function handleIncomingMessage(
           detected_at: new Date().toISOString(),
           source:      'referral',
         };
+
+        // Learn this ad's pre-filled opening so the NEXT click on the same ad is
+        // attributed even when Meta omits the referral — which it does often: one
+        // Razorveda ad text was attributed 129 times and missed 75. A text is only
+        // trusted for matching once it has been seen twice (seen_count), so a
+        // customer who clears the composer and types their own first line can't
+        // turn their own words into a pre-fill.
+        if (isLearnablePrefill(content)) {
+          const text = content!.trim();
+          const { data: known } = await (supabase as any)
+            .from('meta_ad_prefill_messages')
+            .select('id, seen_count')
+            .eq('workspace_id', workspaceId)
+            .eq('text', text)
+            .maybeSingle();
+
+          if (known) {
+            await (supabase as any)
+              .from('meta_ad_prefill_messages')
+              .update({
+                seen_count: (known.seen_count ?? 1) + 1,
+                last_seen_at: new Date().toISOString(),
+              })
+              .eq('id', known.id);
+          } else {
+            await (supabase as any).from('meta_ad_prefill_messages').insert({
+              workspace_id:    workspaceId,
+              text,
+              template_name:   msg.referral.headline ?? 'Meta Ad',
+              auto_learned:    true,
+              learned_from_ad: msg.referral.headline ?? null,
+              seen_count:      1,
+              last_seen_at:    new Date().toISOString(),
+            });
+          }
+        }
       }
 
-      // Path 2: Pre-fill text matching (only if Path 1 didn't fire)
+      // Path 2: Pre-fill text matching (only if Path 1 didn't fire).
+      // Matching is normalised (case, curly quotes, leading emoji, truncation), because
+      // the same ad arrives as "Hi, I need more info about Mamo Plus" and as
+      // "🍬🩷Hi, I need more info about Mamo Plus". Exact equality missed those.
       if (!adSource && content?.trim()) {
         const { data: prefills } = await (supabase as any)
           .from('meta_ad_prefill_messages')
-          .select('text, template_name')
+          .select('text, template_name, auto_learned, seen_count')
           .eq('workspace_id', workspaceId);
 
         if (prefills && prefills.length > 0) {
-          const normalised = content.trim().toLowerCase();
-          const match = (prefills as Array<{ text: string; template_name: string | null }>)
-            .find((p) => p.text.trim().toLowerCase() === normalised);
+          const trusted = (prefills as Array<PrefillRow & { auto_learned?: boolean; seen_count?: number }>)
+            .filter(isTrustedPrefill);
+
+          const match = matchPrefill(content, trusted);
           if (match) {
             adSource = {
               headline:    match.template_name ?? 'Meta Ad',

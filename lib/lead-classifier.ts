@@ -11,6 +11,7 @@
 import { callAI } from '@/lib/ai-client';
 import { createAdminClient } from '@/services/supabase/admin';
 import { syncLeadToSheet } from '@/lib/lead-sheet-sync';
+import { matchPrefill, isTrustedPrefill, type PrefillRow } from '@/lib/meta-prefill';
 
 export type LeadStage = 'new' | 'contacted' | 'follow_up' | 'interested' | 'converted' | 'lost';
 export type LeadTemperature = 'hot' | 'warm' | 'cold';
@@ -25,6 +26,37 @@ export const STAGE_CONFIDENCE_THRESHOLD = 70;
 // configurable defaults (Phase 2 will read them from workspace settings).
 export interface TemperatureThresholds { hot: number; warm: number }
 export const DEFAULT_THRESHOLDS: TemperatureThresholds = { hot: 61, warm: 31 };
+
+/**
+ * The highest score a lead may reach given how much the customer has actually
+ * said. Hot means "ready to buy, worth calling now", and one or two lines cannot
+ * establish that however buying-ish they read.
+ *
+ * `realMessages` counts only the customer's OWN messages — an ad's pre-filled
+ * opening ("Hi, I'm interested in Mamo Firm…") is Meta's wording, not theirs, and
+ * must not be mistaken for engagement. In production every single false Hot had
+ * exactly this shape: the pre-fill, then one word — "Price", "Amount", "कितने का है"
+ * — scored 70-75 and landed in Hot, because the old rule only capped at <= 1
+ * message and jumped straight to no cap at 2.
+ *
+ * Caps are expressed RELATIVE to the workspace's own bands, never as fixed
+ * numbers: clients run thresholds from hot=55 (Razorveda, Thames) to hot=66
+ * (Santure, VMS), so a hardcoded ceiling of 60 would hold one client's leads
+ * below Hot and sail straight past another's.
+ */
+export function engagementCap(
+  realMessages: number,
+  thresholds: TemperatureThresholds = DEFAULT_THRESHOLDS,
+): number {
+  // Nothing in the customer's own words — an ad click and silence. Cold.
+  if (realMessages <= 0) return Math.max(0, thresholds.warm - 1);
+  // One or two lines: Warm at most, however strong the wording. A customer who is
+  // genuinely ready says so over a few more turns, and then nothing holds them back.
+  if (realMessages <= 2) return Math.max(thresholds.warm, thresholds.hot - 1);
+  // A real back-and-forth can reach Hot, but not a perfect score.
+  if (realMessages <= 4) return 85;
+  return 100;
+}
 
 export function scoreToTemperature(score: number, t: TemperatureThresholds = DEFAULT_THRESHOLDS): LeadTemperature {
   if (score >= t.hot) return 'hot';
@@ -157,16 +189,16 @@ export function applyLeadClassification(
   thresholds: TemperatureThresholds = DEFAULT_THRESHOLDS,
   maxScore: number = 100,
 ): LeadWrites {
-  // Engagement cap: a lead where the customer has barely engaged (e.g. a single
-  // ad-click message and then silence) cannot be Hot, no matter how buying-ish the
-  // words are — an ad's pre-filled "Hi, I want info on X" is NOT the customer
-  // describing a real need. The pipeline passes maxScore (100 = no cap) based on how
-  // much the customer actually engaged. We clamp the SCORE itself so the displayed
-  // number and the derived temperature both reflect the cap.
+  // Engagement cap: a lead cannot be Hot on the strength of words alone, however
+  // buying-ish they read — an ad's pre-filled "Hi, I want info on X" is Meta's
+  // sentence, not the customer describing a real need. The pipeline passes maxScore
+  // from engagementCap(), which scales with how much the customer has actually
+  // said. We clamp the SCORE itself so the displayed number and the derived
+  // temperature both reflect the cap.
   const effectiveScore = Math.max(0, Math.min(c.score, maxScore));
   const capped = effectiveScore < c.score;
   const signals = capped
-    ? ['Only one message — customer not engaged yet', ...c.signals].slice(0, 8)
+    ? ['Score capped — too little from the customer to call this hot yet', ...c.signals].slice(0, 8)
     : c.signals;
 
   const leadUpdate: Record<string, unknown> = {
@@ -376,21 +408,37 @@ export async function classifyLeadPipeline(args: {
       temperature: lead.temperature ?? null,
     };
 
-    // Engagement cap. Count ALL of the customer's (inbound) messages for this
-    // conversation — not just the recent window — because a lead that has only ever
-    // sent one message (typically a Meta-ad pre-fill like "Hi, I want info on X") and
-    // then gone silent is NOT a hot lead, however buying-ish that one line reads. Such
-    // a lead can only become Hot once the customer actually engages (replies again).
-    const { count: inboundCount } = await db
+    // Engagement cap. Counts the customer's OWN messages across the whole
+    // conversation, which means discounting the two things that look like customer
+    // messages but aren't: the ad's pre-filled opening (Meta's wording) and our own
+    // placeholder for media WhatsApp couldn't deliver.
+    const { data: inbound } = await db
       .from('messages')
-      .select('id', { count: 'exact', head: true })
+      .select('content')
       .eq('conversation_id', conversationId)
       .eq('workspace_id', workspaceId)
-      .eq('direction', 'inbound');
-    const isAdLead = lead.source === 'meta_ad' || lead.source === 'instagram_ad' || !!lead.ad_id;
-    // <=1 customer message: an ad click with no engagement caps at Cold (25); a plain
-    // organic one-liner caps at upper-Warm (45). 2+ messages = real conversation, no cap.
-    const maxScore = (inboundCount ?? 0) <= 1 ? (isAdLead ? 25 : 45) : 100;
+      .eq('direction', 'inbound')
+      .limit(200);
+
+    const { data: prefillRows } = await db
+      .from('meta_ad_prefill_messages')
+      .select('text, template_name, auto_learned, seen_count')
+      .eq('workspace_id', workspaceId);
+    const trustedPrefills = ((prefillRows ?? []) as Array<PrefillRow & {
+      auto_learned?: boolean; seen_count?: number;
+    }>).filter(isTrustedPrefill);
+
+    const realMessages = ((inbound ?? []) as Array<{ content: string | null }>)
+      .filter((m) => {
+        const text = (m.content ?? '').trim();
+        if (!text) return false;
+        // Our own notice about an undeliverable message — not something they wrote.
+        if (text.startsWith('⚠️')) return false;
+        // The ad's pre-filled opening is Meta's sentence, not the customer's.
+        return matchPrefill(text, trustedPrefills) === null;
+      }).length;
+
+    const maxScore = engagementCap(realMessages, rules.thresholds);
 
     const writes = applyLeadClassification(leadRow, classification, new Date(), rules.thresholds, maxScore);
 

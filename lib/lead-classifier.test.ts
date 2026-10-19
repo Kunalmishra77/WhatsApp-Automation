@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseClassification, applyLeadClassification, scoreToTemperature, DEFAULT_THRESHOLDS, type LeadRow, type LeadClassification } from './lead-classifier';
+import { parseClassification, applyLeadClassification, scoreToTemperature, engagementCap, DEFAULT_THRESHOLDS, type LeadRow, type LeadClassification } from './lead-classifier';
 
 describe('parseClassification', () => {
   const good = JSON.stringify({
@@ -172,11 +172,69 @@ describe('applyLeadClassification', () => {
     const w = applyLeadClassification(lead({ temperature: 'hot' }), cls({ score: 90, confidence: 85 }), NOW, DEFAULT_THRESHOLDS, 25);
     expect(w.leadUpdate.ai_score).toBe(25);
     expect(w.leadUpdate.temperature).toBe('cold');
-    expect((w.leadUpdate.score_signals as string[])[0]).toContain('not engaged');
+    expect((w.leadUpdate.score_signals as string[])[0]).toContain('capped');
   });
   it('does not cap when the customer is engaged (maxScore 100)', () => {
     const w = applyLeadClassification(lead({ temperature: 'cold' }), cls({ score: 90, confidence: 85 }), NOW, DEFAULT_THRESHOLDS, 100);
     expect(w.leadUpdate.ai_score).toBe(90);
     expect(w.leadUpdate.temperature).toBe('hot');
+  });
+});
+
+describe('engagementCap', () => {
+  // Clients run their own bands. Razorveda and Thames call 55 Hot; Santure and VMS
+  // want 66. A fixed ceiling would behave differently for each, so the cap is
+  // always expressed relative to the workspace's own thresholds.
+  const RAZORVEDA = { hot: 55, warm: 28 };
+  const SANTURE   = { hot: 66, warm: 34 };
+
+  // The production bug this curve exists to stop: an ad lead whose entire
+  // conversation is Meta's pre-filled opening plus one word ("Price", "Amount",
+  // "कितने का है") was scored 70-75 and shown as Hot. The pre-fill is not the
+  // customer's own message, so that lead has ONE real message.
+  it('keeps an ad click plus one word out of Hot, for every client', () => {
+    for (const t of [RAZORVEDA, SANTURE, DEFAULT_THRESHOLDS]) {
+      const cap = engagementCap(1, t);
+      expect(cap).toBeLessThan(t.hot);
+      expect(scoreToTemperature(Math.min(75, cap), t)).toBe('warm');
+    }
+  });
+
+  it('still refuses Hot at two real messages, for every client', () => {
+    for (const t of [RAZORVEDA, SANTURE, DEFAULT_THRESHOLDS]) {
+      expect(scoreToTemperature(Math.min(90, engagementCap(2, t)), t)).toBe('warm');
+    }
+  });
+
+  // Razorveda's hot threshold is 55. A hardcoded cap of 60 — the first version of
+  // this fix — left their two-message leads Hot anyway.
+  it('does not let a client with a low Hot threshold slip through', () => {
+    expect(engagementCap(2, RAZORVEDA)).toBe(54);
+    expect(scoreToTemperature(engagementCap(2, RAZORVEDA), RAZORVEDA)).toBe('warm');
+  });
+
+  it('leaves a bare ad click Cold', () => {
+    for (const t of [RAZORVEDA, SANTURE, DEFAULT_THRESHOLDS]) {
+      expect(scoreToTemperature(engagementCap(0, t), t)).toBe('cold');
+    }
+  });
+
+  it('allows Hot once a real back-and-forth exists', () => {
+    for (const t of [RAZORVEDA, SANTURE, DEFAULT_THRESHOLDS]) {
+      expect(scoreToTemperature(Math.min(90, engagementCap(3, t)), t)).toBe('hot');
+    }
+    expect(engagementCap(5, DEFAULT_THRESHOLDS)).toBe(100);
+  });
+
+  it('never lowers the cap as engagement grows', () => {
+    const caps = [0, 1, 2, 3, 4, 5, 10].map((n) => engagementCap(n, RAZORVEDA));
+    for (let i = 1; i < caps.length; i++) expect(caps[i]!).toBeGreaterThanOrEqual(caps[i - 1]!);
+  });
+
+  it('never caps below the Warm floor once the customer has spoken', () => {
+    // A client could in principle set hot just above warm; one real message must
+    // still be allowed to read as Warm rather than collapsing to Cold.
+    const tight = { hot: 30, warm: 29 };
+    expect(engagementCap(1, tight)).toBeGreaterThanOrEqual(tight.warm);
   });
 });
