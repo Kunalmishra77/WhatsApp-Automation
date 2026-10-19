@@ -64,3 +64,4 @@ d:/WhatsApp-Automation/.superpowers/sdd/
 
 # Local one-off diagnostic scripts (may embed credentials)
 faith*.mjs
+poll.mjs
