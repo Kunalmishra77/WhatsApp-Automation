@@ -41,7 +41,7 @@ const CONVERSATION_FIELDS =
   'id, workspace_id, contact_id, assigned_agent_id, status, channel, subject, last_message, ' +
   'last_message_at, unread_count, labels, is_pinned, is_starred, snoozed_until, sentiment, ' +
   'is_spam, bot_paused, first_replied_at, source_campaign_id, created_at, updated_at, ' +
-  'contacts(id, name, phone, avatar_url)';
+  'contacts(id, name, phone, avatar_url, is_blocked)';
 
 // leads has ~1 row per conversation (the temperature trigger updates the single linked
 // lead), so `leads!inner(...)` does not fan out conversation rows in practice. The page

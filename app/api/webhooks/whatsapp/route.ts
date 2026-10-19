@@ -2,6 +2,8 @@ import { type NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createAdminClient } from '@/services/supabase/admin';
 import { isLearnablePrefill, isTrustedPrefill, matchPrefill, type PrefillRow } from '@/lib/meta-prefill';
+import { moderateContent, decideModerationAction, type ModerationResult } from '@/lib/moderation';
+import { logActivity } from '@/lib/activity-log';
 import { getRequiredSecret } from '@/lib/supabase-env';
 import { chooseRecipientForReply, type RecipientCandidate } from '@/lib/campaign-reply-attribution';
 import { recordTouchpoint } from '@/lib/lead-touchpoint';
@@ -1235,6 +1237,23 @@ async function handleIncomingMessage(
         .single();
       if (wsForVision?.access_token) {
         visionImageUrl = (await getWhatsAppMediaAsDataUrl(msg.image.id, wsForVision.access_token)) ?? undefined;
+      }
+
+      // Moderate the image before the bot answers it. One contact sent a client 111
+      // images, mostly explicit, and the scope guardrail politely replied to every
+      // one — there was no way to stop it. The check is free (OpenAI's moderation
+      // endpoint isn't billed) and capped at 5s, and it reports "clean" on any
+      // failure so an outage can never silence a real customer.
+      if (visionImageUrl) {
+        const verdict = await moderateContent({ imageUrl: visionImageUrl });
+        if (verdict.sexual || verdict.illegal) {
+          await applyModerationStrike(
+            supabase, workspaceId, contact.id, conversation.id, verdict, waId,
+          );
+          // No reply, and nothing further for this message: the contact is now
+          // either silenced (first offence) or blocked (second).
+          return;
+        }
       }
     }
 
@@ -3504,4 +3523,82 @@ async function sendWhatsAppText(
       text:              { preview_url: false, body: cleanText },
     }),
   });
+}
+
+/**
+ * Record an explicit-content offence and act on it.
+ *
+ * First offence: the bot goes quiet on that conversation and the chat is flagged,
+ * so a client sees it without anyone being cut off. A single wrong call must not
+ * cost a real customer — Razorveda sells skincare, and someone photographing
+ * their own skin is a genuine enquiry. Second offence is no longer plausibly a
+ * mistake, so the contact is blocked and the webhook discards everything they
+ * send from then on.
+ *
+ * Never throws: a failure here must not break webhook processing.
+ */
+async function applyModerationStrike(
+  supabase: any,
+  workspaceId: string,
+  contactId: string,
+  conversationId: string,
+  verdict: ModerationResult,
+  waId: string,
+): Promise<void> {
+  try {
+    const { data: contact } = await supabase
+      .from('contacts')
+      .select('moderation_strikes')
+      .eq('id', contactId)
+      .single();
+
+    const prior  = (contact?.moderation_strikes as number | null) ?? 0;
+    const action = decideModerationAction(verdict, prior);
+    if (action === 'none') return;
+
+    const now    = new Date().toISOString();
+    const reason = verdict.illegal
+      ? 'Sexual content involving minors'
+      : `Explicit images (${verdict.categories.join(', ')})`;
+
+    const contactUpdate: Record<string, unknown> = {
+      moderation_strikes: prior + 1,
+      last_flagged_at:    now,
+    };
+    if (action === 'block') {
+      // is_blocked + opted_out together are what silence a contact everywhere:
+      // the webhook discards their messages before insert, and campaigns skip them.
+      contactUpdate.is_blocked     = true;
+      contactUpdate.opted_out      = true;
+      contactUpdate.blocked_reason = reason;
+      contactUpdate.blocked_at     = now;
+    }
+    await supabase.from('contacts').update(contactUpdate).eq('id', contactId);
+
+    // Silence the bot on this chat either way, so it stops answering the sender.
+    await supabase.from('conversations').update({ bot_paused: true }).eq('id', conversationId);
+
+    const label = action === 'block' ? 'Blocked: explicit' : 'Flagged: explicit';
+    await supabase.from('workspace_labels').upsert(
+      { workspace_id: workspaceId, name: label, color: 'red' },
+      { onConflict: 'workspace_id,name', ignoreDuplicates: true },
+    );
+    await supabase.rpc('append_conversation_label', {
+      p_conversation_id: conversationId,
+      p_label: label,
+    });
+
+    await logActivity({
+      workspaceId,
+      action: action === 'block' ? 'moderation.blocked' : 'moderation.flagged',
+      entityType: 'contact',
+      entityId: contactId,
+      entityLabel: waId,
+      metadata: { reason, categories: verdict.categories, strike: prior + 1 },
+    });
+
+    console.log(`[Moderation] ${action} contact ${waId} (strike ${prior + 1}): ${reason}`);
+  } catch (err) {
+    console.error('[Moderation] failed to apply strike', err);
+  }
 }

@@ -22,6 +22,11 @@ export const ACTIVITY_LABELS: Record<string, string> = {
   'team.role_updated':      'Updated a custom role',
   'team.role_deleted':      'Deleted a custom role',
   'contact.owner_changed':  'Reassigned a client',
+  'contact.blocked':        'Blocked a contact',
+  'contact.unblocked':      'Unblocked a contact',
+  'conversation.deleted':   'Deleted a conversation',
+  'moderation.flagged':     'Flagged explicit content from',
+  'moderation.blocked':     'Auto-blocked for explicit content',
   // Written by the conversation endpoints, which have used these bare keys
   // since before the trail had labels.
   'assigned':               'Assigned a conversation',

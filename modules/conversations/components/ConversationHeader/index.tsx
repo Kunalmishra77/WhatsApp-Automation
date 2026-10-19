@@ -11,7 +11,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
-import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown, ChevronLeft, Bot, BotOff, Sparkles, Wand2, GitMerge, RefreshCw, FileText, Tag, Download } from 'lucide-react';
+import { CheckCircle2, Clock, MoreVertical, PhoneCall, User, UserCheck, ChevronDown, ChevronLeft, Bot, BotOff, Sparkles, Wand2, GitMerge, RefreshCw, FileText, Tag, Download, Ban, ShieldCheck, Trash2 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { useWorkspaceStore } from '@/store/workspace.store';
@@ -65,6 +67,52 @@ export function ConversationHeader({ conversation, panelToggle, onBack }: Conver
   const isBotPaused = !!(conversation as any).bot_paused;
   const [showFormPicker, setShowFormPicker] = useState(false);
   const [labelPickerOpen, setLabelPickerOpen] = useState(false);
+  const router = useRouter();
+  const isBlocked = Boolean(conversation.contacts?.is_blocked);
+  const [blockOpen,  setBlockOpen]  = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [busy,       setBusy]       = useState(false);
+
+  // Blocking is what actually stops an abusive sender: pausing the bot only stops
+  // the replies, while is_blocked + opted_out make the webhook discard their
+  // messages before they are stored.
+  const handleBlock = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/conversations/${conversation.id}/block`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blocked: !isBlocked }),
+      });
+      const data = await res.json() as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Failed');
+      toast.success(isBlocked ? 'Contact unblocked' : 'Contact blocked — their messages will stop arriving');
+      void queryClient.invalidateQueries({ queryKey: ['conversation', conversation.id] });
+      void queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      setBlockOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update contact');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/conversations/${conversation.id}`, { method: 'DELETE' });
+      const data = await res.json() as { error?: string; messagesDeleted?: number };
+      if (!res.ok) throw new Error(data.error ?? 'Failed');
+      toast.success(`Chat deleted (${data.messagesDeleted ?? 0} messages). The contact and their lead were kept.`);
+      void queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      router.push('/conversations');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to delete chat');
+    } finally {
+      setBusy(false);
+      setDeleteOpen(false);
+    }
+  };
   const currentLabels = Array.isArray((conversation as any).labels) ? (conversation as any).labels as string[] : [];
 
   const { data: formsData } = useQuery({
@@ -436,6 +484,24 @@ export function ConversationHeader({ conversation, panelToggle, onBack }: Conver
             <DropdownMenuItem className="gap-2 text-xs" onClick={handleExportConversation}>
               <Download className="h-3.5 w-3.5 text-brand-500" /> Download Conversation (CSV)
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem
+              className={cn('gap-2 text-xs', !isBlocked && 'text-destructive focus:text-destructive')}
+              onSelect={(e) => { e.preventDefault(); setBlockOpen(true); }}
+            >
+              {isBlocked
+                ? <><ShieldCheck className="h-3.5 w-3.5 text-emerald-600" /> Unblock Contact</>
+                : <><Ban className="h-3.5 w-3.5" /> Block Contact</>}
+            </DropdownMenuItem>
+
+            <DropdownMenuItem
+              className="gap-2 text-xs text-destructive focus:text-destructive"
+              onSelect={(e) => { e.preventDefault(); setDeleteOpen(true); }}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Delete Chat
+            </DropdownMenuItem>
+
             {activeForms.length > 0 && (
               <>
                 <DropdownMenuSeparator />
@@ -471,6 +537,29 @@ export function ConversationHeader({ conversation, panelToggle, onBack }: Conver
 
         {panelToggle}
       </div>
+
+      <ConfirmDialog
+        open={blockOpen}
+        variant={isBlocked ? 'warning' : 'destructive'}
+        title={isBlocked ? 'Unblock this contact?' : 'Block this contact?'}
+        description={isBlocked
+          ? 'Their messages will start arriving again and campaigns can reach them. Their past strikes are kept, so one more offence blocks them again.'
+          : 'Their messages will stop arriving, campaigns will skip them, and the bot will go quiet on this chat. The conversation stays here for your records.'}
+        confirmLabel={isBlocked ? 'Unblock' : 'Block contact'}
+        loading={busy}
+        onConfirm={() => void handleBlock()}
+        onCancel={() => setBlockOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title="Delete this chat?"
+        description="The conversation and all its messages are removed for good. The contact, their lead record and their campaign history are kept, so your reporting stays intact."
+        confirmLabel="Delete chat"
+        loading={busy}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setDeleteOpen(false)}
+      />
     </div>
   );
 }

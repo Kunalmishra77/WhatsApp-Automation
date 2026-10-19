@@ -8,6 +8,8 @@ export type ConversationWithContact = ConversationRow & {
     name: string | null;
     phone: string;
     avatar_url: string | null;
+    /** Blocked contacts are silenced: the webhook discards their messages. */
+    is_blocked: boolean | null;
   };
 };
 
@@ -115,7 +117,7 @@ export async function fetchConversation(id: string): Promise<ConversationWithCon
   const supabase = createClient();
   const { data, error } = await supabase
     .from('conversations')
-    .select(`*, contacts(id, name, phone, avatar_url)`)
+    .select(`*, contacts(id, name, phone, avatar_url, is_blocked)`)
     .eq('id', id)
     .single();
   if (error) return null;
