@@ -7,6 +7,8 @@ export interface UsageTokens {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  /** OpenAI prefix-cache hits. A subset of prompt_tokens, billed at half price. */
+  prompt_tokens_details?: { cached_tokens?: number };
 }
 
 // USD per 1,000,000 tokens — { in, out }. Keys match resolved model names
@@ -25,13 +27,24 @@ const PRICING: Record<string, { in: number; out: number }> = {
 };
 const DEFAULT_PRICE = { in: 0.15, out: 0.60 };
 
+// Share of the input price charged for a prompt-cache hit. OpenAI bills cached
+// input tokens at half rate on the gpt-4o family.
+const CACHED_INPUT_RATE = 0.5;
+
 export function estimateCostUsd(model: string | undefined, usage: UsageTokens): number {
   if (!model) model = 'openai/gpt-4o-mini';
   if (model.endsWith(':free')) return 0;
   const p = PRICING[model] ?? DEFAULT_PRICE;
   const inTok = usage.prompt_tokens ?? 0;
   const outTok = usage.completion_tokens ?? 0;
-  return (inTok / 1_000_000) * p.in + (outTok / 1_000_000) * p.out;
+  // Cached tokens are a SUBSET of prompt_tokens, so bill the uncached remainder at
+  // full rate and the cached part at the discount. Without this split the reported
+  // cost would not move when the cache starts working, hiding the saving.
+  const cachedTok = Math.min(usage.prompt_tokens_details?.cached_tokens ?? 0, inTok);
+  const freshTok  = inTok - cachedTok;
+  return (freshTok / 1_000_000) * p.in
+    + (cachedTok / 1_000_000) * p.in * CACHED_INPUT_RATE
+    + (outTok / 1_000_000) * p.out;
 }
 
 interface LogUsageInput {
@@ -58,6 +71,7 @@ export async function logAiUsage(input: LogUsageInput): Promise<void> {
       task: input.task ?? null,
       prompt_tokens: u.prompt_tokens ?? 0,
       completion_tokens: u.completion_tokens ?? 0,
+      cached_tokens: u.prompt_tokens_details?.cached_tokens ?? 0,
       total_tokens: total,
       cost_usd: estimateCostUsd(input.model, u),
     });

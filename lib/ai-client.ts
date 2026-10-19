@@ -103,7 +103,11 @@ const REQUEST_TIMEOUT_MS = 8_000;
 
 interface ProviderResult {
   content: string;
-  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  usage?: {
+    prompt_tokens?: number; completion_tokens?: number; total_tokens?: number;
+    // OpenAI reports prefix-cache hits here; cached input is billed at half price.
+    prompt_tokens_details?: { cached_tokens?: number };
+  };
   model?: string;
 }
 
@@ -131,7 +135,11 @@ async function tryProvider(
       if (res.ok) {
         const data = await res.json() as {
           choices?: Array<{ message?: { content?: string } }>;
-          usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+          usage?: {
+    prompt_tokens?: number; completion_tokens?: number; total_tokens?: number;
+    // OpenAI reports prefix-cache hits here; cached input is billed at half price.
+    prompt_tokens_details?: { cached_tokens?: number };
+  };
           model?: string;
         };
         const content = data.choices?.[0]?.message?.content ?? null;
