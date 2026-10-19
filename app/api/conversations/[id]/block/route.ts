@@ -20,10 +20,15 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const { blocked, reason } = await request.json() as { blocked?: boolean; reason?: string };
-    if (typeof blocked !== 'boolean') {
+
+    // A malformed body is the caller's mistake, not ours — answer 400 rather than
+    // letting JSON.parse throw into the catch below and report a 500.
+    const body = await request.json().catch(() => null) as
+      { blocked?: boolean; reason?: string } | null;
+    if (!body || typeof body.blocked !== 'boolean') {
       return NextResponse.json({ error: 'blocked (boolean) required' }, { status: 400 });
     }
+    const { blocked, reason } = body;
 
     const db = createAdminClient() as any;
     const { data: conversation } = await db
