@@ -3287,6 +3287,14 @@ const SPECIFIC_PRODUCT_KEYWORDS = [
   'butt-lyte', 'buttlyte', 'acnezyl', 'fair-u', 'fairu', 'nurum plus', 'nurum',
   'neck-lyte', 'necklyte', 'eye-lyte', 'eyelyte', 'simlar', 'geluslim',
   'volumm', 'arula', 'rejuve', 'revital', 'mamo',
+  // Night Repair has a product photo in the media library but no entry here, so
+  // "night repair ka photo bhejo" fell through to the generic category match.
+  'night repair',
+  // Space-separated spellings. Only the hyphenated and run-together forms were
+  // listed, so the way customers actually type these names matched nothing:
+  // "soft nip image bhejo", "fair u ki photo", "butt shape cream photo".
+  'soft nip', 'fair u', 'butt shape', 'butt lyte', 'neck lyte', 'eye lyte',
+  'nip lyte', 'b reduce', 'vg lyte',
 ];
 
 // Generic category words — only used if NO specific product found in recent messages
@@ -3402,10 +3410,17 @@ async function searchMediaLibrary(
         filtered = filtered.filter((r) => !(r.tags ?? []).includes('men'));
       }
 
-      // Rank by number of matching keywords (most relevant first), then take top 2
-      filtered = filtered
+      // Rank by number of matching keywords, then keep ONLY the joint best. Taking
+      // the top 2 outright meant a weaker match rode along with the right one — for
+      // "geluslim for men" the Geluslim men's photo scores 2 (geluslim + men) while
+      // the VOLUMM men's photo scores 1 (men), and both were sent. A wrong product
+      // photo costs more trust than sending one fewer image.
+      const scored = filtered
         .map((r) => ({ row: r, score: (r.tags ?? []).filter((t) => keywords.includes(t)).length }))
-        .sort((a, b) => b.score - a.score)
+        .sort((a, b) => b.score - a.score);
+      const topScore = scored[0]?.score ?? 0;
+      filtered = scored
+        .filter((x) => x.score === topScore)
         .map((x) => x.row)
         .slice(0, 2);
 
