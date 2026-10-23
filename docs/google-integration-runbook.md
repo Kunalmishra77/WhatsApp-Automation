@@ -14,8 +14,8 @@ Status at 2026-10-23:
 | OAuth app + consent screen | Working — Razorveda connected 17 Sep, refresh token still valid |
 | Business Profile API **quota** | **0** — application in review, case `6-1514000042067` |
 | Business Profile data pulled | 0 locations, 0 reviews, 0 Q&A, 0 insights |
-| Google Ads | Never connected (no rows in `google_ads_connections`) |
-| Google Ads developer token | Retired by Google 9 Sep 2026 — not needed; access attaches to Cloud project `77637202964` |
+| Google Ads | API enabled + Explorer access since 17 Sep; not connected yet (0 rows in `google_ads_connections`) — needs the `adwords` scope |
+| Google Ads developer token | Retired by Google 9 Sep 2026 — not needed at all |
 | Code | Done. Nothing to build for either side |
 
 The one thing that proves the diagnosis, from a live sync on 19 Oct:
@@ -153,52 +153,43 @@ past ~100 users needs app verification:
 
 Confirmed 23 Oct: several clients run Google Ads — Umang Hospitals (904-585-6537),
 Fitness First Dwarka (910-898-3923) and Razorveda (415-672-2007) are all visible
-from the AGENTiX login, so their customer ids are reachable once access is granted.
+from the AGENTiX login, so their customer ids are reachable.
 
-**Google retired developer tokens on 9 Sep 2026.** Access no longer hangs off a
-token issued by a manager account's API Center; it attaches to the **Google Cloud
-project that owns the OAuth credentials**. The old API Center form is still
-reachable and still renders, but its own banner now says it issues tokens for the
-App Conversion Tracking and Remarketing API only — filling it in gets the wrong
-API's token. API Center is slated to retire in H1 2027.
+**Almost all of this was already done on 17 Sep 2026.** Earlier drafts of this
+section sent the reader to redo it, which is why the state is recorded first:
 
-Two things that earlier drafts of this runbook got wrong, both corrected here: a
-Manager (MCC) account is **not** required — applications are made from the Cloud
-project and need no manager account at all — and Basic access is **not** a multi-day
-wait: it is reviewed automatically within minutes once brand verification is done.
+| Piece | State |
+|---|---|
+| Google Ads API enabled on project `77637202964` | ✅ done 17 Sep |
+| Access level | ✅ **Explorer** — 2,880 production ops/day, campaign reporting included |
+| Developer token | Not needed; Google retired them 9 Sep 2026 |
+| Manager (MCC) account | Exists ("AI Agentix", 522-963-4360) but was never required |
+| `adwords` scope on the OAuth consent screen | ❌ **the one real remaining step** |
 
-`GOOGLE_ADS_DEVELOPER_TOKEN` no longer needs to be set. `lib/google-ads.ts` sends
-the `developer-token` header only when the variable is present, and Google now
-ignores the header, so the code works unchanged either way. A future major API
-version is expected to reject the header outright; the conditional is what keeps
-that from becoming a breaking change here.
+**Do not apply for Basic access.** Explorer already covers what we do — we read
+campaign reporting and write nothing — and Basic would force brand verification for
+headroom we have no use for. The old Ads-panel API Center form is for the App
+Conversion Tracking and Remarketing API, a different API; its own banner now says
+so. Ignore it.
 
-## Step 2.1 Apply from the project that holds our OAuth client
+## Step 2.1 Add the `adwords` scope — the only step left
 
-This is the part worth getting right: access is granted to a **Cloud project**, and
-it is the project owning `GOOGLE_CLIENT_ID` that matters — for us project
-`77637202964`, the same one Part 1 uses. Access granted to any other project will
-be real and still useless, because our OAuth client does not live there.
+console.cloud.google.com → project **Agentix-Automation** (`77637202964`) →
+**APIs & Services → OAuth consent screen → Data Access** → *Add or remove scopes* →
+paste into "Manually add scopes":
 
-1. console.cloud.google.com → project picker → **`77637202964`**
-2. APIs & Services → Library → **Google Ads API** → Enable
-3. That API's **Overview** page carries brand verification and the access
-   application — not the Ads UI
-4. Complete **brand verification**, now mandatory for new Basic and Standard
-   applications (existing access holders are exempt)
-5. Apply for **Basic access** — 15,000 operations/day, far more than we use
+```
+https://www.googleapis.com/auth/adwords
+```
 
-Application text, kept read-only on purpose because that is both true of the
-implementation and the easiest category to approve:
+Then *Add to table* → *Update* → *Save*. `business.manage` should already be
+present for Part 1; if it is not, add it in the same pass.
 
-> AGENTiX is a WhatsApp CRM used by small and medium businesses in India. Our
-> clients connect their own Google Ads accounts through OAuth, and we show them
-> their campaign performance alongside the WhatsApp leads those campaigns generate,
-> so they can see which campaigns actually produce conversations and customers. We
-> only read reporting data for accounts the owner has connected themselves. We do
-> not create, edit or manage campaigns.
+Access is granted to the Cloud project that owns `GOOGLE_CLIENT_ID`, so this must
+happen on `77637202964` and nowhere else — a scope added to another project would
+be real and still useless.
 
-## Step 2.2 After approval
+## Step 2.2 Connect a client
 
 Client portal → **Settings → Integrations → Google Ads → Connect**, signing in with
 a Google account that can see that client's Ads account. Nothing to deploy and no
@@ -207,6 +198,9 @@ environment variable to add.
 Already set and working, do not change: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
 `NEXT_PUBLIC_APP_URL`. The Ads redirect URI is
 `https://app.aiagentixdev.com/api/integrations/google-ads/callback`.
+
+Lead capture (Part A in the Phase 4 spec) never needed any of this and has been
+live since September: the Google Ads lead-form webhook validates its own key.
 
 ## Step 2.3 If campaigns stay empty after connecting
 
@@ -232,9 +226,9 @@ added keywords yet, which is a configuration gap, not a fault.
 
 1. **Part 1, Step 1.2** — submit the Business Profile access request. Longest wait,
    so start here. Steps 1.1 and 1.3 are quick and can be done the same day.
-2. **Part 2, Step 2.1** — apply for Ads Basic access from Cloud project
-   `77637202964`. Separate queue from Part 1, and approval is automated, so this
-   one can finish the same day.
+2. **Part 2, Step 2.1** — add the `adwords` scope and connect a client. No
+   approval queue at all: Explorer access is already granted, so this finishes
+   today.
 3. **Part 3** — ten minutes, any time.
 
 While both approvals are pending nothing else can move on Google, and nothing in
