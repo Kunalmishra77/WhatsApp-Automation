@@ -151,48 +151,64 @@ past ~100 users needs app verification:
 
 # PART 2 — Google Ads
 
-Independent of Part 1. Can be done in parallel; it has its own approval.
+Confirmed 23 Oct: several clients do run Google Ads, so this is worth the two
+approvals. Independent of Part 1 and should run in parallel.
 
-## Step 2.1 Get a developer token
+**One developer token covers the whole platform.** It belongs to AGENTiX, not to
+each client — clients connect their own Ads accounts over OAuth and
+`listAccessibleCustomers` resolves their customer ids. `lib/google-ads.ts` only
+sends the `developer-token` header when the env var is set, so without it every
+Ads call is refused.
 
-Needs a **Google Ads Manager (MCC)** account — a normal Ads account cannot issue one.
+## Step 2.1 A Manager (MCC) account is required
 
-1. ads.google.com → sign in to the **manager** account
-2. **Tools & Settings → Setup → API Center**
-3. Apply for a developer token
+API Center exists **only** on a manager account; a normal Ads account does not show
+it. If there is none, create one at
+ads.google.com/home/tools/manager-accounts → *Create a manager account*. It is free
+and does not need to run any ads — it exists to issue the token.
 
-It arrives at **Test Account** access, which can only query test accounts — real
-campaign data returns nothing. Apply in the same screen for **Basic Access** and
-describe the same use case as above. That is a second approval wait.
+## Step 2.2 Request the developer token
 
-## Step 2.2 Put the token in Coolify
+ads.google.com → sign in to the **manager** account → **Tools & Settings → Setup →
+API Center** → request the token.
 
-Coolify → the app → **Environment Variables**:
+It is issued immediately at **Test Account** level, which can only query test
+accounts. Real client data returns nothing at that level.
 
-```
-GOOGLE_ADS_DEVELOPER_TOKEN = <the token>
-```
+## Step 2.3 Apply for Basic Access — the real wait
+
+Same API Center screen. Basic Access allows 15,000 operations/day, far more than we
+use. Describe the tool concretely; a vague application is what got the GBP request
+auto-rejected:
+
+> AGENTiX is a WhatsApp CRM used by small and medium businesses in India. Our
+> clients connect their own Google Ads accounts through OAuth, and we show them
+> their campaign performance alongside the WhatsApp leads those campaigns generate,
+> so they can see which campaigns actually produce conversations and customers. We
+> only read reporting data for accounts the owner has connected themselves. We do
+> not create, edit or manage campaigns.
+
+Saying plainly that it is read-only and creates nothing is worth including — it is
+true of our implementation and it is the lowest-risk category to approve.
+
+## Step 2.4 Once the token arrives
+
+1. Cloud console → Library → enable **Google Ads API** (`googleads.googleapis.com`)
+2. Coolify → Environment Variables → `GOOGLE_ADS_DEVELOPER_TOKEN = <token>` → redeploy
+   (a new variable is only read after a redeploy)
+3. Client portal → **Settings → Integrations → Google Ads → Connect**, signing in
+   with a Google account that can see that client's Ads account
 
 Already set and working, do not change: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
-`NEXT_PUBLIC_APP_URL`. Adding a variable needs a redeploy for the app to read it.
+`NEXT_PUBLIC_APP_URL`. The Ads redirect URI is
+`https://app.aiagentixdev.com/api/integrations/google-ads/callback`.
 
-## Step 2.3 Enable the API and connect
-
-- Cloud console → Library → enable **Google Ads API**
-- Then in the client's portal: **Settings → Integrations → Google Ads → Connect**,
-  and sign in with the Google account that can see the Ads account
-
-That writes a row into `google_ads_connections` and the 6-hourly cron starts
-pulling campaigns.
-
-## Step 2.4 If the client's Ads account sits under a manager
+## Step 2.5 If campaigns stay empty after connecting
 
 `google_ads_connections` holds both `customer_id` and `login_customer_id`. When the
-account is accessed through an MCC, the manager's id goes in `login_customer_id` —
-otherwise the API refuses. The connect flow fills these; if campaigns stay empty
-after connecting, that pair is the first thing to check.
-
----
+client's account sits under a manager account, the manager's id must be in
+`login_customer_id` or the API refuses the request. That pair is the first thing to
+check.
 
 # PART 3 — Local Rank (small, separate)
 
