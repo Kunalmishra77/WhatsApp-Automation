@@ -33,8 +33,11 @@ verified. Do this before recording, or the mismatch recurs.
 **2. The Google Calendar connect button does not exist.** The API route
 `/api/integrations/google-calendar/connect` works, but nothing in the UI links to
 it. Recording a reviewer-facing video that navigates to a raw API URL looks evasive
-and invites another round. Add a Google Calendar card to Settings → Integrations
-first, matching the existing Google Ads and Google Business cards.
+and invites another round. Add a **Connect Google Calendar** button to the
+**Bookings** page, mirroring what the Google Ads page already does: when the
+integration is not connected it shows a short line of explanation and a connect
+button. Bookings is the right home for it — that is where the synced appointments
+appear, and the green "Google Calendar" badge on each row already lives there.
 
 **3. Recording setup.** Windows: `Win + G` (Game Bar) or OBS. Record the **whole
 browser window including the address bar** — Google needs the client ID, which
@@ -73,10 +76,10 @@ an integration platform under a least-privilege model. Do not skip it.
 
 ### Scene 2 — `calendar.events`: the consent flow (1:05–2:00)
 
-**Screen:** Settings → Integrations → **Google Calendar → Connect**.
+**Screen:** the **Bookings** page, showing the **Connect Google Calendar** button.
 
 > "First scope: calendar dot events. A business owner connects their own Google
-> Calendar here."
+> Calendar here, on the page where their appointments live."
 
 Click Connect. Let the account chooser appear. Pick the account.
 
@@ -123,7 +126,9 @@ for write permissions to be shown reflected in the user's Google account.
 
 ### Scene 4 — `adwords`: the consent flow (3:25–4:20)
 
-**Screen:** Settings → Integrations → **Google Ads → Connect**.
+**Screen:** the **Google Ads** page in the app, showing *"Connect your Google Ads
+account to see campaigns, spend and conversions here"* and the **Connect Google
+Ads** button.
 
 > "Second scope: adwords. A business that advertises on Google connects their own
 > Google Ads account here."
@@ -157,7 +162,7 @@ Scroll the table slowly so the data is legible.
 
 ### Scene 6 — Close (5:35–6:00)
 
-**Screen:** Settings → Integrations, all cards visible.
+**Screen:** the app's sidebar, with the Bookings and Google Ads pages visible.
 
 > "To summarise: calendar dot events writes appointments booked over WhatsApp to the
 > owner's own calendar, and adwords reads the owner's own campaign performance to
