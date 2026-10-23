@@ -3,12 +3,16 @@
 Covers Google Business Profile (reviews, Q&A, posts, insights) and Google Ads.
 Every value below is taken from the code, so it can be pasted as-is.
 
+**Application submitted 23 Oct 2026 — Google case ID `6-1514000042067`, review
+7-10 business days (so roughly 3-6 Nov). Do NOT submit another request: Google
+warns that a second case for the same project delays processing.**
+
 Status at 2026-10-23:
 
 | Piece | State |
 |---|---|
 | OAuth app + consent screen | Working — Razorveda connected 17 Sep, refresh token still valid |
-| Business Profile API **quota** | **0** — this is the blocker. Every call returns 429 |
+| Business Profile API **quota** | **0** — application in review, case `6-1514000042067` |
 | Business Profile data pulled | 0 locations, 0 reviews, 0 Q&A, 0 insights |
 | Google Ads | Never connected (no rows in `google_ads_connections`) |
 | Google Ads developer token | Unknown — `GOOGLE_ADS_DEVELOPER_TOKEN` must be set in Coolify |
@@ -82,16 +86,23 @@ What that means for us, concretely:
 | The GBP itself | verified, 60+ days old, and fully filled in |
 | Project number | `77637202964` |
 
-Use the **GBP API contact form** linked from the Prerequisites page and pick
-**"Application for Basic API Access"** from the drop-down. The 33%→100% wizard
-reachable from the Cloud Console product page is a different flow that screens
-instantly and rejects without a human ever seeing it.
+What actually worked, after a first attempt was auto-rejected on the spot:
 
-If AGENTiX has no verified Business Profile of its own, apply with a client's —
-Google explicitly allows that. The practical candidate is Razorveda, whose
-`razorvedamis.sonia@gmail.com` already connected a profile to us on 17 Sep; the
-form must then be submitted from that email with `razorveda.in` as the website.
-If that account needs to see the Cloud project, give it Viewer in IAM.
+The eligibility wizard reachable from the Cloud Console product page asks three
+screening questions. Two of them decided the outcome.
+
+| Question | Answer | Why |
+|---|---|---|
+| GBP verified for 60 days? | **Yes** | Razorveda's profile carries 67 reviews, so it long predates the cut-off |
+| Does your organization have an **active, allowlisted** Google Cloud Project ID? | **No** | "Allowlisted" means *already granted GBP access*. Ours is not — a quota of 0 IS the proof. Answering Yes here contradicts what Google can see and is the likeliest cause of the instant rejection |
+| Company website | `https://www.razorveda.in` | It must be the site listed **on the GBP**, not our app URL |
+
+Answered that way the wizard opens a real support case instead of refusing.
+
+AGENTiX has no Business Profile of its own, so the application rides on a client's,
+which Google explicitly permits. The AGENTiX Google account was added as a manager
+on Razorveda's profile (Google Search shows "You manage this Business Profile"),
+and the invitation has to be ACCEPTED before that counts.
 
 ## Step 1.3 After the approval email, confirm the quota moved off 0
 
