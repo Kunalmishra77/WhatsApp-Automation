@@ -85,7 +85,7 @@ export default function GoogleAdsPage() {
             <a href={`/api/integrations/google-ads/connect?workspaceId=${workspaceId}`}>
               <Button className="bg-brand-500 hover:bg-brand-600 text-white">Connect Google Ads</Button>
             </a>
-            <p className="text-xs text-gray-400">Reporting activates once your Google Ads API developer token is approved.</p>
+            <p className="text-xs text-gray-400">Sign in with a Google account that can see this client’s Ads account.</p>
           </div>
         ) : (
           <>
@@ -103,7 +103,7 @@ export default function GoogleAdsPage() {
               ))}
             </div>
             {campaigns.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-6">No campaign data yet. Hit Sync (needs an approved developer token).</p>
+              <p className="text-sm text-gray-400 text-center py-6">No campaign data yet — hit Sync to pull it.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">

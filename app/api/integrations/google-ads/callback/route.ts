@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     }, { onConflict: 'workspace_id' });
 
     // First sync (resolves customer id + pulls metrics). Fire-and-forget; will
-    // no-op gracefully until the developer token is configured/approved.
+    // report the reason rather than failing the redirect.
     void syncWorkspaceAds(db, workspaceId);
 
     return NextResponse.redirect(`${appUrl}/settings?tab=integrations&gads=success`);

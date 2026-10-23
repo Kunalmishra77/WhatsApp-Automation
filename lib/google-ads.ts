@@ -8,7 +8,11 @@
 // starts rejecting the header outright.
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const ADS_API_VERSION = 'v17';
+// Google retires a major version roughly a year after release, and v17 was sunset
+// on 4 June 2025 — every call this client made returned a bare 404 from then on.
+// Probed live: v22 through v26 answer, v27 does not exist yet. Check
+// developers.google.com/google-ads/api/docs/deprecations before this ages out too.
+const ADS_API_VERSION = 'v26';
 const ADS_BASE = `https://googleads.googleapis.com/${ADS_API_VERSION}`;
 
 export const ADWORDS_SCOPE = 'https://www.googleapis.com/auth/adwords';

@@ -85,7 +85,7 @@ export function GoogleAdsSettings() {
               <div>
                 <p className="text-sm font-medium text-foreground">Connected{status.email ? ` · ${status.email}` : ''}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {status.customer_id ? `Account ${status.customer_id}` : 'Reporting activates once the developer token is approved'}
+                  {status.customer_id ? `Account ${status.customer_id}` : 'Resolving the Ads account…'}
                 </p>
                 <a href="/google-ads" className="text-xs text-brand-600 underline mt-0.5 inline-block">Open Google Ads →</a>
               </div>

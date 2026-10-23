@@ -13,35 +13,48 @@ const CAMPAIGN_GAQL = `
   WHERE segments.date DURING LAST_30_DAYS
 `;
 
-export async function getWorkspaceAdsAuth(
+export interface AdsAuth { accessToken: string; customerId: string; loginCustomerId: string | null }
+
+// Returns the auth needed to query a workspace's Ads account, or the reason it
+// could not be obtained. It used to return a plain null for four very different
+// failures — no connection, a refresh token Google rejected, an API error, and an
+// account the user simply cannot see — which surfaced as a bare "not_connected"
+// and hid a sunset API version behind a message that said the opposite.
+export async function resolveAdsAuth(
   db: any, workspaceId: string,
-): Promise<{ accessToken: string; customerId: string; loginCustomerId: string | null } | null> {
+): Promise<{ ok: true; auth: AdsAuth } | { ok: false; error: string }> {
   const { data: conn } = await db
     .from('google_ads_connections')
     .select('refresh_token, customer_id, login_customer_id')
     .eq('workspace_id', workspaceId)
     .single();
-  if (!conn?.refresh_token) return null;
-  const accessToken = await refreshAccessToken(conn.refresh_token);
-  if (!accessToken) return null;
+  if (!conn?.refresh_token) return { ok: false, error: 'not_connected' };
 
-  // Resolve the customer id on first use (needs the developer token).
+  const accessToken = await refreshAccessToken(conn.refresh_token);
+  if (!accessToken) {
+    return { ok: false, error: 'token_refresh_failed — reconnect Google Ads; the refresh token was rejected' };
+  }
+
   let customerId = conn.customer_id as string | null;
   if (!customerId) {
     const accts = await listAccessibleCustomers(accessToken);
-    if (accts.ok) customerId = accts.data[0] ?? null;
-    if (customerId) await db.from('google_ads_connections').update({ customer_id: customerId }).eq('workspace_id', workspaceId);
+    if (!accts.ok) return { ok: false, error: accts.error };
+    customerId = accts.data[0] ?? null;
+    if (!customerId) {
+      return { ok: false, error: 'no_accessible_customers — the signed-in Google account cannot see any Ads account' };
+    }
+    await db.from('google_ads_connections').update({ customer_id: customerId }).eq('workspace_id', workspaceId);
   }
-  if (!customerId) return null;
 
-  return { accessToken, customerId, loginCustomerId: conn.login_customer_id ?? null };
+  return { ok: true, auth: { accessToken, customerId, loginCustomerId: conn.login_customer_id ?? null } };
 }
 
 export async function syncWorkspaceAds(db: any, workspaceId: string): Promise<AdsSyncResult> {
   const result: AdsSyncResult = { ok: false, campaigns: 0, rows: 0 };
   try {
-    const auth = await getWorkspaceAdsAuth(db, workspaceId);
-    if (!auth) { result.error = 'not_connected'; return result; }
+    const resolved = await resolveAdsAuth(db, workspaceId);
+    if (!resolved.ok) { result.error = resolved.error; return result; }
+    const auth = resolved.auth;
 
     const res = await searchGaql(auth.accessToken, auth.customerId, CAMPAIGN_GAQL, auth.loginCustomerId);
     if (!res.ok) {
