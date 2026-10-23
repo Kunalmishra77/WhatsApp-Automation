@@ -15,7 +15,7 @@ Status at 2026-10-23:
 | Business Profile API **quota** | **0** — application in review, case `6-1514000042067` |
 | Business Profile data pulled | 0 locations, 0 reviews, 0 Q&A, 0 insights |
 | Google Ads | Never connected (no rows in `google_ads_connections`) |
-| Google Ads developer token | Unknown — `GOOGLE_ADS_DEVELOPER_TOKEN` must be set in Coolify |
+| Google Ads developer token | Retired by Google 9 Sep 2026 — not needed; access attaches to Cloud project `77637202964` |
 | Code | Done. Nothing to build for either side |
 
 The one thing that proves the diagnosis, from a live sync on 19 Oct:
@@ -151,35 +151,45 @@ past ~100 users needs app verification:
 
 # PART 2 — Google Ads
 
-Confirmed 23 Oct: several clients do run Google Ads, so this is worth the two
-approvals. Independent of Part 1 and should run in parallel.
+Confirmed 23 Oct: several clients run Google Ads — Umang Hospitals (904-585-6537),
+Fitness First Dwarka (910-898-3923) and Razorveda (415-672-2007) are all visible
+from the AGENTiX login, so their customer ids are reachable once access is granted.
 
-**One developer token covers the whole platform.** It belongs to AGENTiX, not to
-each client — clients connect their own Ads accounts over OAuth and
-`listAccessibleCustomers` resolves their customer ids. `lib/google-ads.ts` only
-sends the `developer-token` header when the env var is set, so without it every
-Ads call is refused.
+**Google retired developer tokens on 9 Sep 2026.** Access no longer hangs off a
+token issued by a manager account's API Center; it attaches to the **Google Cloud
+project that owns the OAuth credentials**. The old API Center form is still
+reachable and still renders, but its own banner now says it issues tokens for the
+App Conversion Tracking and Remarketing API only — filling it in gets the wrong
+API's token. API Center is slated to retire in H1 2027.
 
-## Step 2.1 A Manager (MCC) account is required
+Two things that earlier drafts of this runbook got wrong, both corrected here: a
+Manager (MCC) account is **not** required — applications are made from the Cloud
+project and need no manager account at all — and Basic access is **not** a multi-day
+wait: it is reviewed automatically within minutes once brand verification is done.
 
-API Center exists **only** on a manager account; a normal Ads account does not show
-it. If there is none, create one at
-ads.google.com/home/tools/manager-accounts → *Create a manager account*. It is free
-and does not need to run any ads — it exists to issue the token.
+`GOOGLE_ADS_DEVELOPER_TOKEN` no longer needs to be set. `lib/google-ads.ts` sends
+the `developer-token` header only when the variable is present, and Google now
+ignores the header, so the code works unchanged either way. A future major API
+version is expected to reject the header outright; the conditional is what keeps
+that from becoming a breaking change here.
 
-## Step 2.2 Request the developer token
+## Step 2.1 Apply from the project that holds our OAuth client
 
-ads.google.com → sign in to the **manager** account → **Tools & Settings → Setup →
-API Center** → request the token.
+This is the part worth getting right: access is granted to a **Cloud project**, and
+it is the project owning `GOOGLE_CLIENT_ID` that matters — for us project
+`77637202964`, the same one Part 1 uses. Access granted to any other project will
+be real and still useless, because our OAuth client does not live there.
 
-It is issued immediately at **Test Account** level, which can only query test
-accounts. Real client data returns nothing at that level.
+1. console.cloud.google.com → project picker → **`77637202964`**
+2. APIs & Services → Library → **Google Ads API** → Enable
+3. That API's **Overview** page carries brand verification and the access
+   application — not the Ads UI
+4. Complete **brand verification**, now mandatory for new Basic and Standard
+   applications (existing access holders are exempt)
+5. Apply for **Basic access** — 15,000 operations/day, far more than we use
 
-## Step 2.3 Apply for Basic Access — the real wait
-
-Same API Center screen. Basic Access allows 15,000 operations/day, far more than we
-use. Describe the tool concretely; a vague application is what got the GBP request
-auto-rejected:
+Application text, kept read-only on purpose because that is both true of the
+implementation and the easiest category to approve:
 
 > AGENTiX is a WhatsApp CRM used by small and medium businesses in India. Our
 > clients connect their own Google Ads accounts through OAuth, and we show them
@@ -188,22 +198,17 @@ auto-rejected:
 > only read reporting data for accounts the owner has connected themselves. We do
 > not create, edit or manage campaigns.
 
-Saying plainly that it is read-only and creates nothing is worth including — it is
-true of our implementation and it is the lowest-risk category to approve.
+## Step 2.2 After approval
 
-## Step 2.4 Once the token arrives
-
-1. Cloud console → Library → enable **Google Ads API** (`googleads.googleapis.com`)
-2. Coolify → Environment Variables → `GOOGLE_ADS_DEVELOPER_TOKEN = <token>` → redeploy
-   (a new variable is only read after a redeploy)
-3. Client portal → **Settings → Integrations → Google Ads → Connect**, signing in
-   with a Google account that can see that client's Ads account
+Client portal → **Settings → Integrations → Google Ads → Connect**, signing in with
+a Google account that can see that client's Ads account. Nothing to deploy and no
+environment variable to add.
 
 Already set and working, do not change: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
 `NEXT_PUBLIC_APP_URL`. The Ads redirect URI is
 `https://app.aiagentixdev.com/api/integrations/google-ads/callback`.
 
-## Step 2.5 If campaigns stay empty after connecting
+## Step 2.3 If campaigns stay empty after connecting
 
 `google_ads_connections` holds both `customer_id` and `login_customer_id`. When the
 client's account sits under a manager account, the manager's id must be in
@@ -227,8 +232,9 @@ added keywords yet, which is a configuration gap, not a fault.
 
 1. **Part 1, Step 1.2** — submit the Business Profile access request. Longest wait,
    so start here. Steps 1.1 and 1.3 are quick and can be done the same day.
-2. **Part 2, Step 2.1** — apply for the Ads developer token and Basic Access, in
-   parallel, since it is a separate queue.
+2. **Part 2, Step 2.1** — apply for Ads Basic access from Cloud project
+   `77637202964`. Separate queue from Part 1, and approval is automated, so this
+   one can finish the same day.
 3. **Part 3** — ten minutes, any time.
 
 While both approvals are pending nothing else can move on Google, and nothing in

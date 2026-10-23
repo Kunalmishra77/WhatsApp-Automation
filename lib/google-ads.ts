@@ -1,7 +1,11 @@
 // lib/google-ads.ts
 // Google Ads API client — OAuth 2.0 per workspace, scope `adwords`. Reporting
 // only (read-mostly), via GAQL search. Fail-soft: returns { ok, data | error }.
-// Requires GOOGLE_ADS_DEVELOPER_TOKEN in the environment (from the MCC API Center).
+// Access is granted to the Google Cloud project owning GOOGLE_CLIENT_ID, not to a
+// developer token: Google retired those on 9 Sep 2026 and now ignores the header.
+// GOOGLE_ADS_DEVELOPER_TOKEN is therefore optional and only sent when present, so
+// this works both for callers still carrying one and after a future major version
+// starts rejecting the header outright.
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const ADS_API_VERSION = 'v17';
