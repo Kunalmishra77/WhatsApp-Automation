@@ -105,6 +105,21 @@ export default function BookingsPage() {
     return () => { cancelled = true; };
   }, [workspaceId]);
 
+  const disconnectCalendar = async () => {
+    try {
+      const res = await fetch('/api/integrations/google-calendar/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspaceId }),
+      });
+      if (!res.ok) throw new Error('failed');
+      setCalendarConnected(false);
+      toast.success('Google Calendar disconnected');
+    } catch {
+      toast.error('Failed to disconnect Google Calendar');
+    }
+  };
+
   const updateStatus = async (id: string, status: Status) => {
     try {
       await fetch('/api/bookings', {
@@ -187,6 +202,16 @@ export default function BookingsPage() {
             <div className="flex items-center gap-2 text-xs font-medium text-emerald-700">
               <CalendarCheck className="h-3.5 w-3.5" />
               Google Calendar connected — new appointments are added automatically.
+              {/* Connecting without a way to disconnect left the stored token
+                  unreachable from the product: revoking access in the Google
+                  account does not clear it here, so the page kept claiming a
+                  connection that no longer worked. */}
+              <button
+                onClick={() => void disconnectCalendar()}
+                className="ml-1 underline text-muted-foreground hover:text-foreground"
+              >
+                Disconnect
+              </button>
             </div>
           )}
 
