@@ -121,8 +121,29 @@ export async function runWorkspaceRankCheck(db: any, workspaceId: string): Promi
     .select('id, workspace_id, keyword, area, place_id, location_lat, location_lng')
     .eq('workspace_id', workspaceId);
 
+  const rows = (keywords ?? []) as KeywordRow[];
+  if (rows.length === 0) return { checked: 0 };
+
+  // Snapshots are keyed by (keyword_id, checked_on), so the carrier cron's
+  // six-hourly schedule produced four Places calls per keyword per day that all
+  // overwrote the same row. Text Search bills at the Pro tier because we ask for
+  // displayName and location, and only 5,000 calls a month are free — enough for
+  // roughly 40 keywords at four a day, but for 160 at one. A local ranking does
+  // not move within a day, so one check is the real requirement.
+  //
+  // Checking what today already holds, rather than reading the clock, keeps this
+  // self-healing: a run that failed earlier today is retried by the next one.
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: done } = await db
+    .from('local_rank_snapshots')
+    .select('keyword_id')
+    .eq('workspace_id', workspaceId)
+    .eq('checked_on', today);
+  const alreadyChecked = new Set((done ?? []).map((r: any) => r.keyword_id as string));
+
   let checked = 0;
-  for (const kw of (keywords ?? []) as KeywordRow[]) {
+  for (const kw of rows) {
+    if (alreadyChecked.has(kw.id)) continue;
     const r = await checkKeywordRank(db, kw);
     if (r) checked += 1;
   }
