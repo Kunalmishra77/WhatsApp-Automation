@@ -87,7 +87,8 @@
       "PowerShell(node -e $script)",
       "PowerShell(node \"d:\\\\tmp\\\\check_fk.js\")",
       "Bash(grep -E \"\\\\.ts$\")",
-      "Bash(mkdir \"d:/WhatsApp-Automation/app/api/admin/workspaces/[id]/settings\")"
+      "Bash(mkdir \"d:/WhatsApp-Automation/app/api/admin/workspaces/[id]/settings\")",
+      "Bash(node database/query.mjs:*)"
     ],
     "additionalDirectories": [
       "d:\\WhatsApp-Automation\\app\\api\\contacts\\[id]",
