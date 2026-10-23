@@ -13,7 +13,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   const db = createAdminClient() as any;
   const { data: sub } = await db
     .from('subscriptions')
-    .select('status, plan_key, is_comped, current_period_end')
+    .select('status, plan_key, is_comped, current_period_end, has_instagram, has_google_growth')
     .eq('workspace_id', id)
     .maybeSingle();
   return NextResponse.json({
@@ -21,8 +21,82 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     status: sub?.status ?? null,
     plan_key: sub?.plan_key ?? null,
     current_period_end: sub?.current_period_end ?? null,
+    has_instagram: sub?.has_instagram === true,
+    has_google_growth: sub?.has_google_growth === true,
     has_subscription: !!sub,
   });
+}
+
+// PATCH /api/admin/workspaces/:id/billing
+// Body: { plan_key?: 'core'|'all_in_one', has_instagram?: boolean, has_google_growth?: boolean }
+//
+// Grants or removes the paid add-ons for a client. Until this existed there was no
+// way to do it at all: the admin plan dropdown writes workspaces.plan, a separate
+// legacy field that gates Flows and CRM but has nothing to do with the modules in
+// the sidebar. Those come from the subscription, which only the client's own
+// checkout ever wrote — so a client paying for Google Growth over the phone could
+// not be given it.
+//
+// Comped clients already receive every module and are left alone here.
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const guard = await requireAdmin();
+  if (guard) return guard;
+
+  const { id } = await params;
+  const body = await request.json().catch(() => null) as {
+    plan_key?: string; has_instagram?: boolean; has_google_growth?: boolean;
+  } | null;
+  if (!body) return NextResponse.json({ error: 'Body required' }, { status: 400 });
+
+  if (body.plan_key !== undefined
+      && body.plan_key !== PLAN_KEYS.CORE
+      && body.plan_key !== PLAN_KEYS.ALL_IN_ONE) {
+    return NextResponse.json({ error: 'plan_key must be "core" or "all_in_one"' }, { status: 400 });
+  }
+
+  const db = createAdminClient() as any;
+  const { data: existing } = await db
+    .from('subscriptions')
+    .select('id, plan_key, term, current_period_end')
+    .eq('workspace_id', id)
+    .maybeSingle();
+
+  const patch: Record<string, unknown> = {};
+  if (body.plan_key !== undefined)          patch.plan_key = body.plan_key;
+  if (body.has_instagram !== undefined)     patch.has_instagram = body.has_instagram;
+  if (body.has_google_growth !== undefined) patch.has_google_growth = body.has_google_growth;
+  if (Object.keys(patch).length === 0) {
+    return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
+  }
+
+  // A client who has never checked out has no subscription row, and that is
+  // exactly the client an admin is most likely to be granting an add-on to. Create
+  // one rather than refusing, matching what the comp path already does.
+  if (!existing) {
+    const todayIST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    const farEnd = new Date(); farEnd.setFullYear(farEnd.getFullYear() + 1);
+    const { error } = await db.from('subscriptions').upsert(
+      {
+        workspace_id: id,
+        plan_key: (patch.plan_key as string) ?? PLAN_KEYS.CORE,
+        term: 'monthly',
+        mode: 'manual',
+        status: 'active',
+        is_comped: false,
+        has_instagram: patch.has_instagram === true,
+        has_google_growth: patch.has_google_growth === true,
+        current_period_start: todayIST,
+        current_period_end: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(farEnd),
+      },
+      { onConflict: 'workspace_id' },
+    );
+    if (error) { console.error('[admin addons create]', error); return NextResponse.json({ error: 'Failed to create subscription' }, { status: 500 }); }
+    return NextResponse.json({ ok: true, created: true });
+  }
+
+  const { error } = await db.from('subscriptions').update(patch).eq('id', existing.id);
+  if (error) { console.error('[admin addons]', error); return NextResponse.json({ error: 'Failed to update add-ons' }, { status: 500 }); }
+  return NextResponse.json({ ok: true });
 }
 
 // POST /api/admin/workspaces/:id/billing  Body: { comped: boolean }
