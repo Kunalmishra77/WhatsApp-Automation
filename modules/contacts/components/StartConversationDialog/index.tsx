@@ -19,10 +19,14 @@ import type { ContactRow } from '../../services/contact.service';
 interface MediaLibraryItem {
   id: string;
   filename: string;
-  media_id: string;
+  // media_id is nullable since migration 116 — a row may carry only a public URL.
+  media_id: string | null;
+  public_url?: string | null;
   media_type: string;
   created_at: string;
 }
+
+const sourceOf = (item: MediaLibraryItem): string => item.public_url ?? item.media_id ?? '';
 
 const MEDIA_HEADER_TYPES = ['IMAGE', 'VIDEO', 'DOCUMENT'] as const;
 
@@ -249,10 +253,10 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
                           <button
                             key={item.id}
                             type="button"
-                            onClick={() => setMediaUrl(item.media_id)}
+                            onClick={() => setMediaUrl(sourceOf(item))}
                             className={cn(
                               'w-full flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors',
-                              mediaUrl === item.media_id
+                              mediaUrl === sourceOf(item)
                                 ? 'border-green-400 bg-green-50'
                                 : 'border-border bg-white hover:border-brand-300 hover:bg-muted/30',
                             )}
@@ -261,7 +265,7 @@ export function StartConversationDialog({ contact, open, onClose }: StartConvers
                               {mediaIcon(headerType)}
                             </div>
                             <span className="flex-1 truncate font-medium">{item.filename}</span>
-                            {mediaUrl === item.media_id
+                            {mediaUrl === sourceOf(item)
                               ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                               : <RotateCcw className="h-3 w-3 text-brand-500 shrink-0" />}
                           </button>

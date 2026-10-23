@@ -79,10 +79,21 @@ interface ContactPickerItem {
 interface MediaLibraryItem {
   id:          string;
   filename:    string;
-  media_id:    string;   // stores URL for URL-based entries
+  // Either may be absent. A library row carries a Meta media id, a public URL, or
+  // both — migration 116 dropped NOT NULL on media_id so product photos referenced
+  // from a client's own storefront can live here and be uploaded to Meta at send
+  // time. Treating media_id as always present crashed this picker for any
+  // workspace holding such a row.
+  media_id:    string | null;
+  public_url?: string | null;
   media_type:  string;
   created_at:  string;
 }
+
+// What to send and preview for a library item. A public URL is preferred: it
+// renders directly in the browser, and the send path already uploads a URL to
+// Meta on demand.
+const sourceOf = (item: MediaLibraryItem): string => item.public_url ?? item.media_id ?? '';
 
 interface CampaignWizardProps {
   open:          boolean;
@@ -210,9 +221,11 @@ function MediaUrlInput({ headerType, workspaceId, value, onChange, allowUrl = fa
   };
 
   const handleSelect = (item: MediaLibraryItem) => {
-    // If stored as URL (old flow), use as preview; WhatsApp media IDs can't be shown in browser
-    const previewUrl = item.media_id.startsWith('http') ? item.media_id : undefined;
-    onChange(item.media_id, item.media_type, item.filename, previewUrl);
+    const src = sourceOf(item);
+    if (!src) { toast.error('That item has no media to send'); return; }
+    // A URL can be previewed in the browser; a Meta media id cannot.
+    const previewUrl = src.startsWith('http') ? src : undefined;
+    onChange(src, item.media_type, item.filename, previewUrl);
     toast.success(`Selected: ${item.filename}`);
   };
 
@@ -298,13 +311,13 @@ function MediaUrlInput({ headerType, workspaceId, value, onChange, allowUrl = fa
               <button key={item.id} onClick={() => handleSelect(item)}
                 className={cn(
                   'w-full flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors',
-                  value === item.media_id ? 'border-green-400 bg-green-50' : 'border-border bg-white hover:border-brand-300 hover:bg-muted/30',
+                  value === sourceOf(item) ? 'border-green-400 bg-green-50' : 'border-border bg-white hover:border-brand-300 hover:bg-muted/30',
                 )}
               >
                 {item.media_type === 'image' ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={item.media_id.startsWith('http') ? item.media_id : `/api/media/proxy?mediaId=${encodeURIComponent(item.media_id)}&workspaceId=${encodeURIComponent(workspaceId)}`}
+                    src={sourceOf(item).startsWith('http') ? sourceOf(item) : `/api/media/proxy?mediaId=${encodeURIComponent(sourceOf(item))}&workspaceId=${encodeURIComponent(workspaceId)}`}
                     alt={item.filename}
                     className="h-7 w-7 rounded object-cover shrink-0 bg-muted"
                     onError={(e) => {
@@ -320,7 +333,7 @@ function MediaUrlInput({ headerType, workspaceId, value, onChange, allowUrl = fa
                   <p className="text-xs font-medium truncate">{item.filename}</p>
                   <p className="text-[10px] text-muted-foreground">{timeAgo(item.created_at)}</p>
                 </div>
-                {value === item.media_id ? <Check className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <RotateCcw className="h-3 w-3 text-brand-500 shrink-0" />}
+                {value === sourceOf(item) ? <Check className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <RotateCcw className="h-3 w-3 text-brand-500 shrink-0" />}
               </button>
             ))}
           </div>
