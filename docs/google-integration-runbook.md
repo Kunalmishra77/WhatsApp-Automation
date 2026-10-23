@@ -50,18 +50,29 @@ console.cloud.google.com → the project picker at the top. Forms usually ask fo
 
 # PART 1 — Google Business Profile
 
-## Step 1.1 Enable all five APIs
+## Step 1.1 Enable the APIs — done 23 Oct
 
-console.cloud.google.com → **APIs & Services → Library**, search and press *Enable*
-on each. The code calls all five, so missing one breaks that feature only:
+console.cloud.google.com → **APIs & Services → Library**. Four of the five the code
+calls can be enabled there, and all four are:
 
-| API | What breaks without it |
-|---|---|
-| `Google My Business Account Management API` | Everything — this is where it fails now |
-| `Google My Business Business Information API` | Location list |
-| `Google My Business Q&A API` | Questions and answers |
-| `Business Profile Performance API` | Insights / views / calls |
-| `Google My Business API` (the legacy one) | Reviews and review replies |
+| API (Library drops the "Google" prefix) | Service name | Gives us |
+|---|---|---|
+| My Business Account Management API | `mybusinessaccountmanagement` | account id — the call that currently 429s |
+| My Business Business Information API | `mybusinessbusinessinformation` | locations |
+| My Business Q&A API | `mybusinessqanda` | questions and answers |
+| Business Profile Performance API | `businessprofileperformance` | insights, views, calls |
+
+Match the **Service name** shown under "Additional details", not the title — the
+Library's names are close enough to be misleading.
+
+The fifth, `mybusiness.googleapis.com/v4` (`MYBUSINESS_V4` in lib/google-business.ts),
+carries **reviews and local posts** and is **not in the Library at all** — Google
+removed v4 from it. Its access rides on the same allowlist approval, so there is
+nothing to toggle. If reviews still fail after approval while locations work, that
+is the thing to revisit.
+
+Do NOT enable Lodging, Notifications, Place Actions or Verifications — they also
+come up in that search and the code never calls them.
 
 ## Step 1.2 Request access (**this is the actual blocker**)
 
