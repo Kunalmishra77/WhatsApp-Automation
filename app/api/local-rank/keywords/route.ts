@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, AuthzError, authzResponse } from '@/lib/authz';
-import { resolveTargetPlace, checkKeywordRank } from '@/lib/local-rank';
+import { getWorkspacePlace, checkKeywordRank } from '@/lib/local-rank';
 
 export const runtime = 'nodejs';
 
@@ -23,12 +23,19 @@ export async function POST(request: NextRequest) {
     }
 
     const db = createAdminClient() as any;
-    const { data: ws } = await db.from('workspaces').select('name').eq('id', workspaceId).single();
-    const businessName: string = (ws?.name as string | undefined)?.trim() || '';
 
-    // Resolve the target business listing → place_id + location for rank matching.
+    // The listing to measure against is chosen explicitly on the Local Rank page.
+    // This used to search Places for the workspace's name and take the first hit,
+    // which for "Umang Hospital" lands on a similarly named hospital in another
+    // city — and every rank after that described that business instead.
+    const target = await getWorkspacePlace(db, workspaceId);
+    if (!target) {
+      return NextResponse.json(
+        { error: 'Choose your Google listing first, so ranks are measured against the right business.' },
+        { status: 400 },
+      );
+    }
     const area2 = area?.trim() || '';
-    const target = await resolveTargetPlace([businessName, area2].filter(Boolean).join(', ') || businessName);
 
     const { data: inserted, error } = await db
       .from('local_rank_keywords')
@@ -36,9 +43,9 @@ export async function POST(request: NextRequest) {
         workspace_id: workspaceId,
         keyword: keyword.trim(),
         area: area2 || null,
-        place_id: target?.id ?? null,
-        location_lat: target?.lat ?? null,
-        location_lng: target?.lng ?? null,
+        place_id: target.id,
+        location_lat: target.lat,
+        location_lng: target.lng,
       })
       .select('id, workspace_id, keyword, area, place_id, location_lat, location_lng')
       .single();
@@ -54,7 +61,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       id: inserted.id,
-      resolved: Boolean(target?.id),
+      resolved: true,
       rank: first?.rank ?? null,
       found: first?.found ?? false,
     });

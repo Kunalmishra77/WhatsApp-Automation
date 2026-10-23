@@ -63,11 +63,61 @@ export async function searchRankedPlaces(
   }
 }
 
-// Resolve the target business's place id + location from a name (+ area).
-export async function resolveTargetPlace(query: string): Promise<RankedPlace | null> {
-  const res = await searchRankedPlaces(query);
-  if (!res.ok) return null;
-  return res.places[0] ?? null;
+export interface BusinessCandidate extends RankedPlace { address: string }
+
+// Candidate listings for a business, for the operator to choose from.
+//
+// Choosing has to be explicit. The first result for "Umang Hospital Dwarka" is a
+// hospital of a similar name 20km away in Gurgaon, and the third is in Pune —
+// picking the top hit silently bound every rank check to the wrong business and
+// reported the number as if it were the client's. The address is fetched because
+// names alone do not distinguish these.
+export async function findBusinessCandidates(
+  query: string,
+): Promise<{ ok: true; places: BusinessCandidate[] } | { ok: false; error: string }> {
+  const key = process.env.GOOGLE_PLACES_API_KEY?.trim();
+  if (!key) return { ok: false, error: 'not_configured' };
+  try {
+    const res = await fetch(`${PLACES}/places:searchText`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': key,
+        // formattedAddress is in the same billing tier as the fields the rank
+        // check already asks for, so this costs no more per call.
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress',
+      },
+      body: JSON.stringify({ textQuery: query, maxResultCount: 5, languageCode: 'en', regionCode: 'IN' }),
+    });
+    if (!res.ok) return { ok: false, error: `places ${res.status}: ${await res.text()}` };
+    const data = await res.json() as {
+      places?: Array<{
+        id?: string; displayName?: { text?: string }; formattedAddress?: string;
+        location?: { latitude?: number; longitude?: number };
+      }>;
+    };
+    return {
+      ok: true,
+      places: (data.places ?? []).filter((p) => p.id).map((p) => ({
+        id: p.id!,
+        name: p.displayName?.text ?? '',
+        address: p.formattedAddress ?? '',
+        lat: p.location?.latitude,
+        lng: p.location?.longitude,
+      })),
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'network error' };
+  }
+}
+
+export interface ChosenPlace { id: string; name: string; address: string; lat: number | null; lng: number | null }
+
+// The listing this workspace is tracking, chosen once by the operator.
+export async function getWorkspacePlace(db: any, workspaceId: string): Promise<ChosenPlace | null> {
+  const { data: ws } = await db.from('workspaces').select('settings').eq('id', workspaceId).single();
+  const p = (ws?.settings as Record<string, unknown> | null)?.local_rank_place;
+  return p && typeof p === 'object' ? p as ChosenPlace : null;
 }
 
 interface KeywordRow {

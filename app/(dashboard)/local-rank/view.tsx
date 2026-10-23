@@ -42,6 +42,108 @@ function Trend({ current, previous }: { current: number | null; previous: number
   return <Minus className="h-3.5 w-3.5 text-gray-300" />;
 }
 
+interface Candidate { id: string; name: string; address: string; lat?: number; lng?: number }
+
+// Which Google listing this workspace is measured against. It is a choice, not a
+// lookup: searching "Umang Hospital Dwarka" returns a hospital of nearly the same
+// name 20km away first, and one in Pune third, so taking the top hit produced
+// confident rankings for somebody else's business.
+function BusinessPicker({ workspaceId, onChosen }: { workspaceId?: string; onChosen: () => void }) {
+  const qc = useQueryClient();
+  const [query, setQuery] = useState('');
+  const [candidates, setCandidates] = useState<Candidate[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [editing, setEditing] = useState(false);
+
+  const { data } = useQuery({
+    queryKey: ['local-rank-business', workspaceId],
+    queryFn: () => fetch(`/api/local-rank/business?workspaceId=${workspaceId}`).then((r) => r.json()),
+    enabled: !!workspaceId,
+  });
+  const chosen: Candidate | null = data?.chosen ?? null;
+
+  async function search() {
+    if (!query.trim()) { toast.error('Type your business name'); return; }
+    setSearching(true);
+    try {
+      const r = await fetch(`/api/local-rank/business?workspaceId=${workspaceId}&q=${encodeURIComponent(query)}`);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error ?? 'Search failed');
+      setCandidates(d.candidates ?? []);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Search failed');
+    } finally { setSearching(false); }
+  }
+
+  async function choose(place: Candidate) {
+    try {
+      await post('/api/local-rank/business', { workspaceId, place });
+      toast.success(`Tracking ${place.name}`);
+      setCandidates(null); setQuery(''); setEditing(false);
+      void qc.invalidateQueries({ queryKey: ['local-rank-business', workspaceId] });
+      onChosen();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save');
+    }
+  }
+
+  if (chosen && !editing) {
+    return (
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-gray-400">Tracking this listing</p>
+          <p className="text-sm font-semibold text-gray-900 mt-0.5">{chosen.name}</p>
+          <p className="text-xs text-gray-500">{chosen.address}</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setEditing(true)}>Change</Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+      <div>
+        <p className="text-sm font-semibold text-gray-900">Which Google listing is yours?</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">
+          Ranks are measured against this listing, so pick it once and check the address carefully —
+          several businesses often share a name.
+        </p>
+      </div>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Business name + area, e.g. Umang Hospital Dwarka"
+          className="flex-1"
+          onKeyDown={(e) => { if (e.key === 'Enter' && !searching) { e.preventDefault(); void search(); } }}
+        />
+        <Button onClick={() => void search()} disabled={searching} className="bg-brand-500 hover:bg-brand-600 text-white shrink-0">
+          {searching ? 'Searching…' : 'Search'}
+        </Button>
+        {chosen && <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Cancel</Button>}
+      </div>
+
+      {candidates?.length === 0 && (
+        <p className="text-xs text-gray-500">No listings found. Try the exact name shown on your Google Business Profile.</p>
+      )}
+      {!!candidates?.length && (
+        <div className="divide-y divide-gray-100 border border-gray-100 rounded-xl overflow-hidden">
+          {candidates.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => void choose(c)}
+              className="w-full text-left px-3 py-2.5 hover:bg-gray-50 transition-colors"
+            >
+              <p className="text-sm font-medium text-gray-900">{c.name}</p>
+              <p className="text-xs text-gray-500">{c.address}</p>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LocalRankPage() {
   const qc = useQueryClient();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id);
@@ -60,13 +162,19 @@ export default function LocalRankPage() {
   const configured: boolean = data?.configured ?? true;
   const keywords: KeywordRow[] = data?.keywords ?? [];
 
+  const { data: biz } = useQuery({
+    queryKey: ['local-rank-business', workspaceId],
+    queryFn: () => fetch(`/api/local-rank/business?workspaceId=${workspaceId}`).then((r) => r.json()),
+    enabled: !!workspaceId,
+  });
+  const hasBusiness = Boolean(biz?.chosen?.id);
+
   async function addKeyword() {
     if (!keyword.trim()) { toast.error('Enter a keyword'); return; }
     setAdding(true);
     try {
       const d = await post('/api/local-rank/keywords', { workspaceId, keyword, area });
-      if (!d.resolved) toast.warning('Added — but we could not match your Google listing yet. Make sure your business name matches Google.');
-      else toast.success(d.found ? `Added — currently ranked #${d.rank}` : 'Added — not in the top 20 yet');
+      toast.success(d.found ? `Added — currently ranked #${d.rank}` : 'Added — not in the top 20 yet');
       setKeyword(''); setArea('');
       void qc.invalidateQueries({ queryKey: ['local-rank', workspaceId] });
     } catch (e) {
@@ -113,8 +221,14 @@ export default function LocalRankPage() {
         </div>
       )}
 
-      {/* Add keyword */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+      <BusinessPicker
+        workspaceId={workspaceId}
+        onChosen={() => void qc.invalidateQueries({ queryKey: ['local-rank', workspaceId] })}
+      />
+
+      {/* Add keyword — only once there is a listing to measure against, since a
+          keyword without one would record ranks for nothing. */}
+      <div className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3 ${hasBusiness ? '' : 'opacity-50 pointer-events-none'}`}>
         <p className="text-sm font-semibold text-gray-900">Track a new keyword</p>
         <div className="flex flex-col sm:flex-row gap-2">
           <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="e.g. organic soap shop" className="flex-1"
