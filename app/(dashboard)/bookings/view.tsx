@@ -66,6 +66,9 @@ export default function BookingsPage() {
   const [counts, setCounts]   = useState<Record<string, number>>({});
   const [filter, setFilter]   = useState('');
   const [loading, setLoading] = useState(true);
+  // null while unknown, so the prompt below never flashes for a workspace that is
+  // in fact connected.
+  const [calendarConnected, setCalendarConnected] = useState<boolean | null>(null);
 
   const load = useCallback(async () => {
     if (!workspaceId) return;
@@ -84,6 +87,23 @@ export default function BookingsPage() {
   }, [workspaceId, filter]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Reading the connection is a plain GET and never returns the token itself.
+  // Failing quietly is deliberate: an agent without manage_workspace gets a 403
+  // here, and they should still see the bookings list rather than an error.
+  useEffect(() => {
+    if (!workspaceId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/integrations/google-calendar/status?workspaceId=${workspaceId}`);
+        if (!res.ok) return;
+        const data = await res.json() as { connected?: boolean };
+        if (!cancelled) setCalendarConnected(!!data.connected);
+      } catch { /* leave unknown */ }
+    })();
+    return () => { cancelled = true; };
+  }, [workspaceId]);
 
   const updateStatus = async (id: string, status: Status) => {
     try {
@@ -137,6 +157,38 @@ export default function BookingsPage() {
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+          {/* ── Google Calendar connection ────────────────────────────
+              The sync has always worked, but there was no way to switch it on
+              from the product — only the API route existed. */}
+          {calendarConnected === false && (
+            <div className="rounded-2xl border border-border bg-card shadow-sm p-4 flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-xl bg-brand-500 flex items-center justify-center shrink-0">
+                  <Calendar className="h-4 w-4 text-white" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Connect Google Calendar</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Appointments booked over WhatsApp will be added to your calendar automatically.
+                  </p>
+                </div>
+              </div>
+              <a href={`/api/integrations/google-calendar/connect?workspaceId=${workspaceId}`}>
+                <Button className="bg-brand-500 hover:bg-brand-600 text-white gap-1.5">
+                  <Calendar className="h-3.5 w-3.5" />
+                  Connect Google Calendar
+                </Button>
+              </a>
+            </div>
+          )}
+
+          {calendarConnected === true && (
+            <div className="flex items-center gap-2 text-xs font-medium text-emerald-700">
+              <CalendarCheck className="h-3.5 w-3.5" />
+              Google Calendar connected — new appointments are added automatically.
+            </div>
+          )}
 
           {/* ── Stats row ─────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

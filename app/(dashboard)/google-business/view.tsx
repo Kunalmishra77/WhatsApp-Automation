@@ -14,6 +14,15 @@ import { Store, Star, Sparkles, RefreshCw, Send, MessageCircleQuestion, Megaphon
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { toast } from 'sonner';
 
+// Offering the connect button would walk a client through Google's consent screen
+// and land them on an empty page: this Cloud project has no Business Profile API
+// access yet, so every call comes back with a quota of 0 (Google case
+// 6-1514000042067). Leaving the scope unreachable until then also keeps the scopes
+// the app actually requests matching the ones registered in the Cloud console,
+// which is what the OAuth verification review asked us to fix. Flip to true the
+// day access is granted — the button it guards is otherwise unchanged.
+const GBP_API_ACCESS_GRANTED = false;
+
 const post = (url: string, body: unknown) =>
   fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error ?? 'Request failed'); return d; });
@@ -70,10 +79,19 @@ export default function GoogleBusinessPage() {
         <p className="text-sm text-gray-500">
           Manage your reviews, posts, Q&amp;A and performance insights from AI Agentix — with AI-drafted replies you approve.
         </p>
-        <a href={`/api/integrations/gbp/connect?workspaceId=${workspaceId}`}>
-          <Button className="bg-brand-500 hover:bg-brand-600 text-white">Connect Google Business</Button>
-        </a>
-        <p className="text-xs text-gray-400">You&apos;ll authorize with your Google account. You can disconnect anytime from Settings → Integrations.</p>
+        {GBP_API_ACCESS_GRANTED ? (
+          <>
+            <a href={`/api/integrations/gbp/connect?workspaceId=${workspaceId}`}>
+              <Button className="bg-brand-500 hover:bg-brand-600 text-white">Connect Google Business</Button>
+            </a>
+            <p className="text-xs text-gray-400">You&apos;ll authorize with your Google account. You can disconnect anytime from Settings → Integrations.</p>
+          </>
+        ) : (
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            Google is still reviewing our application for Business Profile API access.
+            We&apos;ll switch this on the day it is approved — nothing for you to do.
+          </p>
+        )}
       </div>
     );
   }
