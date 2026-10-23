@@ -61,24 +61,44 @@ on each. The code calls all five, so missing one breaks that feature only:
 
 ## Step 1.2 Request access (**this is the actual blocker**)
 
-Search Google for **"Business Profile APIs request access"** — it leads to the
-prerequisites page on `developers.google.com/my-business`, which links the access
-request form. Submit it with:
+Google's own criteria, from the Prerequisites page. **Both are hard requirements**,
+and the first application was auto-rejected on the spot for missing them:
 
-- the Google Cloud project number `77637202964` and the project ID
-- `razorvedamis.sonia@gmail.com` as the contact
-- what the integration does: *a WhatsApp CRM that reads a client's own Business
-  Profile reviews and questions, replies to them with the client's approval, and
-  publishes posts on the client's behalf*
+> In order to get access to GBP APIs, we require all applicants:
+> - Manage a Google Business Profile that is **verified and active for 60+ days**.
+>   This GBP can be the applicant's own office or headquarters **or it could belong
+>   to one of the clients they manage**.
+> - Have a **website representing the business listed on the GBP**.
+>
+> Make sure that you are using an **email address that is listed as an
+> owner/manager** on your business's GBP.
 
-Google replies by email. It commonly takes a few days to a couple of weeks.
-There is no way to speed it up, and no way around it.
+What that means for us, concretely:
+
+| Field | Must be |
+|---|---|
+| Google account used to apply | an owner/manager of that GBP — not just any account |
+| Company website on the form | the website listed **on that GBP**, not our app URL |
+| The GBP itself | verified, 60+ days old, and fully filled in |
+| Project number | `77637202964` |
+
+Use the **GBP API contact form** linked from the Prerequisites page and pick
+**"Application for Basic API Access"** from the drop-down. The 33%→100% wizard
+reachable from the Cloud Console product page is a different flow that screens
+instantly and rejects without a human ever seeing it.
+
+If AGENTiX has no verified Business Profile of its own, apply with a client's —
+Google explicitly allows that. The practical candidate is Razorveda, whose
+`razorvedamis.sonia@gmail.com` already connected a profile to us on 17 Sep; the
+form must then be submitted from that email with `razorveda.in` as the website.
+If that account needs to see the Cloud project, give it Viewer in IAM.
 
 ## Step 1.3 After the approval email, confirm the quota moved off 0
 
 console.cloud.google.com → **IAM & Admin → Quotas** → filter by service
 `mybusinessaccountmanagement.googleapis.com`. The per-minute limit must read
-something above 0.
+something above 0. Google states this outright: *"If your quota is 0 QPM, your
+project has not yet been approved."*
 
 ## Step 1.4 Tell me, and I confirm end to end
 
