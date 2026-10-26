@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createAdminClient } from '@/services/supabase/admin';
 import { isLearnablePrefill, isTrustedPrefill, matchPrefill, type PrefillRow } from '@/lib/meta-prefill';
+import { isBusinessGreeting } from '@/lib/business-greeting';
 import { moderateContent, decideModerationAction, type ModerationResult } from '@/lib/moderation';
 import { logActivity } from '@/lib/activity-log';
 import { getRequiredSecret } from '@/lib/supabase-env';
@@ -1558,6 +1559,24 @@ async function autoCreateOrUpdateLead(
 
     const displayName = contactRow?.name ?? contactRow?.phone ?? 'Unknown Contact';
 
+    // Messaging another WhatsApp Business account fires its automated greeting,
+    // which arrives here as an ordinary inbound and would otherwise count as a
+    // lead. For clients doing B2B outreach those are most of the list. The lead is
+    // still created — a person at that business often answers next, and that is a
+    // real B2B lead — but it is marked so reporting can separate the two.
+    let isBusinessReply = false;
+    if (conversationId) {
+      const { data: firstIn } = await db
+        .from('messages')
+        .select('content')
+        .eq('conversation_id', conversationId)
+        .eq('direction', 'inbound')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      isBusinessReply = isBusinessGreeting(firstIn?.content as string | null);
+    }
+
     // Create new lead automatically
     const { data: newLead } = await db.from('leads').insert({
       workspace_id:    workspaceId,
@@ -1570,6 +1589,7 @@ async function autoCreateOrUpdateLead(
       priority:        'medium',
       tags:            [],
       custom_fields:   {},
+      is_business_reply: isBusinessReply,
     }).select('id').single();
 
     // Phase 1 (Unified Lead Hub): attribute the auto-created lead (WhatsApp).

@@ -42,6 +42,7 @@ type UnifiedLead = {
   channel: string | null;
   source: string | null;
   source_detail: string | null;
+  is_business_reply: boolean | null;
   created_at: string;
   contacts: { id: string; name: string | null; phone: string } | null;
 };
@@ -54,6 +55,7 @@ export default function UnifiedLeadsPage() {
 
   const [page,    setPage]    = useStickyState('leads:page', 0);
   const [channel, setChannel] = useStickyState('leads:channel', 'all');
+  const [kind, setKind] = useStickyState('leads:kind', 'all');
   const [stage,   setStage]   = useStickyState('leads:stage', 'all');
   const [from,    setFrom]    = useStickyState('leads:from', '');
   const [to,      setTo]      = useStickyState('leads:to', '');
@@ -61,6 +63,7 @@ export default function UnifiedLeadsPage() {
 
   const listParams = new URLSearchParams({ workspaceId: workspaceId ?? '', page: String(page), pageSize: String(PAGE_SIZE) });
   if (channel !== 'all') listParams.set('channel', channel);
+  if (kind !== 'all') listParams.set('kind', kind);
   if (stage   !== 'all') listParams.set('stage', stage);
   if (from) listParams.set('from', from);
   if (to)   listParams.set('to', to);
@@ -71,7 +74,7 @@ export default function UnifiedLeadsPage() {
   if (to)   srcParams.set('to', to);
 
   const { data: list, isLoading, refetch } = useQuery({
-    queryKey: ['leads-unified', workspaceId, page, channel, stage, from, to, search],
+    queryKey: ['leads-unified', workspaceId, page, channel, kind, stage, from, to, search],
     queryFn: () => fetch(`/api/leads/unified?${listParams}`).then((r) => r.json()),
     enabled: !!workspaceId,
     staleTime: 20_000,
@@ -90,7 +93,7 @@ export default function UnifiedLeadsPage() {
   const srcRows: SourceRow[] = sources?.sources ?? [];
   const srcMax = Math.max(1, ...srcRows.map((s) => s.leads));
   const grandTotal: number = sources?.totals?.leads ?? 0;
-  const hasFilters = channel !== 'all' || stage !== 'all' || !!from || !!to || !!search.trim();
+  const hasFilters = channel !== 'all' || kind !== 'all' || stage !== 'all' || !!from || !!to || !!search.trim();
 
   const tempCls = (t: string | null) =>
     t === 'hot' ? 'border-red-200 text-red-700 bg-red-50'
@@ -164,6 +167,17 @@ export default function UnifiedLeadsPage() {
                 {Object.entries(CHANNEL_META).map(([k, m]) => (
                   <SelectItem key={k} value={k}>{m.label}</SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-gray-500">Who replied</label>
+            <Select value={kind} onValueChange={(v) => { setKind(v); setPage(0); }}>
+              <SelectTrigger className="h-9 w-44 text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Everyone</SelectItem>
+                <SelectItem value="people">People only</SelectItem>
+                <SelectItem value="business">Business auto-replies</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -248,7 +262,15 @@ export default function UnifiedLeadsPage() {
                           {(lead.contacts?.name ?? lead.contacts?.phone ?? lead.title ?? '?')[0]?.toUpperCase()}
                         </div>
                         <div className="min-w-0">
-                          <p className="font-medium text-gray-800 text-xs leading-tight truncate max-w-[200px]">
+                          <p className="font-medium text-gray-800 text-xs leading-tight truncate max-w-[200px] flex items-center gap-1.5">
+                            {lead.is_business_reply && (
+                              <span
+                                title="This conversation opened with another business's automated greeting, not a person"
+                                className="shrink-0 text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 border border-gray-200"
+                              >
+                                Auto
+                              </span>
+                            )}
                             {lead.contacts?.name ?? lead.title ?? 'Lead'}
                           </p>
                           <p className="text-gray-400 text-xs">{lead.contacts?.phone ?? ''}</p>

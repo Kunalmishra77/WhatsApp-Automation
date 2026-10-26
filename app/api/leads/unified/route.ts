@@ -9,6 +9,7 @@ const SELECT = `
   id, title, stage, temperature, priority, value, currency,
   channel, source, source_detail, utm_source, utm_medium, utm_campaign,
   first_touch_channel, first_touch_at, last_touch_channel, last_touch_at,
+  is_business_reply,
   created_at,
   contacts(id, name, phone)
 `;
@@ -29,6 +30,10 @@ export async function GET(request: NextRequest) {
     const from = sp.get('from');
     const to = sp.get('to');
     const search = sp.get('search')?.trim();
+    // 'people' hides leads whose conversation opened with another business's
+    // automated greeting; 'business' shows only those. Default shows everything,
+    // so a client's totals never change behind their back.
+    const kind = sp.get('kind');
     const page = Math.max(0, parseInt(sp.get('page') ?? '0', 10) || 0);
     const pageSize = Math.min(100, Math.max(1, parseInt(sp.get('pageSize') ?? '50', 10) || 50));
 
@@ -43,6 +48,8 @@ export async function GET(request: NextRequest) {
       if (from) q = q.gte('created_at', `${from}T00:00:00.000Z`);
       if (to) q = q.lte('created_at', `${to}T23:59:59.999Z`);
       if (search) q = q.ilike('title', `%${search}%`);
+      if (kind === 'people')   q = q.eq('is_business_reply', false);
+      if (kind === 'business') q = q.eq('is_business_reply', true);
       return q;
     };
 
