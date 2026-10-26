@@ -299,12 +299,22 @@ async function handleIncomingMessage(
   // when a resolved conversation gets a new inbound message (customer starting fresh).
   const { data: existingConv } = await (supabase as any)
     .from('conversations')
-    .select('status, bot_paused')
+    .select('status, bot_paused, meta')
     .eq('workspace_id', workspaceId)
     .eq('contact_id', contact.id)
     .maybeSingle();
 
-  const wasResolved = existingConv?.status === 'resolved' || existingConv?.status === 'closed';
+  // A pause applied because the bot was caught in a reply loop must survive the
+  // reopen. Auto-resolve runs every two hours, so without this a looping pair is
+  // un-paused within the hour and starts again — which is how one Umang Hospital
+  // conversation reached 2,400 exchanges with another company's support bot.
+  // A pause for repeated off-topic is NOT sticky: a real person coming back days
+  // later deserves the bot again.
+  const pausedForLoop =
+    (existingConv?.meta as Record<string, unknown> | null)?.auto_paused_reason === 'reply_loop';
+
+  const wasResolved =
+    (existingConv?.status === 'resolved' || existingConv?.status === 'closed') && !pausedForLoop;
 
   const { data: conversation, error: conversationError } = await (supabase as any)
     .from('conversations')
@@ -1223,6 +1233,13 @@ async function handleIncomingMessage(
   // Burst guard: max 1 auto-reply per 5s per contact (lib/rate-limit.ts). Only
   // suppresses rapid-fire bursts; a suppressed message is still picked up by the
   // reply-sweep safety net. (The old comment here said 30s — the limiter is 5s.)
+  // Runaway-loop guard, checked before the burst limiter: the burst limiter only
+  // spaces replies out, it never stops them, so a loop just runs slower.
+  if (await isReplyLoop(supabase, conversation.id)) {
+    console.log(`[Webhook] conversation ${conversation.id} is in a reply loop — bot paused, not replying`);
+    return;
+  }
+
   const canReply = await checkAutoReplyLimit(contact.id);
   if (canReply) {
     // Vision AI: if image, download the bytes as a base64 data URL for multimodal
@@ -1957,6 +1974,60 @@ async function sendAutoReply(
 // After N consecutive off-topic messages the bot stops auto-replying (pauses) and the
 // conversation is flagged for a human; clear abuse blocks the contact immediately. An
 // on-business message resets the counter. User-confirmed behaviour (2026-10-01).
+// A conversation the bot has answered this many times in 24 hours is not a
+// customer. Real ones top out well below it: across 60 days the median
+// conversation-day is 1 bot reply, the 95th percentile is 13 and the 99th is 28.
+// Above 40 the traffic has only ever been the bot talking to another bot.
+const REPLY_LOOP_DAILY_LIMIT = 40;
+
+// Two automated agents that each decline the other's topic will answer each other
+// forever. One Umang Hospital conversation traded 2,400 messages with a Vi
+// telecom support bot from June to October — each politely explaining it could
+// only help with its own business — and nothing stopped it. The off-topic guard
+// could not: "I can only assist with Vi services" is a civil, service-related
+// sentence, so the classifier scored it 'ok' and reset the counter every time.
+//
+// Counting our own replies needs no classification and cannot be talked around.
+// Returns true when the bot should stay silent.
+async function isReplyLoop(
+  supabase: AdminClient,
+  conversationId: string,
+): Promise<boolean> {
+  const db = supabase as any;
+  try {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { count } = await db
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('conversation_id', conversationId)
+      .eq('direction', 'outbound')
+      .is('campaign_id', null)
+      .gte('created_at', since);
+
+    if ((count ?? 0) < REPLY_LOOP_DAILY_LIMIT) return false;
+
+    const { data: cv } = await db
+      .from('conversations').select('meta').eq('id', conversationId).maybeSingle();
+    await db.from('conversations').update({
+      bot_paused: true,
+      status: 'pending', // shows up in the Pending filter for a human to look at
+      meta: {
+        ...((cv?.meta as Record<string, unknown>) ?? {}),
+        auto_paused_reason: 'reply_loop',
+        auto_paused_at: new Date().toISOString(),
+        reply_loop_count: count,
+      },
+    }).eq('id', conversationId);
+
+    console.log(`[ReplyLoop] paused conv ${conversationId} after ${count} bot replies in 24h`);
+    return true;
+  } catch (err) {
+    // Fail open: a counting error must never silence a real customer.
+    console.error('[ReplyLoop] check failed, replying as normal:', err);
+    return false;
+  }
+}
+
 const OFFTOPIC_PAUSE_THRESHOLD = 4;
 async function applySmartModeration(
   supabase: AdminClient,
