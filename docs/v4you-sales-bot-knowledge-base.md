@@ -40,7 +40,7 @@ The bot will be asked all three in its first week. Decide them before it is live
 |---|---|
 | **What is the product called?** | **GymKhata.** Not Max Register or Max Fitness Platform — those belong to the first customer and are never said to a prospect. |
 | **What does it cost?** | **Settled.** ₹1,999/month + GST, or ₹30,000 one-time. In Document 7. |
-| **How long does setting up take?** | One deployment serves one gym today, so each customer is set up by hand. You know how long that took for Max Fitness Gym — put the real number in Document 6. It is written as `<N>` days. |
+| **How long does setting up take?** | **Settled: within a week.** Each gym is set up by hand, and that is what the first one took. |
 
 ---
 
@@ -145,7 +145,7 @@ Paste one at a time. **Order matters** if your assistant truncates — most-aske
 
 > **Title:** Getting started
 >
-> We set your gym up for you. It takes about `<N>` days.
+> We set your gym up for you, usually within a week.
 >
 > What we need from you: your gym's details and timings, your plans and prices, and a mobile
 > number for the WhatsApp messages.
@@ -154,7 +154,7 @@ Paste one at a time. **Order matters** if your assistant truncates — most-aske
 > start from an empty list.
 >
 > WhatsApp messages need Meta's approval first, which usually takes a day or two. We handle
-> that.
+> that, and it happens inside the same week.
 >
 > The best place to begin is a demo: we show you the whole thing on a call, using a gym's
 > worth of real-looking data, and you decide after that.
