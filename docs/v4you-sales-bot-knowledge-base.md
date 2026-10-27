@@ -38,7 +38,7 @@ The bot will be asked all three in its first week. Decide them before it is live
 
 | Question | Status |
 |---|---|
-| **What is the product called?** | Undecided. Everything is named after the first customer — Max Register, Max Fitness Platform. Written below as `<PRODUCT>`. |
+| **What is the product called?** | **GymKhata.** Not Max Register or Max Fitness Platform — those belong to the first customer and are never said to a prospect. |
 | **What does it cost?** | **Settled.** ₹1,999/month + GST, or ₹30,000 one-time. In Document 7. |
 | **How long does setting up take?** | One deployment serves one gym today, so each customer is set up by hand. You know how long that took for Max Fitness Gym — put the real number in Document 6. It is written as `<N>` days. |
 
@@ -52,7 +52,7 @@ Paste one at a time. **Order matters** if your assistant truncates — most-aske
 
 > **Title:** What this is
 >
-> `<PRODUCT>` is software for running a gym, made by V4You.
+> GymKhata is software for running a gym, made by V4You.
 >
 > It does four things. It sends your members WhatsApp reminders before their fees are due,
 > so renewals stop getting missed. It gives you one screen showing who came today, whose
@@ -68,7 +68,7 @@ Paste one at a time. **Order matters** if your assistant truncates — most-aske
 
 > **Title:** Reminders and renewals
 >
-> `<PRODUCT>` messages a member on WhatsApp before their fees are due — 7 days before, 3
+> GymKhata messages a member on WhatsApp before their fees are due — 7 days before, 3
 > days, 2 days, 1 day, and on the day itself. If they still have not paid, it follows up for
 > up to a week afterwards. You set how many days.
 >
@@ -114,7 +114,7 @@ Paste one at a time. **Order matters** if your assistant truncates — most-aske
 > their attendance. Nothing to press, nothing to carry.
 >
 > You do not need a turnstile, a fingerprint machine or any new hardware. An ordinary
-> Android phone is enough.
+> Android phone is enough, and you buy it yourself — we will tell you what to look for.
 >
 > If a face does not read — a cap, poor light — the member types their number on a keypad
 > instead.
@@ -173,6 +173,18 @@ Paste one at a time. **Order matters** if your assistant truncates — most-aske
 >
 > Most gyms start monthly, because there is nothing large to pay up front and you see it
 > working with your own members first.
+>
+> Two things are not included, in either plan.
+>
+> *WhatsApp's own charge.* Meta charges for the messages, not us. A renewal reminder costs
+> about 6 paise. A gym with 300 members sending five reminders a month spends under ₹100 on
+> it. When a member replies to you, that costs nothing at all.
+>
+> *The reception phone for face attendance.* Any ordinary Android phone works and you buy
+> it yourself — we will tell you what to look for.
+>
+> On the one-time plan, hosting the system and any changes you want later are yours to
+> arrange. On the monthly plan we handle both.
 >
 > There is nothing to pay to see the demo.
 
@@ -244,7 +256,7 @@ The bot escalates on each of these, which is the right answer.
 
 ## 4. Settings for this bot
 
-- **Name:** `<PRODUCT>` — so the lead knows who answered.
+- **Name:** GymKhata — so the lead knows who answered.
 - **How to sound:** *"Brief and straightforward, like someone who builds the thing. Short
   sentences. Never pushy. Always offer to show it rather than describe it."*
 - **Languages:** Hindi and English, replying in whichever was used.
@@ -300,7 +312,17 @@ Two failure modes the wording guards against, both easy to walk into:
   costs, he means the software. Document 7 says so explicitly, because the bot has every
   other document telling it about member fees and would otherwise reach for the wrong one.
 
-What is still open is what each price includes — whether the WhatsApp conversation charges
-Meta levies sit inside ₹1,999, what "one-time" covers for updates and hosting afterwards,
-and who supplies the reception phone. Those are in section 3 and go to a person, which is
-right: quoting "all included" and then billing for it is how a customer is lost.
+What each price excludes is now settled and written into Document 7, rather than left for
+a person: Meta's message charge, the reception phone, and — on the one-time plan — hosting
+and later changes.
+
+Saying so plainly is better than burying it. The 6-paise figure is not an estimate; it is
+V4You's own billed rate for utility conversations, read from 60 days of Meta invoices. At
+that rate a 300-member gym spends under ₹100 a month on reminders, and a member's reply
+costs nothing, because inbound service conversations are free. An owner who hears "extra
+charges" braces for a bill; an owner who hears "about ₹100 a month, and replies are free"
+stops worrying. The same honesty that avoids an argument later also sells better here.
+
+Marketing templates are a different matter — those bill at about ₹0.86 each, fourteen times
+a reminder. If GymKhata ever sends promotional blasts on a gym's behalf, that cost needs
+quoting separately, and this document would be wrong as written.
