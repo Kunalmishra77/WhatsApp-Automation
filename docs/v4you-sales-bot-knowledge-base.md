@@ -1,10 +1,15 @@
 # V4You sales assistant — knowledge base
 
-What the bot answering **ad leads** needs to know. The leads are gym owners who saw the
-advertisement and sent a WhatsApp message.
+What the bot talking to **gym owners** needs to know. V4You sells gym software; this bot
+answers the owner who messages to ask about it, whatever brought him.
+
+**What is being sold is the software.** The documents below describe what it does for a gym
+— members, fees, reminders, attendance — because those are its features. They are not a
+gym's own rules. When an owner asks "kitne ka hai", the answer is the price of the software,
+never a gym's membership fee.
 
 Not to be confused with `bot-knowledge-base.md` in this folder, which is the **member-facing**
-assistant inside a gym's own system. Different bot, different reader, different answers.
+assistant that sits inside a gym after it buys. Different bot, different reader.
 
 ---
 
@@ -15,8 +20,9 @@ to a demo. It does not sell, quote or negotiate.
 
 Three rules it must be given, in its own instructions:
 
-1. **Never quote a price.** There is no price list. A number invented here is one you have
-   to honour or retract, and either is worse than "let me get you a proper quote".
+1. **Quote only the two prices in Document 7, exactly.** ₹1,999 a month plus GST, or
+   ₹30,000 once. Never invent a discount, a package or a per-member rate — a number made up
+   here is one you have to honour or retract, and either is worse than "let me check".
 2. **Never promise a feature that is not in section 2.** A gym owner who is told there is a
    member app will ask for it on the demo call, and the call ends there.
 3. **Hand over early.** Anything about money, timelines, contracts or "can it also do…" goes
@@ -33,7 +39,7 @@ The bot will be asked all three in its first week. Decide them before it is live
 | Question | Status |
 |---|---|
 | **What is the product called?** | Undecided. Everything is named after the first customer — Max Register, Max Fitness Platform. Written below as `<PRODUCT>`. |
-| **What does it cost?** | Undecided. The bot says so honestly and offers a quote; see Document 7. |
+| **What does it cost?** | **Settled.** ₹1,999/month + GST, or ₹30,000 one-time. In Document 7. |
 | **How long does setting up take?** | One deployment serves one gym today, so each customer is set up by hand. You know how long that took for Max Fitness Gym — put the real number in Document 6. It is written as `<N>` days. |
 
 ---
@@ -157,12 +163,26 @@ Paste one at a time. **Order matters** if your assistant truncates — most-aske
 
 > **Title:** Price
 >
-> The price depends on how many members your gym has and what you want switched on, so we
-> give you a proper figure rather than a number off a list.
+> There are two ways to take it.
 >
-> Tell us roughly how many members you have and we will come back with it the same day.
+> *Monthly — ₹1,999 a month plus GST.* Everything above is included and we run it for you.
+> The price is the same whether your gym has fifty members or five hundred.
+>
+> *One-time — ₹30,000 once.* We build the whole thing for your gym, set up for your plans,
+> your prices and your branding, and it is yours. No monthly fee to us after that.
+>
+> Most gyms start monthly, because there is nothing large to pay up front and you see it
+> working with your own members first.
 >
 > There is nothing to pay to see the demo.
+
+*Two things the bot must not do with this document:*
+
+- *Do not break the price down per member or per feature.* It is one price for the whole
+  system. An owner who is quoted "per member" will ask for a cheaper tier that does not
+  exist.
+- *Do not confuse this with a gym's own membership fees.* When an owner asks "membership
+  kitne ki hai", he is asking what the software costs: ₹1,999 a month.
 
 ### Document 8 — What it does not do
 
@@ -213,7 +233,7 @@ The bot escalates on each of these, which is the right answer.
 
 | Asked | Why a person takes it |
 |---|---|
-| "Exactly how much?" | No price list. Document 7 says so and asks for the member count. |
+| "Can I get it cheaper / is there a discount?" | Discounts are a person's call, never the bot's. The two prices are fixed. |
 | "Can you add X?" | A roadmap promise is a commitment. A person makes those. |
 | "Can I see it?" | Book it with a person — that is the whole point of the bot. |
 | "Do you have a contract / refund policy?" | Not written yet. |
@@ -238,10 +258,10 @@ Read every conversation for the first two weeks. Two things to look for:
 
 - **The same question escalating repeatedly** — that is a document waiting to be written,
   or a decision V4You has not made yet. Usually the second.
-- **A lead who asked a good question and went quiet** — that is the ad promising something
-  the product does not do. Fix the ad, not the bot.
+- **A lead who asked a good question and went quiet** — usually something promised before
+  the conversation that the product does not do. Fix whatever made the promise, not the bot.
 
-Review the whole set whenever the product changes, and whenever a price is finally decided.
+Review the whole set whenever the product changes, and whenever the price does.
 
 ---
 
@@ -264,19 +284,23 @@ true of how it is deployed today, not a limit in the data model. Document 8 is r
 it plainly, and whoever takes that call can say honestly that serving several branches from
 one system is a deployment decision rather than a rebuild.
 
-### The price conflict to settle
+### The price, and why it is written the way it is
 
-Section 1 and Document 7 both say the price is undecided and the bot must never quote one.
-That contradicts the figures already set for this product — **₹1,999/month + GST**, and
-**₹30,000 one-time** for a build the gym keeps.
+₹1,999/month + GST and ₹30,000 one-time are set, so the bot quotes them. An earlier draft
+told it never to quote and to collect a member count instead — wrong for this product. The
+price does not vary by gym size, and an owner who asks "kitna?" and is told "we will come
+back to you" often does not come back.
 
-Both positions are defensible and this is a commercial call, not a technical one:
+Two failure modes the wording guards against, both easy to walk into:
 
-- **Keep "no price".** Right when the figure genuinely varies by gym size, and a quote
-  conversation is worth more than a number. Costs some leads who just want to know.
-- **Put the figures in.** These leads came from an advertisement, and an owner who asks
-  "kitna?" and is told "we'll come back to you" often does not come back. A number in the
-  first reply filters out the gyms who were never going to pay it.
+- **Quoting per member.** The price is for the whole system at any size. Break it down and
+  the next question is for a smaller tier, which does not exist.
+- **Answering with a gym's membership fee.** This product manages memberships, so the word
+  appears throughout these documents as a feature. When an *owner* asks what membership
+  costs, he means the software. Document 7 says so explicitly, because the bot has every
+  other document telling it about member fees and would otherwise reach for the wrong one.
 
-Whichever is chosen, Document 7 and the rules in section 0 must match it — as written, the
-bot will refuse to quote a price that has in fact been decided.
+What is still open is what each price includes — whether the WhatsApp conversation charges
+Meta levies sit inside ₹1,999, what "one-time" covers for updates and hosting afterwards,
+and who supplies the reception phone. Those are in section 3 and go to a person, which is
+right: quoting "all included" and then billing for it is how a customer is lost.
