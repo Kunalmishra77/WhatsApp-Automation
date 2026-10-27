@@ -187,8 +187,8 @@ const esc = (s) => s.replace(/'/g, "''");
 DOCS.forEach((d, i) => {
   const vec = `[${data[i].embedding.join(',')}]`;
   sql.push(`INSERT INTO public.knowledge_base
-  (workspace_id, title, content, category, source, is_active, is_draft, priority, char_count, embedding)
-VALUES ('${WORKSPACE}', '${esc(d.title)}', '${esc(d.content)}', 'product', 'gymkhata', true, false, ${100 - i}, ${d.content.length}, '${vec}');
+  (workspace_id, title, content, category, source, is_active, is_draft, priority, embedding)
+VALUES ('${WORKSPACE}', '${esc(d.title)}', '${esc(d.content)}', 'product', 'gymkhata', true, false, ${100 - i}, '${vec}');
 `);
 });
 
