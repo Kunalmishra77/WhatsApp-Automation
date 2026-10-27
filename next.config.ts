@@ -1,24 +1,38 @@
 import type { NextConfig } from 'next';
 
-const securityHeaders = [
+const cspDirectives = [
+  "default-src 'self'",
+  // Razorpay Checkout loads its script from checkout.razorpay.com and opens
+  // its payment UI in an iframe served from api.razorpay.com/checkout.razorpay.com.
+  "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://checkout.razorpay.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https:",
+  "font-src 'self'",
+  "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.supabase.in wss://*.supabase.in https://graph.facebook.com https://api.openai.com https://openrouter.ai https://api.resend.com https://*.razorpay.com https://lumberjack.razorpay.com",
+];
+
+// Public marketing pages may be framed by the AI Agentix portfolio; everything
+// else (auth, dashboard, admin, onboarding, widget, API) stays same-origin only.
+const PORTFOLIO_FRAME_ANCESTORS =
+  process.env.PORTFOLIO_FRAME_ANCESTORS ??
+  'https://agentix-portfolio.vercel.app https://ai-agentix.com https://*.ai-agentix.com';
+const PUBLIC_PAGES = 'about|contact|docs|faq|features|gbp-report|integrations|pricing|security';
+
+const baseHeaders = [
   { key: 'X-DNS-Prefetch-Control',  value: 'on' },
-  { key: 'X-Frame-Options',         value: 'SAMEORIGIN' },
   { key: 'X-Content-Type-Options',  value: 'nosniff' },
   { key: 'Referrer-Policy',         value: 'origin-when-cross-origin' },
+];
+const publicPageHeaders = [
   {
     key: 'Content-Security-Policy',
-    value: [
-      "default-src 'self'",
-      // Razorpay Checkout loads its script from checkout.razorpay.com and opens
-      // its payment UI in an iframe served from api.razorpay.com/checkout.razorpay.com.
-      "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://checkout.razorpay.com",
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: https:",
-      "font-src 'self'",
-      "frame-src 'self' https://api.razorpay.com https://checkout.razorpay.com",
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.supabase.in wss://*.supabase.in https://graph.facebook.com https://api.openai.com https://openrouter.ai https://api.resend.com https://*.razorpay.com https://lumberjack.razorpay.com",
-    ].join('; '),
+    value: [...cspDirectives, `frame-ancestors 'self' ${PORTFOLIO_FRAME_ANCESTORS}`].join('; '),
   },
+];
+const lockedPageHeaders = [
+  { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+  { key: 'Content-Security-Policy', value: [...cspDirectives, "frame-ancestors 'self'"].join('; ') },
 ];
 
 const config: NextConfig = {
@@ -46,9 +60,12 @@ const config: NextConfig = {
 
   async headers() {
     return [
+      { source: '/:path*', headers: baseHeaders },
+      { source: '/', headers: [...baseHeaders, ...publicPageHeaders] },
+      { source: `/:page(${PUBLIC_PAGES})/:rest*`, headers: publicPageHeaders },
       {
-        source: '/(.*)',
-        headers: securityHeaders,
+        source: `/((?!(?:${PUBLIC_PAGES})(?:/|$)).+)`,
+        headers: lockedPageHeaders,
       },
       // CORS for public REST API (/api/v1/*)
       {
