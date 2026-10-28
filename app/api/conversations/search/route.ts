@@ -53,8 +53,6 @@ const LEADS_EMBED = ', leads!inner(temperature,stage)';
 // lib/conversation-filters.ts (imported above) so /api/conversations/export can apply
 // the exact same `q` matching semantics.
 
-type TempBucket = 'hot' | 'warm' | 'cold';
-
 type Summary = {
   new_today: number; new_week: number; new_month: number;
   hot: number; warm: number; cold: number;
@@ -178,70 +176,83 @@ export async function GET(request: NextRequest) {
       .order('id', { ascending: true })
       .range(offset, offset + limit - 1);
 
-    // ── Summary (parallel, uncapped count:'exact' head queries) ────────────────
-    // Always spam-free KPIs, regardless of the active flag — summary counts never
-    // call applyFlag(), so leaving excludeSpam at its default (true) here would be
-    // equally correct, but it's spelled out explicitly since this is the one place
-    // that must never vary with `flag`.
+    // ── Summary (one scan, via the conversation_summary function) ──────────────
+    // This was eight parallel count:'exact' head queries, three of them embedding
+    // leads!inner. Nine queries per page load, each count reading every matching
+    // row because an exact count has no LIMIT. pg_stat_statements had the
+    // conversations-with-leads shape at 74,202 calls — the single most expensive
+    // application query on the platform.
     //
-    // Only computed on the first page (offset === 0) — "load more" requests re-send
-    // the exact same filters with a higher offset, so the summary counts would be
-    // identical to what page 0 already returned. The UI (useConversations) only ever
-    // reads pages[0].summary, so skipping this on later pages is a pure perf win
-    // (8 fewer count:'exact' queries per load-more) with no behavior change.
+    // conversation_summary (migration 127) computes all eight in one pass with
+    // FILTER clauses, so a load is now two queries. The function carries the two
+    // rules that used to live here: hot/warm/cold ignore an active `temperature`
+    // filter so the breakdown stays whole, and every count excludes spam
+    // regardless of the active flag.
+    //
+    // It also counts DISTINCT conversations, which the eight queries did not:
+    // 222 conversations have more than one lead row, so the three temperature
+    // counts were inflated in ten of twelve workspaces. Those numbers come out
+    // slightly lower now and are correct for the first time.
+    //
+    // Only computed on the first page (offset === 0) — "load more" re-sends the
+    // same filters with a higher offset, and the UI only reads pages[0].summary.
     let summary: Summary | null = null;
     let pageResult: any;
     if (offset === 0) {
       const todayRange = resolveRange('today');
       const weekRange = resolveRange('this_week');
       const monthRange = resolveRange('this_month');
-      const countSelect = 'id' + (needsLeadsJoin ? LEADS_EMBED : '');
-      const countCol = () => db.from('conversations').select(countSelect, { count: 'exact', head: true });
-      // hot/warm/cold always need the leads join, regardless of whether temperature/
-      // stage is currently being filtered on.
-      const bucketCol = () => db.from('conversations').select('id' + LEADS_EMBED, { count: 'exact', head: true });
-      const bucketCount = (bucket: TempBucket) =>
-        applyBase(bucketCol(), { includeTemperature: false, excludeSpam: true }).eq('leads.temperature', bucket);
 
-      let newTodayResult, newWeekResult, newMonthResult,
-        hotResult, warmResult, coldResult,
-        unansweredResult, unreadResult;
-      [
-        pageResult,
-        newTodayResult, newWeekResult, newMonthResult,
-        hotResult, warmResult, coldResult,
-        unansweredResult, unreadResult,
-      ] = await Promise.all([
+      const [pr, summaryResult] = await Promise.all([
         pageQuery,
-        applyBase(countCol(), { excludeSpam: true }).gte('created_at', todayRange.fromUtc),
-        applyBase(countCol(), { excludeSpam: true }).gte('created_at', weekRange.fromUtc),
-        applyBase(countCol(), { excludeSpam: true }).gte('created_at', monthRange.fromUtc),
-        bucketCount('hot'),
-        bucketCount('warm'),
-        bucketCount('cold'),
-        applyBase(countCol(), { excludeSpam: true }).is('first_replied_at', null),
-        applyBase(countCol(), { excludeSpam: true }).gt('unread_count', 0),
+        db.rpc('conversation_summary', {
+          p_workspace_id: workspaceId,
+          p_today_from: todayRange.fromUtc,
+          p_week_from: weekRange.fromUtc,
+          p_month_from: monthRange.fromUtc,
+          // Agent-role members bypass RLS on the admin client, so the same
+          // assignment isolation migration 049 enforces at the DB layer is
+          // passed in here, exactly as applyBase does it.
+          p_agent_id: ctx.role === 'agent' ? ctx.userId : null,
+          p_date_from: dateRange?.fromUtc ?? null,
+          p_date_to: dateRange?.toUtc ?? null,
+          p_channel: channel ?? null,
+          p_status: status ?? null,
+          p_assigned_agent: assignedAgentId ?? null,
+          p_sentiment: sentiment ?? null,
+          p_campaign_id: campaignId ?? null,
+          p_label: label ?? null,
+          p_temperature: temperature ?? null,
+          p_stage: stage ?? null,
+          // Already escaped by escapeIlike; passed as a bind parameter, so it
+          // needs none of quoteOrValue's PostgREST-DSL quoting.
+          p_q_pattern: q ? `%${q}%` : null,
+          // Null rather than [] so the function's "did the caller supply any
+          // contact matches?" test matches the route's behaviour: with `q` set
+          // and no contact hits, only last_message is searched.
+          p_contact_ids: matchingContactIds.length > 0 ? matchingContactIds : null,
+        }),
       ]);
+      pageResult = pr;
 
-      for (const [name, r] of [
-        ['new_today', newTodayResult], ['new_week', newWeekResult], ['new_month', newMonthResult],
-        ['hot', hotResult], ['warm', warmResult], ['cold', coldResult],
-        ['unanswered', unansweredResult], ['unread', unreadResult],
-      ] as const) {
-        const err = (r as { error: { message: string } | null }).error;
-        if (err) console.error(`[Conversations Search] summary(${name}) error:`, err.message);
+      const summaryErr = (summaryResult as { error: { message: string } | null }).error;
+      if (summaryErr) {
+        console.error('[Conversations Search] summary error:', summaryErr.message);
       }
-
+      // The function returns one row; a failure leaves every bucket at zero
+      // rather than failing the page, which is what eight independent counts
+      // effectively did when one of them errored.
+      const s = ((summaryResult as { data: unknown }).data as Array<Record<string, number>> | null)?.[0];
       summary = {
-        new_today: Number(newTodayResult.count ?? 0),
-        new_week: Number(newWeekResult.count ?? 0),
-        new_month: Number(newMonthResult.count ?? 0),
-        hot: Number((hotResult as { count: number | null }).count ?? 0),
-        warm: Number((warmResult as { count: number | null }).count ?? 0),
-        cold: Number((coldResult as { count: number | null }).count ?? 0),
-        unanswered: Number(unansweredResult.count ?? 0),
-        unread: Number(unreadResult.count ?? 0),
-        total: 0, // filled in below once `total` is known
+        new_today: Number(s?.new_today ?? 0),
+        new_week: Number(s?.new_week ?? 0),
+        new_month: Number(s?.new_month ?? 0),
+        hot: Number(s?.hot ?? 0),
+        warm: Number(s?.warm ?? 0),
+        cold: Number(s?.cold ?? 0),
+        unanswered: Number(s?.unanswered ?? 0),
+        unread: Number(s?.unread ?? 0),
+        total: 0, // filled from the page query's exact count below
       };
     } else {
       pageResult = await pageQuery;
@@ -253,9 +264,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
 
-    // Defensive dedup by conversation id — protects the page (small, bounded by
-    // `limit`) against the unlikely case of a conversation having >1 linked lead
-    // when the leads!inner join is active; counts stay exact under the normal 1:1 case.
+    // Dedup by conversation id. Not defensive and not unlikely: 222 conversations
+    // carry more than one lead row, so leads!inner genuinely fans this page out
+    // whenever temperature or stage is being filtered on. The summary counts
+    // handle the same fan-out with count(DISTINCT), but `total` below still comes
+    // from the page query's own exact count and is inflated in that case — the
+    // next thing to fix here.
     const seen = new Set<string>();
     const conversations = ((pageRows ?? []) as Array<{ id: string }>).filter((row) => {
       if (seen.has(row.id)) return false;

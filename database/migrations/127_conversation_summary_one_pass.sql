@@ -92,13 +92,13 @@ AS $$
       AND (p_date_from      IS NULL OR c.created_at        >= p_date_from)
       AND (p_date_to        IS NULL OR c.created_at         < p_date_to)
       AND (p_channel        IS NULL OR c.channel            = p_channel)
-      AND (p_status         IS NULL OR c.status             = p_status)
+      AND (p_status         IS NULL OR c.status::text       = p_status)
       AND (p_assigned_agent IS NULL OR c.assigned_agent_id  = p_assigned_agent)
       AND (p_sentiment      IS NULL OR c.sentiment          = p_sentiment)
       AND (p_campaign_id    IS NULL OR c.source_campaign_id = p_campaign_id)
       AND (p_label          IS NULL OR c.labels            @> ARRAY[p_label])
       -- `stage` applies to every count, the bucket breakdown included.
-      AND (p_stage          IS NULL OR l.stage              = p_stage)
+      AND (p_stage          IS NULL OR l.stage::text        = p_stage)
       AND (
         p_q_pattern IS NULL
         OR c.last_message ILIKE p_q_pattern
