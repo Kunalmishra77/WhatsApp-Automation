@@ -17,11 +17,12 @@ leads outrank features.
 These are not features. Every one of them is live right now and a person with the
 repo, or with a scroll of an old chat, can use them.
 
-- [ ] **Rotate the production database password.** It is committed in
-  `database/run-migration.mjs` and `database/query.mjs`, so it is in the git
-  history of a GitHub repo and cannot be removed by editing the file. Rotate in
-  Supabase, move the string to an env var, and keep both scripts working off
-  `process.env`.
+- [ ] **Rotate the production database password.** The working tree no longer
+  holds it — it moved to `SUPABASE_DB_URL` via `database/connection.mjs`, and a
+  third copy came out of a stale `psql` allow-rule in `.claude/settings.json`,
+  which was git-tracked. **But it is still in the git history of a GitHub repo**,
+  which editing files cannot undo. Rotating in Supabase is the only fix; the new
+  password goes in `.env.local` (gitignored) and in Coolify's env, nowhere else.
 - [ ] **Regenerate the Google Places API key.** It was pasted into a chat.
   Regenerate, and restrict the new key to the Places API and the server's IP.
 - [ ] **Rotate the OpenAI key.** Also pasted into a chat.

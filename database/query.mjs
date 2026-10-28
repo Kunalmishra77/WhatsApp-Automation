@@ -7,10 +7,11 @@
 // read, and the transaction is opened READ ONLY, which Postgres enforces itself —
 // so even a statement that slips past the pattern check cannot modify anything.
 //
-// Takes the same connection string as run-migration.mjs. That string is committed
-// in this repo and should be rotated; until it is, nothing here widens the
-// exposure that already exists.
+// Takes the same connection string as run-migration.mjs, read from
+// SUPABASE_DB_URL by ./connection.mjs. Both files used to hold it as a literal,
+// which put it in the git history; rotating the password is still outstanding.
 import pg from 'pg';
+import { clientOptions } from './connection.mjs';
 
 const sql = process.argv.slice(2).join(' ').trim();
 if (!sql) {
@@ -30,8 +31,7 @@ if (sql.replace(/;\s*$/, '').includes(';')) {
 }
 
 const client = new pg.Client({
-  connectionString: 'postgresql://postgres.yvqaproltcskufufmomi:Indresh%40626162@aws-1-ap-south-1.pooler.supabase.com:6543/postgres',
-  ssl: { rejectUnauthorized: false },
+  ...clientOptions(),
   statement_timeout: 20_000,
 });
 
