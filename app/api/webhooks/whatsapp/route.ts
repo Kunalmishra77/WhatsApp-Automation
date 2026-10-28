@@ -842,6 +842,23 @@ async function handleIncomingMessage(
 
     // Try flow engine first — structured conversation flows take priority.
     // Returns: true = fully handled (skip AI) | false = no flow | { pendingQuestion } = off-topic
+    // `content` for a tap is a display label — `[Tapped button: "Book Now"]` —
+    // so the flow engine gets the tap's own id and title alongside it. Without
+    // them a question's button branches would have nothing reliable to match.
+    const flowChoice =
+      msg.type === 'interactive' || msg.type === 'button'
+        ? {
+            id:
+              msg.interactive?.button_reply?.id ??
+              msg.interactive?.list_reply?.id ??
+              msg.button?.payload,
+            title:
+              msg.interactive?.button_reply?.title ??
+              msg.interactive?.list_reply?.title ??
+              msg.button?.text,
+          }
+        : undefined;
+
     const flowResult = await processFlowForMessage(
       supabase,
       workspaceId,
@@ -851,6 +868,7 @@ async function handleIncomingMessage(
       wsForRules.phone_number_id,
       cleanToken,
       waId,
+      flowChoice,
     );
 
     // Off-topic during an active flow: AI answers, then re-ask the pending question.
@@ -1995,10 +2013,19 @@ async function sendAutoReply(
 // conversation is flagged for a human; clear abuse blocks the contact immediately. An
 // on-business message resets the counter. User-confirmed behaviour (2026-10-01).
 // A conversation the bot has answered this many times in 24 hours is not a
-// customer. Real ones top out well below it: across 60 days the median
-// conversation-day is 1 bot reply, the 95th percentile is 13 and the 99th is 28.
-// Above 40 the traffic has only ever been the bot talking to another bot.
-const REPLY_LOOP_DAILY_LIMIT = 40;
+// customer.
+//
+// This was 40, chosen from ordinary days where the 99th percentile is 28 bot
+// replies. Campaign days are not ordinary: the morning Fitness First launched a
+// Diwali offer, a real lead tapped through the flow, asked about price twice and
+// re-triggered the keyword — 41 replies — and the guard silenced her for the
+// rest of the day. Five of her messages went unanswered, including a plain
+// "Hello".
+//
+// 150 still catches every genuine loop found so far. The four that were real sat
+// at 437, 671, 1709 and 2351 replies; a bot arguing with another bot does not
+// stop at a hundred, and a person cannot keep up with one.
+const REPLY_LOOP_DAILY_LIMIT = 150;
 
 // Two automated agents that each decline the other's topic will answer each other
 // forever. One Umang Hospital conversation traded 2,400 messages with a Vi

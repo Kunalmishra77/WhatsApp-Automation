@@ -1,11 +1,33 @@
 import type { Node, Edge } from 'reactflow';
 
-export type FlowNodeType = 'start' | 'message' | 'question' | 'condition' | 'assign_agent' | 'end';
+export type FlowNodeType =
+  | 'start' | 'message' | 'question' | 'condition' | 'assign_agent' | 'end'
+  | 'wait' | 'media' | 'action';
 export type ComparisonOperator = '>=' | '>' | '<' | '<=' | '==' | '!=';
 
 export interface StartNodeData    { label: string; triggerType: 'keyword' | 'first_message'; triggerValue: string; }
 export interface MessageNodeData  { label: string; message: string; }
-export interface QuestionNodeData { label: string; message: string; timeoutHours: number; saveAsVariable?: string; }
+/** One tap-to-answer option. `id` is what the branch edge is keyed on. */
+export interface FlowChoice { id: string; title: string; description?: string; }
+
+export interface QuestionNodeData {
+  label: string;
+  message: string;
+  timeoutHours: number;
+  saveAsVariable?: string;
+  /** How the customer answers. Absent behaves as 'text', or 'buttons' if choices exist. */
+  answerMode?: 'text' | 'buttons' | 'list';
+  /** Up to 3 for buttons, 10 for a list. Each gets its own outgoing branch. */
+  choices?: FlowChoice[];
+  /** The label on the button that opens a list. WhatsApp requires one. */
+  listButtonText?: string;
+  header?: string;
+  footer?: string;
+  /** Pre-choices flows stored plain titles here. Still honoured. */
+  buttons?: string[];
+  /** Validation re-ask loops set this so the question always runs. */
+  forceAsk?: boolean;
+}
 export interface ConditionNodeData {
   label: string;
   conditionType?: 'keyword' | 'variable_compare';
@@ -18,13 +40,55 @@ export interface ConditionNodeData {
 export interface AssignAgentNodeData { label: string; message: string; }
 export interface EndNodeData      { label: string; message: string; }
 
+export interface WaitNodeData {
+  label: string;
+  mode?: 'duration' | 'time';
+  minutes?: number;
+  hours?: number;
+  days?: number;
+  /** "HH:MM" in IST, for mode 'time'. */
+  atTime?: string;
+  /** 0 = Sunday … 6 = Saturday. */
+  weekday?: number;
+}
+
+export interface MediaNodeData {
+  label: string;
+  kind?: 'image' | 'video' | 'document' | 'audio' | 'location';
+  url?: string;
+  caption?: string;
+  filename?: string;
+  latitude?: number;
+  longitude?: number;
+  locationName?: string;
+  address?: string;
+}
+
+export type FlowActionOp =
+  | { type: 'add_tags'; tags: string[] }
+  | { type: 'remove_tags'; tags: string[] }
+  | { type: 'set_temperature'; temperature: 'hot' | 'warm' | 'cold' }
+  | { type: 'set_field'; field: string; value: string }
+  | { type: 'assign'; memberId: string }
+  | { type: 'create_task'; title: string; dueInHours?: number; assigneeId?: string }
+  | { type: 'notify_team'; message: string; channel?: 'whatsapp' | 'email' }
+  | { type: 'opt_out' };
+
+export interface ActionNodeData {
+  label: string;
+  operations?: FlowActionOp[];
+}
+
 export type FlowNodeData =
   | StartNodeData
   | MessageNodeData
   | QuestionNodeData
   | ConditionNodeData
   | AssignAgentNodeData
-  | EndNodeData;
+  | EndNodeData
+  | WaitNodeData
+  | MediaNodeData
+  | ActionNodeData;
 
 export type FlowNode = Node<FlowNodeData, FlowNodeType>;
 export type FlowEdge = Edge;

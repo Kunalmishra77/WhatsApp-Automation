@@ -8,7 +8,10 @@ import ReactFlow, {
   type Connection,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { StartNode, MessageNode, QuestionNode, ConditionNode, AssignAgentNode, EndNode } from '../nodes';
+import {
+  StartNode, MessageNode, QuestionNode, ConditionNode, AssignAgentNode, EndNode,
+  WaitNode, MediaNode, ActionNode,
+} from '../nodes';
 import type { FlowNode, FlowEdge } from '../../types';
 
 const nodeTypes = {
@@ -18,6 +21,9 @@ const nodeTypes = {
   condition:    ConditionNode,
   assign_agent: AssignAgentNode,
   end:          EndNode,
+  wait:         WaitNode,
+  media:        MediaNode,
+  action:       ActionNode,
 };
 
 interface FlowCanvasProps {

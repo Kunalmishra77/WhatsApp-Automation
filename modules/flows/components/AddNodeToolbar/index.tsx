@@ -1,7 +1,7 @@
 'use client';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { MessageSquare, HelpCircle, GitBranch, UserCheck, CheckCircle } from 'lucide-react';
+import { MessageSquare, HelpCircle, GitBranch, UserCheck, CheckCircle, Clock, Image as ImageIcon, Zap } from 'lucide-react';
 import type { FlowNode, FlowNodeData } from '../../types';
 
 interface AddNodeToolbarProps {
@@ -32,6 +32,27 @@ const NODE_BUTTONS: Array<{
     icon: <HelpCircle className="h-4 w-4" />,
     defaultData: { label: 'Question', message: '', timeoutHours: 24 },
     color: 'text-purple-600',
+  },
+  {
+    type: 'wait',
+    label: 'Wait',
+    icon: <Clock className="h-4 w-4" />,
+    defaultData: { label: 'Wait', mode: 'duration', hours: 2 },
+    color: 'text-teal-600',
+  },
+  {
+    type: 'media',
+    label: 'Image / File',
+    icon: <ImageIcon className="h-4 w-4" />,
+    defaultData: { label: 'Send Image', kind: 'image', url: '' },
+    color: 'text-cyan-600',
+  },
+  {
+    type: 'action',
+    label: 'Action',
+    icon: <Zap className="h-4 w-4" />,
+    defaultData: { label: 'Action', operations: [] },
+    color: 'text-indigo-600',
   },
   {
     type: 'condition',

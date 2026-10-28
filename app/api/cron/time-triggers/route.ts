@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
+import { resumeFlowSession } from '@/lib/flow-engine';
 
 // GET /api/cron/time-triggers?secret=<CRON_SECRET>
 // Processes two kinds of triggers:
@@ -159,6 +160,17 @@ export async function GET(request: NextRequest) {
 
 async function executeTriggerAction(db: any, row: Record<string, unknown>) {
   const actionData = (row.action_data ?? {}) as Record<string, unknown>;
+
+  // A flow parked itself with a wake-up: a wait node's delay, or a question's
+  // timeoutHours running out. resumeFlowSession checks the session is still on
+  // the node that scheduled this before it sends anything.
+  if (row.action_type === 'flow_resume') {
+    const sessionId = actionData.session_id;
+    if (typeof sessionId === 'string') {
+      await resumeFlowSession(db, sessionId, String(actionData.handle ?? 'default'));
+    }
+    return;
+  }
 
   if (row.action_type === 'auto_close') {
     // Verify conversation is still idle (hasn't been replied to since queuing)
