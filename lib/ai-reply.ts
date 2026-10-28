@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/services/supabase/admin';
 import { callAI } from '@/lib/ai-client';
-import { pricingBlockForSettings } from '@/lib/offer';
+import { offerContextForSettings } from '@/lib/offer';
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -373,8 +373,12 @@ export async function getAIReply(
 
   // Today's date in IST as YYYY-MM-DD (en-CA yields ISO date). Drives offer validity.
   const todayISTDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-  const offerBlock = pricingBlockForSettings(wsSettings ?? null, todayISTDate);
-  const pricingAuthorityRule = offerBlock
+  const { block: offerBlock, status: offerStatus } =
+    offerContextForSettings(wsSettings ?? null, todayISTDate);
+  // Only a running offer outranks the knowledge base. An ended one sends price
+  // questions back to the business's own plans, so this rule would contradict
+  // the block above it.
+  const pricingAuthorityRule = offerStatus === 'active'
     ? '\n- PRICING AUTHORITY: For any question about price, plans, or offers, follow the block at the very TOP of this prompt — it is the ONLY authority on pricing. Ignore any other price in the knowledge base or persona.'
     : '';
 

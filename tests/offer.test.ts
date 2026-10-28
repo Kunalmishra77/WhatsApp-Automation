@@ -45,9 +45,23 @@ describe('buildOfferBlock', () => {
     expect(b).toContain('Valid until 2026-08-31');
     expect(b).toMatch(/ONLY price/i);
   });
-  it('expired/scheduled yields guard, none yields empty', () => {
-    expect(buildOfferBlock(o, 'expired')).toMatch(/no active offer/i);
-    expect(buildOfferBlock(o, 'scheduled')).toMatch(/no active offer/i);
+  // An ended offer must stop being quoted without taking the business's own
+  // prices down with it. The previous rule told the bot to quote no number at
+  // all, which left VMS answering every price question with "a team member will
+  // share pricing shortly" for the seven weeks after its event offer ended.
+  it('expired offer is withdrawn but pricing still comes from the business', () => {
+    const b = buildOfferBlock(o, 'expired');
+    expect(b).toContain('Monsoon Offer');
+    expect(b).toMatch(/has ended/i);
+    expect(b).toMatch(/knowledge base/i);
+    expect(b).not.toContain('₹75,000');
+  });
+  it('a scheduled offer is not advertised early', () => {
+    const b = buildOfferBlock(o, 'scheduled');
+    expect(b).toMatch(/has not started yet/i);
+    expect(b).not.toContain('₹75,000');
+  });
+  it('none yields empty', () => {
     expect(buildOfferBlock(null, 'none')).toBe('');
   });
 });

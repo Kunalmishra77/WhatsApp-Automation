@@ -56,19 +56,44 @@ ${offer.details}${validity}
 
 `;
   }
+  // An offer that is over, or not started, used to gag the bot: it was told to
+  // quote no number at all and to promise that someone would follow up. VMS's
+  // event offer ended on 9 September, so for seven weeks every price question
+  // got "a team member will share pricing shortly" — the business's own plans
+  // were sitting in the knowledge base the whole time.
+  //
+  // The offer stops being quotable. The business does not stop having prices.
   if (status === 'expired' || status === 'scheduled') {
-    return `PRICING RULE: There is no active offer right now. If the customer asks about price, plans, or offers, do NOT quote any number from the knowledge base or persona. Warmly say a team member will share the latest pricing shortly, and capture their interest / ask for the best number to reach them.
+    const which = offer ? `"${offer.name}"` : 'The special offer';
+    const state = status === 'expired' ? 'has ended' : 'has not started yet';
+    return `PRICING RULE — ${which} ${state} and must NOT be quoted or advertised.
+Do not bring it up. If the customer asks about it specifically, say in one line that it ${state}, then help them with what is currently available.
+For every price, plan or offer question, answer normally from this business's own prices and plans in the knowledge base and persona below. Never invent a discount.
 
 `;
   }
   return '';
 }
 
+/**
+ * The offer block plus the status behind it.
+ *
+ * The caller needs the status, not just the text: the "this block is the ONLY
+ * authority on pricing" rule belongs with an ACTIVE offer and contradicts an
+ * expired one, which now sends the bot to the knowledge base instead.
+ */
+export function offerContextForSettings(
+  settings: Record<string, unknown> | null | undefined, todayISO: string,
+): { block: string; status: OfferStatus } {
+  const offer = parseActiveOffer(settings);
+  const status = computeOfferStatus(offer, todayISO);
+  return { block: buildOfferBlock(offer, status), status };
+}
+
 export function pricingBlockForSettings(
   settings: Record<string, unknown> | null | undefined, todayISO: string,
 ): string {
-  const offer = parseActiveOffer(settings);
-  return buildOfferBlock(offer, computeOfferStatus(offer, todayISO));
+  return offerContextForSettings(settings, todayISO).block;
 }
 
 export function extractMoneyAmounts(text: string): string[] {
