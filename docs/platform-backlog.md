@@ -53,10 +53,13 @@ repo, or with a scroll of an old chat, can use them.
   The page query's exact count stays as the fallback for the window before the
   migration is applied; **dropping that count is the next saving to take**, once
   the function is proven in production — it is a second full scan per load.
-- [ ] **222 conversations carry more than one lead** — 453 lead rows between
-  them, one conversation with five. Find out how they are created before deciding
-  whether to merge, because the fix depends on the cause. This is what made the
-  temperature counts wrong, and it probably skews other per-lead reporting.
+- [x] 2026-10-28 — **One lead per contact, enforced.** The duplicates were a
+  race, not a design: three paths each did "does a lead exist?" then inserted,
+  with nothing guarding the gap, so concurrent events for one contact all passed
+  the check. 219 of the 222 groups were created inside ten seconds and none more
+  than an hour apart, so nobody ever wanted two. Migration 129 merges and adds a
+  unique index; `lib/lead-upsert.ts` makes all three paths race-safe and the CRM
+  path explain itself instead of showing a constraint name.
 
 ## P3 — Scalability, in measured order
 

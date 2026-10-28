@@ -3,6 +3,7 @@ import { createClient } from '@/services/supabase/client';
 import type { Database } from '@/types/database.types';
 import { recordTouchpoint } from '@/lib/lead-touchpoint';
 import { normalizeChannel } from '@/lib/lead-attribution';
+import { isDuplicateLeadError } from '@/lib/lead-upsert';
 
 export type LeadRow = Database['public']['Tables']['leads']['Row'];
 export type LeadStage = Database['public']['Tables']['leads']['Row']['stage'];
@@ -105,7 +106,15 @@ export async function createLead(
     .insert({ ...payload, workspace_id: workspaceId })
     .select()
     .single();
-  if (error) throw error;
+  if (error) {
+    // A contact may hold one lead (unique index, migration 129). Hitting that
+    // here means the person is looking at a contact that already has one, so say
+    // that instead of handing them a Postgres constraint name.
+    if (isDuplicateLeadError(error)) {
+      throw new Error('This contact already has a lead. Open the existing one instead of creating a second.');
+    }
+    throw error;
+  }
 
   // Phase 1 (Unified Lead Hub): attribute the manual lead + seed its journey.
   // Fail-open — never let attribution break lead creation.

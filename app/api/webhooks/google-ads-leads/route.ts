@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { normalizePhone } from '@/lib/phone';
+import { upsertLead } from '@/lib/lead-upsert';
 import { extractLeadFields, type AdsColumn } from '@/lib/google-ads-lead-parse';
 import { recordTouchpoint } from '@/lib/lead-touchpoint';
 
@@ -71,8 +72,11 @@ export async function POST(request: NextRequest) {
       .single();
     if (!contact) return NextResponse.json({ error: 'contact upsert failed' }, { status: 500 });
 
-    // Create the lead.
-    const { data: lead } = await db.from('leads').insert({
+    // Create the lead. This path had no existence check at all, so a repeat
+    // submission for the same phone number made a second lead for the same
+    // contact — and now that one-per-contact is enforced, a plain insert would
+    // raise instead.
+    const lead = await upsertLead(db, {
       workspace_id: workspaceId,
       contact_id: contact.id,
       title: `Lead — ${displayName}`,
@@ -83,7 +87,7 @@ export async function POST(request: NextRequest) {
       channel: 'google_ads',
       tags: ['google_ads'],
       custom_fields: { google_lead_id: leadId, gcl_id: body.gcl_id ?? null, ...fields.extra },
-    }).select('id').single();
+    });
 
     // Attribution touchpoint (also seeds contact channel/first-last touch).
     await recordTouchpoint(db, {

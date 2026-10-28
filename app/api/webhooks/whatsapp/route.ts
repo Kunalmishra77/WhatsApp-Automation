@@ -8,6 +8,7 @@ import { logActivity } from '@/lib/activity-log';
 import { getRequiredSecret } from '@/lib/supabase-env';
 import { chooseRecipientForReply, type RecipientCandidate } from '@/lib/campaign-reply-attribution';
 import { recordTouchpoint } from '@/lib/lead-touchpoint';
+import { upsertLead } from '@/lib/lead-upsert';
 import { applyInboxRules } from '@/lib/inbox-rules-engine';
 import { processFlowForMessage } from '@/lib/flow-engine';
 import { dispatchWebhookEvent } from '@/lib/outbound-webhook';
@@ -1595,8 +1596,11 @@ async function autoCreateOrUpdateLead(
       isBusinessReply = isBusinessGreeting(firstIn?.content as string | null);
     }
 
-    // Create new lead automatically
-    const { data: newLead } = await db.from('leads').insert({
+    // Create new lead automatically. The existence check above cannot be
+    // trusted on its own: several inbound events for one contact are processed
+    // concurrently, and all of them used to pass it and all of them insert. That
+    // left 222 contacts holding more than one lead, one of them five.
+    const newLead = await upsertLead(db, {
       workspace_id:    workspaceId,
       contact_id:      contactId,
       conversation_id: conversationId,
@@ -1608,14 +1612,16 @@ async function autoCreateOrUpdateLead(
       tags:            [],
       custom_fields:   {},
       is_business_reply: isBusinessReply,
-    }).select('id').single();
+    });
 
     // Phase 1 (Unified Lead Hub): attribute the auto-created lead (WhatsApp).
-    if (newLead?.id) {
+    // Only the call that actually inserted records it, so a race produces one
+    // touchpoint rather than one per event.
+    if (newLead.created && newLead.id) {
       void recordTouchpoint(db, {
         workspaceId,
         contactId,
-        leadId: newLead.id as string,
+        leadId: newLead.id,
         channel: 'whatsapp',
         sourceDetail: 'WhatsApp conversation',
         refType: 'conversation',
@@ -1623,7 +1629,9 @@ async function autoCreateOrUpdateLead(
       });
     }
 
-    console.log(`[AutoLead] Created lead for contact ${contactId} (Cold baseline; AI scorer will classify)`);
+    if (newLead.created) {
+      console.log(`[AutoLead] Created lead for contact ${contactId} (Cold baseline; AI scorer will classify)`);
+    }
   } catch {
     // silent fail — lead creation is non-critical
   }
@@ -2561,7 +2569,7 @@ async function handleNativeFlowReply(
         });
       } else {
         const displayName = fields.full_name || customerName || contactPhone;
-        const { data: flowLead } = await db.from('leads').insert({
+        const flowLead = await upsertLead(db, {
           workspace_id:    sessWorkspaceId,
           contact_id:      sessContactId,
           conversation_id: sessConversationId,
@@ -2574,13 +2582,16 @@ async function handleNativeFlowReply(
           notes:           summaryLine,
           tags:            [],
           custom_fields:   {},
-        }).select('id').single();
+        });
         // Phase 1 (Unified Lead Hub): record the form-submission touchpoint.
-        if (flowLead?.id) {
+        // A submitted form is worth a touchpoint even when the contact already
+        // had a lead — unlike the auto-lead path, which only records on first
+        // creation — so this attaches to whichever lead exists.
+        if (flowLead.id) {
           void recordTouchpoint(db, {
             workspaceId: sessWorkspaceId,
             contactId: sessContactId,
-            leadId: flowLead.id as string,
+            leadId: flowLead.id,
             channel: 'whatsapp',
             sourceDetail: 'WhatsApp form',
             refType: 'form',
