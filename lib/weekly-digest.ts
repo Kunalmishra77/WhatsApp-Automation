@@ -32,7 +32,7 @@ export async function sendWeeklyDigest(
     // Recipients: workspace admins/owners with an email.
     const { data: members } = await db
       .from('workspace_members')
-      .select('role, profiles(email, full_name)')
+      .select('role, profiles!workspace_members_user_id_fkey(email, full_name)')
       .eq('workspace_id', wsId)
       .in('role', ['owner', 'admin']);
     const emails = ((members ?? []) as Array<{ profiles?: { email?: string | null } | null }>)

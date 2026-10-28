@@ -29,7 +29,7 @@ export async function GET(
       .select(`
         id, user_id, role, title, is_online, is_suspended, joined_at, last_active_at,
         custom_role_id, page_access, permission_overrides, max_chats,
-        profiles(full_name, email, avatar_url)
+        profiles!workspace_members_user_id_fkey(full_name, email, avatar_url)
       `)
       .eq('id', id)
       .eq('workspace_id', workspaceId)

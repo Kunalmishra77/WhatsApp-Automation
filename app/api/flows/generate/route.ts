@@ -1,6 +1,10 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
-import { callAI } from '@/lib/ai-client';
+import { callAI, getActiveProvider } from '@/lib/ai-client';
+
+// Matches the other AI routes. Declared rather than relied on by default so this
+// one cannot drift onto a runtime where the admin Supabase client is unavailable.
+export const runtime = 'nodejs';
 
 // POST /api/flows/generate
 // Body: { workspaceId: string, description: string }
@@ -63,14 +67,33 @@ Return ONLY valid JSON in this exact shape:
       jsonMode: true,
     });
     if (!raw) {
-      return NextResponse.json({ error: 'AI generation failed' }, { status: 502 });
+      // A bare 502 said nothing, and this failed four times in a row with the AI
+      // working normally everywhere else — auto-replies were being generated the
+      // same hour. Name the model and the provider chain that were actually tried
+      // so the next failure points somewhere instead of having to be guessed at.
+      const providers = getActiveProvider();
+      console.error(`[FlowGenerate] callAI returned null — model=${flowModel} providers=${providers} workspace=${workspaceId}`);
+      return NextResponse.json({
+        error: providers.startsWith('none')
+          ? 'No AI provider is configured on the server (OPENAI_API_KEY / OPENROUTER_API_KEY).'
+          : `AI generation failed. Tried ${providers} with ${flowModel}. The server log has the provider's own error.`,
+      }, { status: 502 });
     }
 
     let flow: Record<string, unknown>;
     try {
       flow = JSON.parse(raw) as Record<string, unknown>;
     } catch {
-      return NextResponse.json({ error: 'AI returned invalid JSON' }, { status: 500 });
+      // 2000 tokens is enough for a normal flow (a real generation used 911), but
+      // a long description can still run over and the cut-off JSON looks like a
+      // model fault rather than a limit.
+      const truncated = raw.length > 0 && !raw.trimEnd().endsWith('}');
+      console.error(`[FlowGenerate] unparseable JSON (${raw.length} chars, truncated=${truncated})`);
+      return NextResponse.json({
+        error: truncated
+          ? 'The flow came back cut off — try a shorter description.'
+          : 'AI returned invalid JSON',
+      }, { status: 500 });
     }
 
     // Validate minimal shape

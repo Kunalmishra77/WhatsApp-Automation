@@ -44,7 +44,7 @@ export async function PATCH(
 
     const { data: target } = await db
       .from('workspace_members')
-      .select('id, user_id, role, title, is_suspended, profiles(full_name, email)')
+      .select('id, user_id, role, title, is_suspended, profiles!workspace_members_user_id_fkey(full_name, email)')
       .eq('id', id)
       .eq('workspace_id', workspaceId)
       .maybeSingle();
@@ -150,7 +150,7 @@ export async function DELETE(
 
     const { data: target } = await db
       .from('workspace_members')
-      .select('user_id, role, profiles(full_name, email)')
+      .select('user_id, role, profiles!workspace_members_user_id_fkey(full_name, email)')
       .eq('id', id).eq('workspace_id', workspaceId).maybeSingle();
 
     if (target?.user_id === auth.userId) {

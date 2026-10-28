@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       .select(`
         id, user_id, role, is_online, title, is_suspended, joined_at, last_active_at, max_chats,
         custom_role_id, page_access,
-        profiles(full_name, email, avatar_url),
+        profiles!workspace_members_user_id_fkey(full_name, email, avatar_url),
         custom_role:workspace_roles!custom_role_id(id, name)
       `)
       .eq('workspace_id', workspaceId)

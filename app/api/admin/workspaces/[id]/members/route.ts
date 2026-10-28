@@ -18,7 +18,7 @@ export async function GET(
   const { id } = await params;
   const { data, error } = await db
     .from('workspace_members')
-    .select('id, role, is_online, created_at, profiles(id, full_name, email, avatar_url)')
+    .select('id, role, is_online, created_at, profiles!workspace_members_user_id_fkey(id, full_name, email, avatar_url)')
     .eq('workspace_id', id)
     .order('created_at', { ascending: true });
 

@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
 
       const { data: memberRows } = await db
         .from('workspace_members')
-        .select('user_id, profiles(email)')
+        .select('user_id, profiles!workspace_members_user_id_fkey(email)')
         .eq('workspace_id', sub.workspace_id)
         .in('role', ['super_admin', 'admin']);
       const admins = (memberRows ?? []) as AdminMemberRow[];
