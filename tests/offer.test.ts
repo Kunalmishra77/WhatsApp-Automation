@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parseActiveOffer, computeOfferStatus, buildOfferBlock, pricingBlockForSettings,
   extractMoneyAmounts, findConflictingAmounts, validateOfferInput, isValidDate,
+  offerReadinessForCampaign,
 } from '../lib/offer';
 
 const OFFER = { name: 'Monsoon Offer', details: 'Buy 1 Year for ₹75,000, get 1 Year FREE.', valid_from: '2026-08-04', valid_until: '2026-08-31' };
@@ -99,9 +100,16 @@ describe('validateOfferInput', () => {
     expect(validateOfferInput({ name: 'A', details: 'B', valid_until: '2026-02-30' }).ok).toBe(false);
   });
   it('accepts a valid offer and trims', () => {
-    const r = validateOfferInput({ name: '  Monsoon  ', details: '  ₹75,000  ' });
+    const r = validateOfferInput({ name: '  Monsoon  ', details: '  ₹75,000  ', valid_until: '2026-08-31' });
     expect(r.ok).toBe(true);
     if (r.ok) { expect(r.offer.name).toBe('Monsoon'); expect(r.offer.details).toBe('₹75,000'); }
+  });
+  // An offer with no end date never retires, and while it is live it is the only
+  // price the bot may quote. Thames ran one into late October.
+  it('rejects an offer with no end date', () => {
+    const r = validateOfferInput({ name: 'A', details: 'B' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/valid_until is required/);
   });
   it('accepts a valid calendar date', () => {
     const r = validateOfferInput({ name: 'A', details: 'B', valid_until: '2026-08-31' });
@@ -111,7 +119,7 @@ describe('validateOfferInput', () => {
     expect(validateOfferInput({ name: 'x'.repeat(121), details: 'y' }).ok).toBe(false);
   });
   it('accepts a name exactly 120 characters', () => {
-    const r = validateOfferInput({ name: 'x'.repeat(120), details: 'y' });
+    const r = validateOfferInput({ name: 'x'.repeat(120), details: 'y', valid_until: '2026-08-31' });
     expect(r.ok).toBe(true);
   });
 });
@@ -130,5 +138,64 @@ describe('isValidDate', () => {
     expect(isValidDate('31-08-2026')).toBe(false);
     expect(isValidDate('bad')).toBe(false);
     expect(isValidDate('')).toBe(false);
+  });
+});
+
+// Every case here is one that has actually happened on this platform, which is
+// why the check exists at all.
+describe('offerReadinessForCampaign', () => {
+  const TODAY = '2026-10-28';
+
+  it('warns when no offer is set — the Fitness First Diwali case', () => {
+    const r = offerReadinessForCampaign({}, TODAY);
+    expect(r.level).toBe('warn');
+    expect(r.headline).toMatch(/no offer is set/i);
+    expect(r.detail).toMatch(/knowledge base/i);
+  });
+
+  it('warns when the offer has already ended — the VMS case', () => {
+    const r = offerReadinessForCampaign(
+      { active_offer: { name: 'VMS & Alibaba', details: 'x', valid_from: '2026-09-07', valid_until: '2026-09-09' } },
+      TODAY,
+    );
+    expect(r.level).toBe('warn');
+    expect(r.headline).toContain('VMS & Alibaba');
+    expect(r.detail).toContain('2026-09-09');
+  });
+
+  it('warns when the offer starts later than the campaign', () => {
+    const r = offerReadinessForCampaign(
+      { active_offer: { name: 'Diwali', details: 'x', valid_from: '2026-11-05' } },
+      TODAY,
+    );
+    expect(r.level).toBe('warn');
+    expect(r.headline).toMatch(/not started/i);
+    expect(r.detail).toContain('2026-11-05');
+  });
+
+  // Thames ran this one into late October with no end date, and it stayed the
+  // only price its bot would quote.
+  it('warns when a running offer has no end date', () => {
+    const r = offerReadinessForCampaign(
+      { active_offer: { name: 'Monsoon Offer', details: 'x' } },
+      TODAY,
+    );
+    expect(r.level).toBe('warn');
+    expect(r.headline).toMatch(/no end date/i);
+  });
+
+  it('is happy with a running offer that retires itself', () => {
+    const r = offerReadinessForCampaign(
+      { active_offer: { name: 'Diwali Special', details: 'x', valid_from: '2026-10-28', valid_until: '2026-11-09' } },
+      TODAY,
+    );
+    expect(r.level).toBe('ok');
+    expect(r.headline).toContain('Diwali Special');
+    expect(r.detail).toContain('2026-11-09');
+  });
+
+  it('treats a malformed offer as no offer rather than throwing', () => {
+    expect(offerReadinessForCampaign({ active_offer: { name: '', details: '' } }, TODAY).level).toBe('warn');
+    expect(offerReadinessForCampaign(null, TODAY).level).toBe('warn');
   });
 });

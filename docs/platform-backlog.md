@@ -29,17 +29,21 @@ repo, or with a scroll of an old chat, can use them.
 
 ## P1 — Leads being lost, today
 
-- [ ] **Make the Current Offer impossible to skip when a campaign goes out.**
-  This is the root of the 2026-10-28 incident and it will recur on the next
-  campaign. Of twelve workspaces, two had ever set an offer and both were stale.
-  The campaign wizard should ask for the offer, and refuse — or loudly warn — to
-  send a promotional campaign while `settings.active_offer` is missing or outside
-  its window. Also surface the offer's state on the dashboard so a lapsed one is
-  visible without opening Knowledge Base. See
-  `memory/kb-pricing-conflict-three-sources.md`.
-- [ ] **Warn on an offer with no end date.** Thames ran a "Monsoon Offer" with no
-  `valid_until` into late October and it stayed the bot's only pricing authority.
-  The save path should require an end date, or at least warn hard.
+- [x] 2026-10-28 — **The campaign wizard's review step now says what the bot will
+  quote.** `offerReadinessForCampaign` covers all five states that have actually
+  occurred: no offer, ended, not started, running with no end date, running
+  properly. A warning has to be ticked before the campaign can be sent, so
+  nobody skips it without choosing to.
+- [x] 2026-10-28 — **An offer now requires an end date**, server-side in
+  `validateOfferInput` and in the card's save button. Without one it never
+  retires and stays the bot's only quotable price — Thames's "Monsoon Offer"
+  into late October.
+- [ ] **Surface the offer's state on the dashboard.** The wizard catches it at
+  send time, but a lapsed offer is still invisible until someone opens Knowledge
+  Base. A client should see "your offer ended 3 days ago" without looking for it.
+- [ ] **Remind before an offer lapses.** The `offer-lapse-check` cron (migration
+  059) emails admins on lapse. It should warn the client a few days ahead, and it
+  should be visible in the app, not only in email.
 
 ## P2 — Correctness of what the dashboard shows
 

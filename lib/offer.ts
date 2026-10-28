@@ -96,6 +96,73 @@ export function pricingBlockForSettings(
   return offerContextForSettings(settings, todayISO).block;
 }
 
+// ── Is this workspace ready to run a campaign? ────────────────────────────────
+// Asked on the campaign wizard's review step, because the offer is the thing
+// nobody remembers. Fitness First sent a Diwali campaign — flat 30% off, 12+3
+// months, ₹3,333/month — with no offer set, and the bot answered price questions
+// from the knowledge base: ₹7,500/month in one reply, ₹8,000 activation plus
+// ₹5,500/month in another, to a lead who asked twice. Of twelve workspaces, two
+// had ever set an offer and both were stale.
+//
+// Every case below is one that has actually happened on this platform.
+export interface OfferReadiness {
+  level: 'ok' | 'warn';
+  headline: string;
+  detail: string;
+}
+
+export function offerReadinessForCampaign(
+  settings: Record<string, unknown> | null | undefined,
+  todayISO: string,
+): OfferReadiness {
+  const offer = parseActiveOffer(settings);
+  const status = computeOfferStatus(offer, todayISO);
+
+  if (!offer || status === 'none') {
+    return {
+      level: 'warn',
+      headline: 'No offer is set for the bot',
+      detail:
+        'Customers who reply to this campaign and ask about price will get whatever is in the knowledge base, which may not be what the campaign advertises. Set the Current Offer on the Knowledge Base page first.',
+    };
+  }
+
+  if (status === 'expired') {
+    return {
+      level: 'warn',
+      headline: `"${offer.name}" has already ended`,
+      detail:
+        `It ended on ${offer.valid_until}, so the bot will not quote it and will answer from this business's regular prices instead. If this campaign is advertising it, extend the end date or replace the offer.`,
+    };
+  }
+
+  if (status === 'scheduled') {
+    return {
+      level: 'warn',
+      headline: `"${offer.name}" has not started yet`,
+      detail:
+        `It begins on ${offer.valid_from}. Anyone who replies before then will not be quoted it. Either start the offer today or schedule this campaign for the same date.`,
+    };
+  }
+
+  // Running, but with no end date it never stops — Thames's "Monsoon Offer" was
+  // still the only price its bot would quote in late October.
+  if (!offer.valid_until) {
+    return {
+      level: 'warn',
+      headline: `"${offer.name}" has no end date`,
+      detail:
+        'The bot will keep quoting it long after this campaign is over, and will refuse to quote anything else. Add an end date so it retires itself.',
+    };
+  }
+
+  return {
+    level: 'ok',
+    headline: `The bot will quote "${offer.name}"`,
+    detail: `Valid until ${offer.valid_until}. After that it stops on its own and price questions go back to this business's regular plans.`,
+  };
+}
+
 export function extractMoneyAmounts(text: string): string[] {
   const out: string[] = [];
   if (!text) return out;
@@ -135,8 +202,14 @@ export function validateOfferInput(
   if (details.length > 1500) return { ok: false, error: 'details must be 1500 characters or fewer' };
   const vf = typeof body.valid_from === 'string' && body.valid_from ? body.valid_from : undefined;
   const vu = typeof body.valid_until === 'string' && body.valid_until ? body.valid_until : undefined;
+  // An end date is required. Without one the offer never retires, and while it
+  // is live it is the only price the bot may quote — Thames ran a "Monsoon
+  // Offer" with no end date into late October, and its bot was still quoting
+  // monsoon discounts as the sole pricing authority. Nothing in the business
+  // tells the bot an offer is over; only this date does.
+  if (!vu) return { ok: false, error: 'valid_until is required — an offer with no end date never stops being quoted' };
   if (vf && !isValidDate(vf)) return { ok: false, error: 'valid_from must be YYYY-MM-DD' };
-  if (vu && !isValidDate(vu)) return { ok: false, error: 'valid_until must be YYYY-MM-DD' };
+  if (!isValidDate(vu)) return { ok: false, error: 'valid_until must be YYYY-MM-DD' };
   if (vf && vu && vu < vf) return { ok: false, error: 'valid_until must be on or after valid_from' };
   return { ok: true, offer: { name, details, valid_from: vf, valid_until: vu } };
 }

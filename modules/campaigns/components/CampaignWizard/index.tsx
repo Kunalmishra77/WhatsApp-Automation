@@ -31,6 +31,7 @@ import { Switch } from '@/components/ui/switch';
 import { WhatsAppPreview } from '@/modules/templates/components/WhatsAppPreview';
 import { normalizePhone } from '@/lib/phone';
 import { AiCopyButton } from './AiCopyButton';
+import { offerReadinessForCampaign, type OfferReadiness } from '@/lib/offer';
 
 const STEPS = ['Name & Setup', 'Select Template', 'Audience', 'Schedule', 'Review'];
 
@@ -439,7 +440,39 @@ export function CampaignWizard({ open, onClose, initialPhones }: CampaignWizardP
   const [testPhone,   setTestPhone]   = useState('');
   const [testSending, setTestSending] = useState(false);
   const workspaceId     = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
+  // The offer the bot will quote to anyone who replies to this campaign. It is
+  // the thing nobody sets: of twelve workspaces, two ever had one and both were
+  // stale. Fitness First sent a Diwali campaign with none, and the bot answered
+  // price questions from the knowledge base — three different prices in one
+  // morning, to a lead who asked twice.
+  const [offerSettings, setOfferSettings] = useState<Record<string, unknown> | null>(null);
+  const [offerChecked, setOfferChecked] = useState(false);
+  const [offerAck, setOfferAck] = useState(false);
   const { data: templates = [] } = useTemplates();
+
+  useEffect(() => {
+    if (!open || !workspaceId) return;
+    setOfferChecked(false);
+    setOfferAck(false);
+    fetch(`/api/settings/workspace?workspaceId=${workspaceId}`)
+      .then((r) => r.json())
+      .then((d: { workspace?: { settings?: Record<string, unknown> } }) => {
+        setOfferSettings(d.workspace?.settings ?? {});
+      })
+      // Failing to read the offer must not block a send. The panel says it
+      // could not check rather than pretending everything is fine.
+      .catch(() => setOfferSettings(null))
+      .finally(() => setOfferChecked(true));
+  }, [open, workspaceId]);
+
+  const offerReadiness: OfferReadiness | null =
+    offerChecked && offerSettings !== null
+      ? offerReadinessForCampaign(
+          offerSettings,
+          new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }),
+        )
+      : null;
+  const offerBlocks = offerReadiness?.level === 'warn' && !offerAck;
   const create          = useCreateCampaign();
 
   const [manualMediaType,  setManualMediaType]  = useState<string | null>(null);
@@ -1332,6 +1365,60 @@ export function CampaignWizard({ open, onClose, initialPhones }: CampaignWizardP
                   <p className="text-xs text-red-700">Template requires a {reqMediaType?.toLowerCase()} URL — go back to step 2.</p>
                 </div>
               )}
+
+              {/* What the bot will say about price to anyone who replies. This
+                  is the step that was missing when Fitness First's Diwali
+                  campaign went out with no offer set. */}
+              {offerReadiness && (
+                <div
+                  className={cn(
+                    'rounded-lg border px-3 py-2.5 space-y-2',
+                    offerReadiness.level === 'ok'
+                      ? 'border-emerald-200 bg-emerald-50'
+                      : 'border-amber-200 bg-amber-50',
+                  )}
+                >
+                  <div className="flex items-start gap-2">
+                    {offerReadiness.level === 'ok' ? (
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                    ) : (
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                    )}
+                    <div className="min-w-0 space-y-1">
+                      <p
+                        className={cn(
+                          'text-xs font-medium',
+                          offerReadiness.level === 'ok' ? 'text-emerald-900' : 'text-amber-900',
+                        )}
+                      >
+                        {offerReadiness.headline}
+                      </p>
+                      <p
+                        className={cn(
+                          'text-[11px] leading-snug',
+                          offerReadiness.level === 'ok' ? 'text-emerald-800' : 'text-amber-800',
+                        )}
+                      >
+                        {offerReadiness.detail}
+                      </p>
+                    </div>
+                  </div>
+
+                  {offerReadiness.level === 'warn' && (
+                    <label className="flex cursor-pointer items-start gap-2 border-t border-amber-200 pt-2">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-amber-600"
+                        checked={offerAck}
+                        onChange={(e) => setOfferAck(e.target.checked)}
+                      />
+                      <span className="text-[11px] leading-snug text-amber-900">
+                        Send anyway — I know the bot will not quote this campaign's offer.
+                      </span>
+                    </label>
+                  )}
+                </div>
+              )}
               <div className="rounded-lg border border-border p-4 space-y-2 text-sm">
                 <Row label="Name"         value={state.name} />
                 {state.campaignType === 'location' ? (
@@ -1426,7 +1513,7 @@ export function CampaignWizard({ open, onClose, initialPhones }: CampaignWizardP
             </Button>
           ) : (
             <Button
-              disabled={create.isPending || isLaunching || (templateNeedsMedia && !state.mediaId)}
+              disabled={create.isPending || isLaunching || (templateNeedsMedia && !state.mediaId) || offerBlocks}
               onClick={() => void handleCreate()}
             >
               {(create.isPending || isLaunching) ? (state.scheduledAt ? 'Scheduling…' : 'Launching…') : (state.scheduledAt ? 'Schedule Campaign' : 'Send Now')}

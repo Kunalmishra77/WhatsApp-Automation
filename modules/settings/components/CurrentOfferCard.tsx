@@ -114,8 +114,15 @@ export function CurrentOfferCard({ workspaceId, initialOffer }: { workspaceId: s
           <Input type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} className="h-8 text-sm" />
         </label>
         <label className="flex-1 space-y-1 text-xs">
-          <span className="text-muted-foreground">Valid until</span>
+          <span className="text-muted-foreground">Valid until <span className="text-red-500">*</span></span>
           <Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className="h-8 text-sm" />
+          {!validUntil && (
+            <p className="mt-1 text-[11px] leading-snug text-amber-700">
+              Required. While an offer is live it is the only price the bot will
+              quote, so without an end date it keeps quoting it after the offer
+              is over.
+            </p>
+          )}
         </label>
       </div>
       {error && <p className="text-xs text-red-600">{error}</p>}
@@ -128,7 +135,7 @@ export function CurrentOfferCard({ workspaceId, initialOffer }: { workspaceId: s
         </div>
       )}
       <div className="flex gap-2">
-        <Button size="sm" onClick={() => void save()} disabled={busy} className="gap-1.5">
+        <Button size="sm" onClick={() => void save()} disabled={busy || !validUntil} className="gap-1.5">
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
           Save
         </Button>
