@@ -194,11 +194,18 @@ export async function GET(request: NextRequest) {
     // counts were inflated in ten of twelve workspaces. Those numbers come out
     // slightly lower now and are correct for the first time.
     //
-    // Only computed on the first page (offset === 0) — "load more" re-sends the
-    // same filters with a higher offset, and the UI only reads pages[0].summary.
+    // The function also returns `total`, which the page query's own exact count
+    // gets wrong: with leads!inner active it counts conversation-and-lead pairs,
+    // so filtering the inbox by Hot showed a number higher than the list
+    // (migration 128). So this runs on every page, not only the first — the UI
+    // reads `total` from the most recent page to decide whether "Load more" has
+    // anything left, and a page without one would end the list early. Only the
+    // bucket counts are withheld after the first page, since nothing reads them.
     let summary: Summary | null = null;
     let pageResult: any;
-    if (offset === 0) {
+    // Null when the function could not be reached — see the fallback below.
+    let rpcTotal: number | null = null;
+    {
       const todayRange = resolveRange('today');
       const weekRange = resolveRange('this_week');
       const monthRange = resolveRange('this_month');
@@ -231,6 +238,9 @@ export async function GET(request: NextRequest) {
           // contact matches?" test matches the route's behaviour: with `q` set
           // and no contact hits, only last_message is searched.
           p_contact_ids: matchingContactIds.length > 0 ? matchingContactIds : null,
+          // `total` follows the open tab: the Spam tab counts spam and only
+          // spam, the others exclude it. The bucket counts never vary with it.
+          p_flag: flag ?? null,
         }),
       ]);
       pageResult = pr;
@@ -243,19 +253,20 @@ export async function GET(request: NextRequest) {
       // rather than failing the page, which is what eight independent counts
       // effectively did when one of them errored.
       const s = ((summaryResult as { data: unknown }).data as Array<Record<string, number>> | null)?.[0];
-      summary = {
-        new_today: Number(s?.new_today ?? 0),
-        new_week: Number(s?.new_week ?? 0),
-        new_month: Number(s?.new_month ?? 0),
-        hot: Number(s?.hot ?? 0),
-        warm: Number(s?.warm ?? 0),
-        cold: Number(s?.cold ?? 0),
-        unanswered: Number(s?.unanswered ?? 0),
-        unread: Number(s?.unread ?? 0),
-        total: 0, // filled from the page query's exact count below
-      };
-    } else {
-      pageResult = await pageQuery;
+      rpcTotal = s && s.total != null ? Number(s.total) : null;
+      if (offset === 0) {
+        summary = {
+          new_today: Number(s?.new_today ?? 0),
+          new_week: Number(s?.new_week ?? 0),
+          new_month: Number(s?.new_month ?? 0),
+          hot: Number(s?.hot ?? 0),
+          warm: Number(s?.warm ?? 0),
+          cold: Number(s?.cold ?? 0),
+          unanswered: Number(s?.unanswered ?? 0),
+          unread: Number(s?.unread ?? 0),
+          total: 0, // set below, once the total is resolved
+        };
+      }
     }
 
     const { data: pageRows, error: pageErr, count: total } = pageResult;
@@ -277,7 +288,11 @@ export async function GET(request: NextRequest) {
       return true;
     });
 
-    const totalNum = Number(total ?? 0);
+    // The function's total is the correct one. The page query's exact count is
+    // kept as the fallback for the window where the function is missing — it is
+    // how "Load more" keeps working if migration 128 has not been applied yet —
+    // and dropping that count is the next saving to take, once this is proven.
+    const totalNum = rpcTotal ?? Number(total ?? 0);
     if (summary) summary.total = totalNum;
 
     return NextResponse.json({ conversations, total: totalNum, summary });

@@ -47,12 +47,12 @@ repo, or with a scroll of an old chat, can use them.
 
 ## P2 — Correctness of what the dashboard shows
 
-- [ ] **`total` is inflated while temperature or stage is filtered.** The page
-  query's `count: 'exact'` counts conversation-and-lead pairs. The summary counts
-  were fixed in migration 127; this one is still wrong, and the comment in
-  `app/api/conversations/search/route.ts` says so. Either extend
-  `conversation_summary` with the flag and spam rules so it can return `total`
-  too, or add a small companion function.
+- [x] 2026-10-28 — **`total` no longer counts conversation-and-lead pairs.**
+  `conversation_summary` returns it (migration 128), carrying the rules the
+  summary does not: it follows the open tab and shows spam only on the Spam tab.
+  The page query's exact count stays as the fallback for the window before the
+  migration is applied; **dropping that count is the next saving to take**, once
+  the function is proven in production — it is a second full scan per load.
 - [ ] **222 conversations carry more than one lead** — 453 lead rows between
   them, one conversation with five. Find out how they are created before deciding
   whether to merge, because the fix depends on the cause. This is what made the
