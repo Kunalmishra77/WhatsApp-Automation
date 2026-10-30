@@ -3068,27 +3068,28 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
     .maybeSingle();
 
   if (updatedCr?.campaign_id && ['delivered', 'read', 'failed'].includes(status.status)) {
-    // Re-aggregate via COUNT queries (bypasses Supabase's 1000-row default row limit).
-    // sent_count is also re-calculated here so it stays in sync as messages progress
-    // from 'sent' → 'delivered' (executor writes sent_count at completion time but
-    // later delivery webhooks can push more rows into delivered without updating it).
-    const cid = updatedCr.campaign_id;
-    const [sentRes, deliveredRes, readRes, failedRes] = await Promise.all([
-      db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).in('status', ['sent', 'delivered', 'read', 'replied']),
-      db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).in('status', ['delivered', 'read', 'replied']),
-      db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).in('status', ['read', 'replied']),
-      db.from('campaign_recipients').select('id', { count: 'exact', head: true }).eq('campaign_id', cid).eq('status', 'failed'),
-    ]);
-
-    await db
-      .from('campaigns')
-      .update({
-        sent_count:      sentRes.count      ?? 0,
-        delivered_count: deliveredRes.count ?? 0,
-        read_count:      readRes.count      ?? 0,
-        failed_count:    failedRes.count    ?? 0,
-      })
-      .eq('id', cid);
+    // Re-aggregate in one statement (migration 137). This was four exact counts
+    // over the same recipient rows plus an update — five round trips on the path
+    // between one delivery receipt and the next, 113,905 calls and 417 s of
+    // database time for the three `status IN (...)` counts alone. The cumulative
+    // rule they encoded now lives in the function; the numbers are unchanged.
+    //
+    // sent_count is still re-derived here, not left to the executor: it writes
+    // sent_count at completion time, but later receipts keep pushing rows from
+    // 'sent' into 'delivered', and without this the total would stop moving.
+    const { error: recountError } = await db.rpc('campaign_sync_delivery_counts', {
+      p_campaign: updatedCr.campaign_id,
+    });
+    // Fail-open — one unsynced receipt must not cost the rest of the webhook —
+    // but never silently: the client reads these four numbers as their campaign
+    // report, and a count that quietly stopped updating is the hardest kind of
+    // wrong number to notice.
+    if (recountError) {
+      console.error(
+        `[StatusUpdate] campaign recount failed for ${updatedCr.campaign_id}:`,
+        recountError.message,
+      );
+    }
   }
 }
 

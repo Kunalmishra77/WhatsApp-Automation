@@ -103,6 +103,14 @@ repo, or with a scroll of an old chat, can use them.
 Baseline and the queries that produced it: `memory/scalability-measured-baseline.md`.
 `pg_stat_statements` is enabled — start there, not in the code.
 
+**Read it with one caution.** It has not been reset since 17 Sept, so it is a
+cumulative record of work the platform *has* done, not work it still does. The
+single largest application entry — the conversations-with-`leads!inner` shape at
+74,460 calls and 1,344 s — was fixed by migrations 127/128 and has taken 258
+calls since; its comment in `app/api/conversations/search/route.ts` records the
+number it had at the time. Before acting on an entry, read the live code that
+would produce it and confirm the shape is still issued.
+
 - [x] 2026-10-30 — **A late receipt no longer downgrades a read message, and
   stops rewriting rows for nothing.** Both tables applied receipts without
   checking they were an advance: `messages` had no guard at all, and
@@ -155,6 +163,31 @@ Baseline and the queries that produced it: `memory/scalability-measured-baseline
   had no index on `phone`, so that 81% of messages ran 13.3 ms instead of 0.1 ms
   (160 s of database time since 17 Sept), and 717 ms against the largest
   workspace, scanning 321,929 rows to return nothing.
+- [x] 2026-10-30 — **Four counts and an update on every delivery receipt.** Each
+  'delivered'/'read'/'failed' webhook that advanced a recipient row re-aggregated
+  the campaign's totals with four separate exact counts and then wrote them back:
+  five round trips, four scans of the same rows, on the path between one receipt
+  and the next. The three `status IN (...)` counts share one pg_stat_statements
+  entry at **113,905 calls, 3.7 ms mean, 417.3 s** — ~38,000 receipts × 3, with
+  the `status = 'failed'` count its own entry on top. **The largest application
+  statement still being issued.**
+  Now one statement that counts and writes in the same pass
+  (`campaign_sync_delivery_counts`, migration 137). On the platform's largest
+  campaign, 18,449 recipients: four counts ~31 ms / 2,604 buffers → one pass
+  12.7 ms / 651 buffers, and five round trips → one. Verified across all 138
+  campaigns with recipients: the FILTER math reproduces the four counts with
+  **0 mismatches**.
+  Left alone on purpose: `filtered_count` and `replied_count`. This path has
+  never maintained them — replied_count is campaign-reply-sync's — and
+  recomputing one from a delivery receipt would make this the second writer of a
+  number it does not own.
+
+- [ ] **`get_unanswered_conversations` — 20,654 calls at 17.9 ms, 369.4 s.** The
+  reply sweep (`lib/reply-sweep.ts`), roughly every three minutes. Second-largest
+  live application cost after the campaign recount above. Unexamined: it is a
+  cron, so it costs database time rather than anyone's latency, which is why it
+  sits below the receipt path rather than above it.
+
 - [ ] **Still sequential in the inbound path**: `contacts` upsert → `conversations`
   read → `conversations` upsert → `messages` insert, which is four round trips
   that genuinely depend on each other. Collapsing them needs one database
