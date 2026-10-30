@@ -84,7 +84,7 @@ describe('Fitness First — Welcome Message, after the upgrade', () => {
   });
 
   it('reads as a sentence', () => {
-    expect(describeFlow(NODES, EDGES)).toMatch(/^When someone says “Know More”/);
+    expect(describeFlow(NODES, EDGES)).toMatch(/^When a message contains “Know More”/);
   });
 
   it('walks a good booking through to the confirmation', async () => {

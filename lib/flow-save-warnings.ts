@@ -66,7 +66,7 @@ export async function flowSaveWarnings(
     const [flowsRes, templatesRes] = await Promise.all([
       supabase
         .from('chatbot_flows')
-        .select('id, name, is_active, trigger_type, trigger_value, created_at')
+        .select('id, name, is_active, trigger_type, trigger_value, priority, created_at')
         .eq('workspace_id', workspaceId),
       needsTemplates
         ? supabase.from('templates').select('name, language, status').eq('workspace_id', workspaceId)

@@ -306,13 +306,9 @@ Phase 1 shipped in c90b0c8.
   no database); `lib/flow-save-warnings.ts` is the only part that reads one, and
   it fetches the template list only when a flow actually has a template step.
 
-- [ ] **`chatbot_flows` has no `priority` column**, but `flow-engine.ts` sorts
-  on `flow.priority ?? 0` — so every flow scores 0, the real order is
-  oldest-first, and an author has no way to change which of two matching flows
-  wins. Found while writing the trigger-conflict warning, whose advice had to be
-  narrowed to "change the trigger or turn the other one off" because raising
-  priority is not something a client can do. The column, plus a control for it,
-  belongs with the richer-triggers work in P5.
+- [x] 2026-10-30 — **`chatbot_flows` had no `priority` column** though
+  `flow-engine.ts` sorted on `flow.priority ?? 0`. Added by migration 142 with a
+  control on the Start step, as part of the richer-triggers work in P5.
 - [x] 2026-10-30 — **Plain-language flow summary** above the builder, derived
   from the nodes on every render so it cannot drift. A branching flow is not
   flattened into one sentence — that would describe a flow that does not exist;
@@ -415,11 +411,48 @@ Phase 1 shipped in c90b0c8.
   The simulator gained a "try as another person" control, shown only when the
   flow has a Split — with a fixed session id the author could only ever preview
   one arm of their own A/B test.
-- [ ] **Richer triggers**: button or list reply id, template button click, ad
-  click by ad id, lead created / tag added / temperature changed, conversation
-  idle N hours, a schedule, campaign reply, manual/API, any-message fallback.
-  Plus **active windows** so an after-hours flow and a working-hours flow can
-  share a trigger.
+- [x] 2026-10-30 — **Richer triggers and active windows, for the
+  message-driven half.** Seven trigger types where there were two: keyword,
+  first message, **button or list reply** (by id or by its exact wording),
+  **ad click** (any ad, or one ad id), **campaign reply** (any, or one
+  campaign), **manual** (only a person or the API starts it), and
+  **any_message** as a fallback.
+  The matching moved out of flow-engine.ts into `lib/flow-triggers.ts`, and that
+  is the substance of the change: it was two cases inline in a module no test
+  can import without a database, so the order flows were tried in and what each
+  type meant had no tests at all. Thirty-one now do, and the engine, the
+  editor's conflict check, the canvas and the flow summary all read the same
+  file — the canvas cannot disagree with the panel about what starts a flow.
+  **Active windows** are IST, `from` inclusive and `to` exclusive, so
+  "09:00–18:00" and "18:00–09:00" cover the day exactly once between them —
+  which is the whole point, an after-hours flow and a working-hours flow sharing
+  one trigger. `from` after `to` is overnight and belongs to the day it starts
+  on, so "closed Sunday" does not cut a Saturday night flow off at midnight.
+  The window is checked *after* the trigger, so an out-of-hours flow does not
+  block the next candidate.
+  Two deliberate rules, each the mistake its type makes easy: `any_message` is
+  forced last whatever its priority, because a fallback that could win on age or
+  on a number someone typed would swallow every specific trigger in the
+  workspace; and `manual` never fires from a message, or a manual flow would run
+  for everyone the moment it was switched on.
+  **`priority` exists now** (migration 142) — the engine had been sorting on a
+  column that was never there. The conflict warning can finally offer raising it
+  as a remedy, and that check was extended to all seven types; it had been
+  silently ignoring five of them. Ids compare by equality, not substring: an ad
+  id that happens to contain another is a coincidence.
+  Manual start is `POST /api/flows/[id]/start`. It refuses an inactive flow (so
+  "off" means the same thing to everyone), a conversation already in a flow (two
+  flows would interleave their questions and both read the same reply), and
+  reads the workspace's own channel credentials rather than taking them from the
+  caller.
+
+- [ ] **The event-driven triggers**: lead created, tag added, temperature
+  changed, conversation idle N hours, a schedule. Left out of the batch above on
+  purpose — every one of them needs a new entry point (a cron sweep, or a hook
+  where leads and tags change) rather than a reading of an inbound message, so
+  they are a separate piece of work rather than two more cases in
+  `triggerFires`. `manual` already covers "another system decides", which is the
+  escape hatch for most of them today.
 - [x] 2026-10-30 — **A cleanup job was deleting the sessions that were waiting
   on purpose.** Found while looking for data to build drop-off analytics on, and
   the reason there is none. `cleanup_stale_flow_sessions` (migration 052) ran

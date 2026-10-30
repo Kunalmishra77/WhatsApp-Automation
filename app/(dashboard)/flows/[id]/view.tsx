@@ -134,6 +134,10 @@ export default function FlowBuilderPage() {
   const handleSave = async () => {
     setIsSaving(true);
     setShowWarnings(true);
+    const startData = nodes.find((n) => n.type === 'start')?.data as {
+      triggerType?: string; triggerValue?: string;
+      priority?: number; activeWindow?: unknown;
+    } | undefined;
     try {
       const saved = await updateFlow.mutateAsync({
         id: flowId,
@@ -142,8 +146,13 @@ export default function FlowBuilderPage() {
           is_active: isActive,
           nodes,
           edges,
-          trigger_type: (nodes.find((n) => n.type === 'start')?.data as { triggerType?: string })?.triggerType ?? 'keyword',
-          trigger_value: (nodes.find((n) => n.type === 'start')?.data as { triggerValue?: string })?.triggerValue ?? null,
+          // The trigger lives on the Start node in the editor and in the
+          // flow's own columns for the engine. Copied here rather than
+          // duplicated by the author.
+          trigger_type: startData?.triggerType ?? 'keyword',
+          trigger_value: startData?.triggerValue ?? null,
+          priority: startData?.priority ?? 0,
+          active_window: startData?.activeWindow ?? null,
         },
       });
       setLastSave({ warnings: saved.warnings, nodes, edges, isActive });

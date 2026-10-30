@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import { describeTriggerType, type ActiveWindow } from '@/lib/flow-triggers';
 import { useTemplates } from '@/modules/templates/hooks/useTemplates';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -18,6 +20,35 @@ import type {
 } from '../../types';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// Each trigger type takes at most one value; only the wording differs. The
+// three that hold an id accept a blank, which means "any" — one flow for
+// everyone who clicked an ad is what a client wants nine times out of ten.
+const TRIGGER_VALUE_FIELD: Record<string, { label: string; placeholder: string; hint: string } | null> = {
+  keyword: {
+    label: 'The word or phrase',
+    placeholder: 'e.g. Book Now',
+    hint: 'Matched anywhere in the message, ignoring case. A shorter word swallows a longer one that contains it.',
+  },
+  button: {
+    label: 'The button (leave blank for any)',
+    placeholder: 'e.g. Book Now, or book_slot',
+    hint: 'The button id or its exact wording. A typed message will not start this flow.',
+  },
+  ad_click: {
+    label: 'Ad ID (leave blank for any ad)',
+    placeholder: 'e.g. 120211234567890',
+    hint: 'Only for someone whose conversation began with a click on your Meta ad.',
+  },
+  campaign_reply: {
+    label: 'Campaign ID (leave blank for any campaign)',
+    placeholder: 'Paste a campaign id',
+    hint: 'Only for a reply we attributed to a campaign you sent.',
+  },
+  first_message: null,
+  any_message: null,
+  manual: null,
+};
 
 const ACTION_LABELS: Record<FlowActionOp['type'], string> = {
   add_tags:        'Add a tag',
@@ -87,6 +118,10 @@ export function NodeConfigPanel({ node, allNodes, onSave, onDelete, onClose }: N
     switch (node.type) {
       case 'start': {
         const d = formData as Partial<StartNodeData>;
+        // Shadowing the global `window` inside this case is deliberate: nothing
+        // here touches the browser's, and `activeWindow` reads awkwardly
+        // repeated across a dozen handlers.
+        const window = ((d as { activeWindow?: ActiveWindow | null }).activeWindow ?? null) as ActiveWindow | null;
         return (
           <>
             <div className="space-y-1.5">
@@ -94,25 +129,122 @@ export function NodeConfigPanel({ node, allNodes, onSave, onDelete, onClose }: N
               <Input value={d.label ?? ''} onChange={(e) => set('label', e.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label>Trigger Type</Label>
+              <Label>Start this flow when</Label>
               <Select value={d.triggerType ?? 'keyword'} onValueChange={(v) => set('triggerType', v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="keyword">Keyword</SelectItem>
-                  <SelectItem value="first_message">First Message</SelectItem>
+                  <SelectItem value="keyword">A message contains a word</SelectItem>
+                  <SelectItem value="button">Someone taps a button</SelectItem>
+                  <SelectItem value="first_message">Someone messages for the first time</SelectItem>
+                  <SelectItem value="ad_click">Someone arrives from a Meta ad</SelectItem>
+                  <SelectItem value="campaign_reply">Someone replies to a campaign</SelectItem>
+                  <SelectItem value="any_message">Any message (if no other flow matched)</SelectItem>
+                  <SelectItem value="manual">Only when you start it</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                {describeTriggerType(d.triggerType ?? 'keyword', d.triggerValue)}
+              </p>
             </div>
-            {d.triggerType === 'keyword' && (
+
+            {/* Each type takes at most one value, and the label and the
+                placeholder are the only difference. A blank value means "any"
+                for the three that have an id, which is what most clients
+                want — one flow for everyone who clicked an ad. */}
+            {TRIGGER_VALUE_FIELD[d.triggerType ?? 'keyword'] && (
               <div className="space-y-1.5">
-                <Label>Trigger Keyword</Label>
+                <Label>{TRIGGER_VALUE_FIELD[d.triggerType ?? 'keyword']!.label}</Label>
                 <Input
                   value={d.triggerValue ?? ''}
                   onChange={(e) => set('triggerValue', e.target.value)}
-                  placeholder="e.g. hello, hi, start"
+                  placeholder={TRIGGER_VALUE_FIELD[d.triggerType ?? 'keyword']!.placeholder}
                 />
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  {TRIGGER_VALUE_FIELD[d.triggerType ?? 'keyword']!.hint}
+                </p>
               </div>
             )}
+
+            <div className="space-y-1.5">
+              <Label>If two flows match, run</Label>
+              <Select
+                value={String((d as { priority?: number }).priority ?? 0)}
+                onValueChange={(v) => set('priority', Number(v))}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">This one first</SelectItem>
+                  <SelectItem value="0">Normal</SelectItem>
+                  <SelectItem value="-10">This one last</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                When two active flows match the same message, the higher one
+                runs and the other does not run at all. Equal flows go
+                oldest-first.
+              </p>
+            </div>
+
+            {/* Hours, so an after-hours flow and a working-hours flow can share
+                one trigger instead of the author inventing two keywords for the
+                same question. */}
+            <div className="space-y-2 rounded-md border border-border p-2.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Only at certain times</Label>
+                <Switch
+                  checked={!!window}
+                  onCheckedChange={(on) =>
+                    set('activeWindow', on ? { days: [], from: '09:00', to: '18:00' } : null)
+                  }
+                />
+              </div>
+              {window && (
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <Input
+                      className="h-8 text-sm" type="time"
+                      value={window.from ?? '09:00'}
+                      onChange={(e) => set('activeWindow', { ...window, from: e.target.value })}
+                    />
+                    <span className="text-xs text-muted-foreground">to</span>
+                    <Input
+                      className="h-8 text-sm" type="time"
+                      value={window.to ?? '18:00'}
+                      onChange={(e) => set('activeWindow', { ...window, to: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {WEEKDAYS.map((day, i) => {
+                      const days = window.days ?? [];
+                      const on = days.length === 0 || days.includes(i);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => {
+                            // An empty list means every day, so the first tap
+                            // starts from "all of them" rather than from none.
+                            const base = days.length === 0 ? [0, 1, 2, 3, 4, 5, 6] : days;
+                            const next = base.includes(i) ? base.filter((x) => x !== i) : [...base, i];
+                            set('activeWindow', { ...window, days: next.sort() });
+                          }}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                            on ? 'bg-brand-100 text-brand-700' : 'bg-muted text-muted-foreground'
+                          }`}
+                        >
+                          {day.slice(0, 3)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    Times are IST. An end time earlier than the start means
+                    overnight — 22:00 to 06:00 runs through the night, and
+                    belongs to the day it starts on.
+                  </p>
+                </>
+              )}
+            </div>
           </>
         );
       }

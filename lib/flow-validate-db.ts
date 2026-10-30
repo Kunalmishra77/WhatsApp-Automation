@@ -13,6 +13,7 @@
 // the warning on the step it is about, in the list they already read.
 
 import type { FlowWarning, ValidatableNode } from './flow-validate';
+import { triggerOrder } from './flow-triggers';
 
 /** What the route reads for every other flow in the workspace. */
 export interface SiblingFlow {
@@ -38,50 +39,82 @@ function norm(value: string | null | undefined): string {
 }
 
 /**
- * The order flow-engine.ts resolves triggers in: highest priority first, oldest
- * breaking the tie. Duplicated here rather than imported — the engine module
- * carries the webhook's database imports, and this runs in a route that must
- * not pull them in. The tests pin the two orders together.
+ * The order the engine resolves triggers in. Imported from flow-triggers rather
+ * than restated here — it was a copy until migration 142, and a warning that
+ * disagreed with the engine about which flow wins would name the wrong one.
  *
- * `priority` is read the same hopeful way the engine reads it, and for the same
- * reason: **`chatbot_flows` has no priority column.** The engine sorts on
- * `flow.priority ?? 0`, so today every flow scores 0 and the real order is
- * oldest-first, with no way for an author to change it. The handling stays here
- * so that adding the column is the only change needed — and the warnings below
- * must not offer priority as a remedy until it is.
+ * `priority` is real as of migration 142. Until then the engine sorted on a
+ * column that did not exist, so every flow scored 0 and an author had no way to
+ * change the order; the warnings below could not offer it as a remedy.
  */
 function engineOrder(flows: SiblingFlow[]): SiblingFlow[] {
-  return [...flows].sort((a, b) => {
-    const pa = a.priority ?? 0;
-    const pb = b.priority ?? 0;
-    if (pa !== pb) return pb - pa;
-    return String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? ''));
-  });
+  return triggerOrder(flows.map((f) => ({ ...f, name: f.name })));
 }
 
 /**
- * True when `first` always reaches the customer before `second` can.
+ * True when `first` always reaches the customer before `second` can, so
+ * `second` can never run.
  *
- * Keyword matching is `content.includes(keyword)`, not equality — so a message
- * carrying the longer keyword carries the shorter one too. "Book" therefore
- * swallows "Book Now", and nothing a customer can type will ever reach the
- * second flow. That is the trap worth catching: two identical triggers are
- * obvious, one keyword hiding inside another is not.
+ * Different trigger types never shadow each other: they answer different
+ * questions about the same message, and a flow on a keyword still fires on
+ * every message after the one a `first_message` flow claimed. Claiming
+ * otherwise would be a false warning, which is worse than none.
+ *
+ * Within a type:
+ *
+ *  * **keyword** — matching is `content.includes(keyword)`, not equality, so a
+ *    message carrying the longer keyword carries the shorter one too. "Book"
+ *    swallows "Book Now" and nothing a customer can type reaches the second
+ *    flow. This is the trap worth catching: two identical triggers are obvious,
+ *    one keyword hiding inside another is not.
+ *  * **button, ad_click, campaign_reply** — an empty value means "any", so an
+ *    unset one swallows every specific one; two with the same value are a plain
+ *    duplicate. Equality, not substring: these are ids, and an id that happens
+ *    to contain another is a coincidence, not a match.
+ *  * **first_message, any_message** — neither takes a value, so a second one
+ *    can never fire.
+ *  * **manual** — a message never starts it, so it conflicts with nothing.
  */
 function alwaysWins(first: SiblingFlow, second: SiblingFlow): boolean {
-  if (first.triggerType === 'first_message' && second.triggerType === 'first_message') return true;
-  if (first.triggerType !== 'keyword' || second.triggerType !== 'keyword') return false;
-  const a = norm(first.triggerValue);
-  const b = norm(second.triggerValue);
-  // The engine requires a truthy trigger_value, so an empty keyword matches
-  // nothing and can neither hide a flow nor be hidden by one.
-  if (!a || !b) return false;
-  return b.includes(a);
+  if (first.triggerType !== second.triggerType) return false;
+
+  switch (first.triggerType) {
+    case 'first_message':
+    case 'any_message':
+      return true;
+
+    case 'keyword': {
+      const a = norm(first.triggerValue);
+      const b = norm(second.triggerValue);
+      // The engine requires a truthy keyword, so an empty one matches nothing
+      // and can neither hide a flow nor be hidden by one.
+      if (!a || !b) return false;
+      return b.includes(a);
+    }
+
+    case 'button':
+    case 'ad_click':
+    case 'campaign_reply': {
+      const a = norm(first.triggerValue);
+      const b = norm(second.triggerValue);
+      return a.length === 0 || a === b;
+    }
+
+    // 'manual', and any type a newer deploy knows and this one does not.
+    default:
+      return false;
+  }
 }
 
 function describeTrigger(flow: SiblingFlow): string {
-  if (flow.triggerType === 'first_message') return 'the first message from a contact';
-  return `"${flow.triggerValue ?? ''}"`;
+  switch (flow.triggerType) {
+    case 'first_message': return 'the first message from a contact';
+    case 'any_message':   return 'any message';
+    case 'button':        return flow.triggerValue ? `the button "${flow.triggerValue}"` : 'any button tap';
+    case 'ad_click':      return flow.triggerValue ? `ad ${flow.triggerValue}` : 'any Meta ad click';
+    case 'campaign_reply': return flow.triggerValue ? 'that campaign’s replies' : 'any campaign reply';
+    default:              return `"${flow.triggerValue ?? ''}"`;
+  }
 }
 
 /**
@@ -116,8 +149,8 @@ export function triggerConflictWarnings(
       kind: 'trigger_never_fires',
       message:
         `This flow will never run: "${blocker.name}" is active, matches ${describeTrigger(blocker)}, ` +
-        `and is reached first because it is older. Give this flow a different trigger, or turn ` +
-        `"${blocker.name}" off.`,
+        `and is reached first. Give this flow a different trigger, raise its priority above ` +
+        `"${blocker.name}", or turn that one off.`,
     });
   }
 
@@ -128,7 +161,7 @@ export function triggerConflictWarnings(
         kind: 'trigger_shadows_another',
         message:
           `"${victim.name}" will never run while this flow is active: this one matches ` +
-          `${describeTrigger(self)} and is reached first because it is older.`,
+          `${describeTrigger(self)} and is reached first.`,
       });
     }
   }

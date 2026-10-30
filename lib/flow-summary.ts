@@ -11,6 +11,7 @@
 // actually does — which a hand-written description always eventually does.
 
 import type { FlowNode, FlowEdge } from '@/modules/flows/types';
+import { describeTriggerType } from './flow-triggers';
 import { toSteps, type FlowStep } from './flow-steps';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -111,12 +112,24 @@ export function describeStep(step: FlowStep): string {
 export function describeTrigger(start: FlowNode | undefined): string {
   if (!start) return 'Nothing can start this flow — it has no Start step';
   const d = (start.data ?? {}) as unknown as Record<string, unknown>;
-  if (d.triggerType === 'first_message') return 'When someone messages for the first time';
+  const type = typeof d.triggerType === 'string' ? d.triggerType : 'keyword';
   const value = typeof d.triggerValue === 'string' ? d.triggerValue.trim() : '';
-  return value
-    ? `When someone says “${value}”`
-    : 'This flow has no trigger yet, so it will never start';
+
+  // A keyword with nothing in it is the one case worth saying out loud: the
+  // flow is finished-looking and cannot start.
+  if (type === 'keyword' && !value) return 'This flow has no trigger yet, so it will never start';
+
+  const base = describeTriggerType(type, value);
+  const window = d.activeWindow as { days?: number[]; from?: string; to?: string } | null | undefined;
+  if (!window?.from || !window?.to) return base;
+
+  const days = Array.isArray(window.days) && window.days.length > 0 && window.days.length < 7
+    ? ` on ${window.days.map((i) => DAY_NAMES[i] ?? '').filter(Boolean).join(', ')}`
+    : '';
+  return `${base}, between ${window.from} and ${window.to}${days}`;
 }
+
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 /**
  * The whole flow as a sentence.

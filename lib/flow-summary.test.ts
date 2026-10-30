@@ -68,7 +68,7 @@ describe('describeFlow', () => {
       node('h', 'assign_agent', { message: 'Connecting you…' }),
     ];
     const text = describeFlow(nodes, [edge('s', 'm'), edge('m', 'q'), edge('q', 'h')]);
-    expect(text).toMatch(/^When someone says “Know More”, the bot sends/);
+    expect(text).toMatch(/^When a message contains “Know More”, the bot sends/);
     expect(text).toMatch(/then hands the conversation to a person\.$/);
   });
 

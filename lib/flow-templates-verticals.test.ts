@@ -32,7 +32,10 @@ describe('every vertical template', () => {
     '%s reads as a sentence',
     (_name, tpl) => {
       const text = describeFlow(tpl.nodes, tpl.edges);
-      expect(text).toMatch(/^When someone says/);
+      // "contains", not "says": the trigger is a substring match, and reading it
+      // as equality is the misunderstanding behind one keyword hiding inside
+      // another. The wording is shared with the editor via describeTriggerType.
+      expect(text).toMatch(/^When a message contains/);
       expect(text).not.toMatch(/never start/i);
     },
   );

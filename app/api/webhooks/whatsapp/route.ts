@@ -565,6 +565,12 @@ async function handleIncomingMessage(
   // Must run before opt-out/order/form/CSAT handlers below, since those can
   // `return` early — any inbound message should still count as a campaign reply
   // regardless of what other feature also handles it.
+  //
+  // Hoisted out of the block below so the flow engine can read it: a
+  // `campaign_reply` trigger needs the campaign this message answered, and
+  // attributing it is work this block has already done. Same reason
+  // pendingFlowQuestion is hoisted further down.
+  let campaignReplyId: string | null = null;
   {
     // Which campaign (if any) this inbound message is a reply to. We fetch ALL of this
     // contact's recipient rows and let the shared rule pick the one whose send actually
@@ -592,6 +598,7 @@ async function handleIncomingMessage(
     const chosen = chooseRecipientForReply(candidates, replyIso, quotedWaMsgId);
     // Resolve back to the full row (need conversation_id for the retroactive save below).
     const pendingCr: any = chosen ? candidates.find((c) => c.id === chosen.id) : null;
+    campaignReplyId = (pendingCr?.campaign_id as string | undefined) ?? null;
 
     if (pendingCr) {
       // ── Retroactively save the campaign outbound message to messages table ───
@@ -961,6 +968,9 @@ async function handleIncomingMessage(
       // Already worked out above. The engine used to recompute it with two
       // counts and a lookup of the contact_id this call is holding.
       isFirstContactMessage,
+      // The campaign this reply was attributed to, for a `campaign_reply`
+      // trigger. Attributing it is work this handler has already done.
+      campaignReplyId,
     );
 
     // Off-topic during an active flow: AI answers, then re-ask the pending question.

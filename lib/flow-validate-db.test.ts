@@ -130,6 +130,77 @@ describe('triggerConflictWarnings', () => {
       expect(triggerConflictWarnings(self, live, 'start-1')).toEqual([]);
     }
   });
+
+  // The five trigger types the check used to ignore in silence.
+  it('catches two flows on the same button', () => {
+    const first = flow({ id: 'a', name: 'First', triggerType: 'button', triggerValue: 'book_slot', createdAt: '2026-01-01' });
+    const second = flow({ id: 'b', name: 'Second', triggerType: 'button', triggerValue: 'book_slot', createdAt: '2026-02-01' });
+    expect(triggerConflictWarnings(second, [first], 'start-1').map((w) => w.kind))
+      .toEqual(['trigger_never_fires']);
+  });
+
+  it('catches an any-button flow swallowing a specific one', () => {
+    const anyTap = flow({ id: 'a', name: 'Any tap', triggerType: 'button', triggerValue: '', createdAt: '2026-01-01' });
+    const specific = flow({ id: 'b', name: 'Book', triggerType: 'button', triggerValue: 'book_slot', createdAt: '2026-02-01' });
+    expect(triggerConflictWarnings(specific, [anyTap], 'start-1').map((w) => w.kind))
+      .toEqual(['trigger_never_fires']);
+    // Not the other way round: a specific button does not hide "any button".
+    expect(triggerConflictWarnings(anyTap, [specific], 'start-1').map((w) => w.kind))
+      .toEqual(['trigger_shadows_another']);
+  });
+
+  // Ids, so equality — an ad id that happens to contain another is a
+  // coincidence, not a match.
+  it('does not treat one ad id containing another as a conflict', () => {
+    const a = flow({ id: 'a', name: 'A', triggerType: 'ad_click', triggerValue: '1202', createdAt: '2026-01-01' });
+    const b = flow({ id: 'b', name: 'B', triggerType: 'ad_click', triggerValue: '120211', createdAt: '2026-02-01' });
+    expect(triggerConflictWarnings(b, [a], 'start-1')).toEqual([]);
+  });
+
+  it('catches an any-ad flow swallowing one ad', () => {
+    const anyAd = flow({ id: 'a', name: 'All ads', triggerType: 'ad_click', triggerValue: null, createdAt: '2026-01-01' });
+    const oneAd = flow({ id: 'b', name: 'That ad', triggerType: 'ad_click', triggerValue: '120211', createdAt: '2026-02-01' });
+    const w = triggerConflictWarnings(oneAd, [anyAd], 'start-1');
+    expect(w.map((x) => x.kind)).toEqual(['trigger_never_fires']);
+    expect(w[0]!.message).toContain('any Meta ad click');
+  });
+
+  it('catches a second any_message fallback', () => {
+    const first = flow({ id: 'a', name: 'Fallback', triggerType: 'any_message', createdAt: '2026-01-01' });
+    const second = flow({ id: 'b', name: 'Other fallback', triggerType: 'any_message', createdAt: '2026-02-01' });
+    expect(triggerConflictWarnings(second, [first], 'start-1').map((w) => w.kind))
+      .toEqual(['trigger_never_fires']);
+  });
+
+  // any_message is forced last in the engine order, so it can never hide a
+  // keyword flow however old it is or whatever priority it carries.
+  it('does not let a fallback shadow a keyword flow', () => {
+    const fallback = flow({ id: 'a', name: 'Fallback', triggerType: 'any_message', createdAt: '2026-01-01', priority: 99 });
+    const kw = flow({ id: 'b', name: 'Booking', triggerValue: 'book', createdAt: '2026-06-01' });
+    expect(triggerConflictWarnings(kw, [fallback], 'start-1')).toEqual([]);
+    expect(triggerConflictWarnings(fallback, [kw], 'start-1')).toEqual([]);
+  });
+
+  // A message never starts it, so it cannot be in anyone's way.
+  it('never reports a manual flow as a conflict', () => {
+    const manual = flow({ id: 'a', name: 'By hand', triggerType: 'manual', createdAt: '2026-01-01' });
+    const other = flow({ id: 'b', name: 'Also by hand', triggerType: 'manual', createdAt: '2026-02-01' });
+    expect(triggerConflictWarnings(other, [manual], 'start-1')).toEqual([]);
+  });
+
+  it('does not report a conflict across different trigger types', () => {
+    const kw = flow({ id: 'a', name: 'Keyword', triggerValue: 'book', createdAt: '2026-01-01' });
+    const tap = flow({ id: 'b', name: 'Button', triggerType: 'button', triggerValue: 'book', createdAt: '2026-02-01' });
+    expect(triggerConflictWarnings(tap, [kw], 'start-1')).toEqual([]);
+  });
+
+  // The remedy priority makes possible, now that migration 142 added the column.
+  it('offers raising the priority as a way out', () => {
+    const first = flow({ id: 'a', name: 'First', triggerValue: 'book', createdAt: '2026-01-01' });
+    const second = flow({ id: 'b', name: 'Second', triggerValue: 'book', createdAt: '2026-02-01' });
+    expect(triggerConflictWarnings(second, [first], 'start-1')[0]!.message)
+      .toContain('raise its priority');
+  });
 });
 
 const tpl = (over: Partial<WorkspaceTemplate> & { name: string }): WorkspaceTemplate => ({

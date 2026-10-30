@@ -5,6 +5,7 @@ import { getWorkspaceById } from '@/lib/workspace-cache';
 import { notifyWorkspaceSheets } from '@/lib/sheets-notify';
 import { handlerFor } from './flow-nodes';
 import { findNextNode, MAX_STEPS_PER_TURN } from './flow-nodes/walk';
+import { matchTrigger, needsAdId, type ActiveWindow } from './flow-triggers';
 import type { FlowOps, SendFacade, AiFacade, NodeResult, ListSection, MediaKind } from './flow-nodes/types';
 import {
   evaluateCondition, interpolateTemplate, isSkippableQuestion, looksMultiField,
@@ -812,6 +813,13 @@ export async function processFlowForMessage(
    * passes it through; omitted, this function works it out itself.
    */
   isFirstContactMessage?: boolean,
+  /**
+   * The campaign this message is a reply to, when the webhook has attributed
+   * one. Passed in rather than looked up here: the webhook already did that
+   * work to record the reply, and a `campaign_reply` trigger asking the same
+   * question again would be the second lookup of the same row.
+   */
+  campaignReplyId?: string | null,
 ): Promise<FlowHandleResult> {
   try {
     // Check for active session
@@ -984,32 +992,42 @@ export async function processFlowForMessage(
         }
       }
     }
-    const lowerContent = messageContent.toLowerCase().trim();
+    // Which flow a message starts, and whether it is the right time of day for
+    // it, is decided in lib/flow-triggers.ts. It used to be two cases inline
+    // here, in a module no test can import without a database — so the order
+    // the flows were tried in, and what each trigger type meant, had no tests
+    // at all. That matters more now that there are seven types rather than two.
+    const candidates = (flows as ChatbotFlow[]).map((f) => ({
+      id: f.id,
+      name: f.name,
+      triggerType: f.trigger_type ?? null,
+      triggerValue: f.trigger_value ?? null,
+      priority: (f as { priority?: number | null }).priority ?? 0,
+      createdAt: f.created_at ?? null,
+      activeWindow: (f as { active_window?: ActiveWindow | null }).active_window ?? null,
+      row: f,
+    }));
 
-    // Which flow wins used to be whichever the query returned first, which is
-    // undefined — and four Razorveda flows are active at once. Highest priority
-    // wins now, oldest breaking the tie, so the order is at least the author's.
-    const ordered = [...(flows as ChatbotFlow[])].sort((a, b) => {
-      const pa = (a as { priority?: number }).priority ?? 0;
-      const pb = (b as { priority?: number }).priority ?? 0;
-      if (pa !== pb) return pb - pa;
-      return String(a.created_at).localeCompare(String(b.created_at));
-    });
-
-    let matchedFlow: ChatbotFlow | null = null;
-    for (const flow of ordered) {
-      if (flow.trigger_type === 'first_message' && isFirstMessage) {
-        matchedFlow = flow;
-        break;
-      }
-      if (flow.trigger_type === 'keyword' && flow.trigger_value) {
-        const kw = flow.trigger_value.toLowerCase().trim();
-        if (lowerContent.includes(kw)) {
-          matchedFlow = flow;
-          break;
-        }
-      }
+    // Only looked up when a flow actually asks for it, which is almost never:
+    // an ad id lives in the conversation's meta and costs a read.
+    let adId: string | null = null;
+    if (needsAdId(candidates)) {
+      const { data: convMeta } = await (supabase as any)
+        .from('conversations')
+        .select('meta')
+        .eq('id', conversationId)
+        .maybeSingle();
+      const source = (convMeta?.meta as { ad_source?: { ad_id?: unknown } } | null)?.ad_source;
+      adId = typeof source?.ad_id === 'string' ? source.ad_id : null;
     }
+
+    const matchedFlow = matchTrigger(candidates, {
+      message: messageContent,
+      isFirstContactMessage: isFirstMessage,
+      choice,
+      adId,
+      campaignId: campaignReplyId ?? null,
+    })?.row ?? null;
 
     if (!matchedFlow) return false;
 
@@ -1064,6 +1082,99 @@ export async function processFlowForMessage(
 // `timeoutHours` was collected by the editor and read by nothing until this
 // existed, so every "if they don't reply in 48 hours" branch an author drew was
 // decoration.
+/**
+ * Runs a flow for one conversation, started by a person or by the API rather
+ * than by a message. This is what a `manual` trigger means.
+ *
+ * It refuses where a message-driven start would simply not have happened, and
+ * says which, because the caller here is a human waiting for an answer:
+ *
+ *  * A session already running. Two flows in one conversation would interleave
+ *    their questions and both read the same reply.
+ *  * No Start step, so there is nothing to run.
+ *  * No phone number or token on the workspace, so nothing can be sent.
+ *
+ * The workspace's own channel credentials are read here rather than passed in,
+ * so a caller cannot run a flow with someone else's.
+ */
+export async function startFlowForConversation(
+  supabase: AdminClient,
+  args: {
+    flowId: string;
+    workspaceId: string;
+    conversationId: string;
+    contactId: string | null;
+    contactPhone: string;
+  },
+): Promise<{ ok: true; sessionId: string } | { ok: false; reason: string }> {
+  const db = supabase as any;
+  const { flowId, workspaceId, conversationId, contactId, contactPhone } = args;
+
+  const { data: existing } = await db
+    .from('flow_sessions')
+    .select('id')
+    .eq('conversation_id', conversationId)
+    .eq('status', 'active')
+    .limit(1);
+  if (Array.isArray(existing) && existing.length > 0) {
+    return { ok: false, reason: 'This conversation is already in a flow. Wait for it to finish, or end it first.' };
+  }
+
+  const { data: flow } = await db
+    .from('chatbot_flows')
+    .select('id, nodes, edges')
+    .eq('id', flowId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  if (!flow) return { ok: false, reason: 'Flow not found.' };
+
+  const nodes = (flow.nodes ?? []) as FlowNode[];
+  const edges = (flow.edges ?? []) as FlowEdge[];
+  const startNode = nodes.find((n) => n.type === 'start');
+  if (!startNode) return { ok: false, reason: 'This flow has no Start step, so there is nothing to run.' };
+
+  const { data: ws } = await db
+    .from('workspaces')
+    .select('phone_number_id, access_token')
+    .eq('id', workspaceId)
+    .single();
+  if (!ws?.phone_number_id || !ws?.access_token) {
+    return { ok: false, reason: 'This workspace has no WhatsApp number connected.' };
+  }
+
+  // Seeded the same way a message-driven start seeds it, with an empty incoming
+  // message: nobody said anything, so `system.last_reply` is empty rather than
+  // carrying whatever the customer last sent, hours ago, as if it were an answer.
+  const seeded = await buildSystemVars(supabase, workspaceId, conversationId, contactPhone, '');
+
+  const { data: session, error: sessionError } = await db
+    .from('flow_sessions')
+    .insert({
+      flow_id:         flowId,
+      workspace_id:    workspaceId,
+      conversation_id: conversationId,
+      contact_id:      contactId,
+      current_node_id: startNode.id,
+      status:          'active',
+      context:         seeded,
+    })
+    .select('id')
+    .single();
+
+  if (sessionError || !session) {
+    console.error('[FlowEngine] manual start could not create a session:', sessionError?.message);
+    return { ok: false, reason: 'Could not start the flow.' };
+  }
+
+  await runFlowFrom(
+    supabase, startNode, nodes, edges, workspaceId, conversationId,
+    session.id as string, '', ws.phone_number_id as string, ws.access_token as string,
+    contactPhone, seeded, contactId, undefined,
+  );
+
+  return { ok: true, sessionId: session.id as string };
+}
+
 export async function resumeFlowSession(
   supabase: AdminClient,
   sessionId: string,

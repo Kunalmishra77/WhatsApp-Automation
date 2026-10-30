@@ -63,7 +63,11 @@ export async function PATCH(
     const body = await request.json() as Record<string, unknown>;
 
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    const allowedFields = ['name', 'description', 'is_active', 'trigger_type', 'trigger_value', 'nodes', 'edges'];
+    // priority and active_window are the engine's copy of what the Start
+    // node carries; the editor sends both, because the engine reads the
+    // columns and the editor reads the node.
+    const allowedFields = ['name', 'description', 'is_active', 'trigger_type', 'trigger_value',
+      'nodes', 'edges', 'priority', 'active_window'];
     for (const field of allowedFields) {
       if (body[field] !== undefined) patch[field] = body[field];
     }

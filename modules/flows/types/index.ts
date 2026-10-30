@@ -7,7 +7,29 @@ export type FlowNodeType =
   | 'switch' | 'jump' | 'split';
 export type ComparisonOperator = '>=' | '>' | '<' | '<=' | '==' | '!=';
 
-export interface StartNodeData    { label: string; triggerType: 'keyword' | 'first_message'; triggerValue: string; }
+/**
+ * The trigger lives on the Start node AND in the flow's own columns: the
+ * editor writes the node, and the save route copies it across because the
+ * engine reads the columns. lib/flow-triggers.ts is what both agree on.
+ */
+export interface StartNodeData {
+  label: string;
+  triggerType:
+    | 'keyword' | 'first_message' | 'button' | 'ad_click'
+    | 'campaign_reply' | 'manual' | 'any_message';
+  /** The single parameter the type needs: a keyword, a button, an ad, a campaign. */
+  triggerValue: string;
+  /** Higher wins when two active flows match the same message. Ties: oldest first. */
+  priority?: number;
+  /** Which days and hours this flow may start on. Absent or null means always. */
+  activeWindow?: {
+    /** 0 = Sunday … 6 = Saturday. Absent or empty means every day. */
+    days?: number[];
+    /** "HH:MM" in IST. `from` after `to` is an overnight window. */
+    from?: string;
+    to?: string;
+  } | null;
+}
 export interface MessageNodeData  { label: string; message: string; }
 /** One tap-to-answer option. `id` is what the branch edge is keyed on. */
 export interface FlowChoice { id: string; title: string; description?: string; }
@@ -185,4 +207,8 @@ export interface ChatbotFlow {
   edges: FlowEdge[];
   created_at: string;
   updated_at: string;
+  /** Higher wins when two active flows match. Added by migration 142. */
+  priority?: number | null;
+  /** When this flow may start, or null for always. Migration 142. */
+  active_window?: { days?: number[]; from?: string; to?: string } | null;
 }
