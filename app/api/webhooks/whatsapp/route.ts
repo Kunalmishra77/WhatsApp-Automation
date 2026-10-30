@@ -9,6 +9,7 @@ import { getRequiredSecret } from '@/lib/supabase-env';
 import { chooseRecipientForReply, type RecipientCandidate } from '@/lib/campaign-reply-attribution';
 import { recordTouchpoint } from '@/lib/lead-touchpoint';
 import { upsertLead } from '@/lib/lead-upsert';
+import { priorStatusesFor, isMessageStatus } from '@/lib/message-status';
 import { applyInboxRules } from '@/lib/inbox-rules-engine';
 import { processFlowForMessage } from '@/lib/flow-engine';
 import { dispatchWebhookEvent } from '@/lib/outbound-webhook';
@@ -2935,20 +2936,53 @@ async function handleStatusUpdate(supabase: AdminClient, status: WAStatus) {
   // campaign's Delivered/Read stats. A thrown error here previously skipped the
   // recipients update entirely and 500'd the webhook (permanently under-counting
   // delivered/read). Log and continue instead.
-  const { error } = await db
-    .from('messages')
-    .update(messagesPatch)
-    .eq('whatsapp_msg_id', status.id);
-  if (error) console.error('[StatusUpdate] messages update failed (continuing to campaign_recipients):', error.message);
+  // Only apply a receipt that moves the message forward. Meta re-sends and
+  // reorders receipts, and this update had no guard — so a late `delivered`
+  // arriving after `read` set the message back to delivered, under-reporting
+  // every client's read rate. The campaign_recipients update below has always
+  // been careful about exactly this; this half was not.
+  //
+  // It also stops the `sent` receipt rewriting a row that is already 'sent',
+  // which is every outbound message. With the table on REPLICA IDENTITY FULL
+  // for Realtime's RLS check, each of those no-op updates copied the whole old
+  // row — content and meta included — into the WAL.
+  //
+  // The filter does the comparing, so there is no read-then-write to lose a
+  // race against the next receipt.
+  if (isMessageStatus(status.status)) {
+    const { error, count } = await db
+      .from('messages')
+      .update(messagesPatch, { count: 'exact' })
+      .eq('whatsapp_msg_id', status.id)
+      .in('status', priorStatusesFor(status.status));
+    if (error) {
+      console.error('[StatusUpdate] messages update failed (continuing to campaign_recipients):', error.message);
+    } else if (count === 0 && status.status === 'failed') {
+      // Worth seeing: a failure for a message already recorded as delivered or
+      // read means Meta and this table disagree about what happened.
+      console.warn(`[StatusUpdate] dropped a 'failed' receipt for ${status.id} — the message is already past it`);
+    }
+  }
 
   // Mirror status to campaign_recipients and sync aggregate counts on campaigns table.
-  // IMPORTANT: Never overwrite 'replied' or 'filtered' — a late 'delivered'/'read' receipt
-  // from Meta must not downgrade a record that already reached a terminal state.
+  //
+  // This half did guard the two terminal states — never overwrite 'replied' or
+  // 'filtered' — but that left `read` unprotected, so a late 'delivered' receipt
+  // pulled an already-read recipient back. The campaign's read_count counts
+  // status in ('read','replied'), so every one of those dropped a read from the
+  // client's campaign report. 746 rows carry the evidence: read_at set, status
+  // 'delivered'. It is a long-standing cause of the platform's read rate sitting
+  // below what Meta shows.
+  //
+  // Now only an advance applies, which protects 'read' as well — and 'replied'
+  // and 'filtered' stay protected, since neither appears in any prior-state list.
+  // Recipient rows are inserted as 'sent', so every genuine progression still
+  // goes through.
   const { data: updatedCr } = await db
     .from('campaign_recipients')
     .update(recipientsPatch)
     .eq('whatsapp_msg_id', status.id)
-    .not('status', 'in', '(replied,filtered)')
+    .in('status', isMessageStatus(status.status) ? priorStatusesFor(status.status) : [])
     .select('campaign_id')
     .maybeSingle();
 

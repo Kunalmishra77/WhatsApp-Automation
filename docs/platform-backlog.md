@@ -66,15 +66,35 @@ repo, or with a scroll of an old chat, can use them.
 Baseline and the queries that produced it: `memory/scalability-measured-baseline.md`.
 `pg_stat_statements` is enabled — start there, not in the code.
 
-- [ ] **Realtime WAL decoding — 2.2M calls, 3.7 hours of database time, ten
-  times the next item.** `conversations`, `messages` and `notifications` are all
-  `REPLICA IDENTITY FULL`, so every UPDATE writes the whole old row into WAL, and
-  `messages` rows carry `content` and `meta`. FULL is deliberate (migration 047):
-  Realtime re-checks RLS against WAL data and needs `workspace_id`, which is not
-  in the primary key. The fix that keeps both: a unique index on
-  `(workspace_id, id)` and `REPLICA IDENTITY USING INDEX`. **Verify the
-  Conversations page still updates live afterwards** — getting this wrong
-  silently stops the inbox refreshing, which is the exact bug 047 fixed.
+- [x] 2026-10-30 — **A late receipt no longer downgrades a read message, and
+  stops rewriting rows for nothing.** Both tables applied receipts without
+  checking they were an advance: `messages` had no guard at all, and
+  `campaign_recipients` guarded only 'replied' and 'filtered', leaving 'read'
+  exposed. Meta reorders receipts, so a `delivered` arriving after `read` pulled
+  the row back — and a campaign's read_count counts status in ('read','replied'),
+  so each one dropped a read out of the client's report. **This is a real cause
+  of the platform's read rates sitting below Meta's own**, which had been filed
+  as structural in `memory/campaign-stats-vs-meta-mismatch.md`.
+  Repaired by migration 130, which the timestamps made possible: 746 reads and
+  1,579 delivered restored across 96 campaigns, 63 campaigns' read_count
+  corrected, plus 686 message rows. The guard is `lib/message-status.ts`.
+  Separately it stops the `sent` receipt rewriting rows that are already 'sent',
+  which is every outbound message — each of those no-op updates copied the whole
+  old row, `content` and `meta` included, into the WAL.
+- [ ] **Realtime WAL decoding — 2.2M calls, 3.7 hours of database time, still
+  the largest single consumer.** Investigated 2026-10-28; `REPLICA IDENTITY
+  USING INDEX` is **not available for `conversations`**, which is the awkward
+  part. Its policy is `can_view_assigned_row(workspace_id, assigned_agent_id)`
+  and a replica identity index must be unique over NOT NULL columns —
+  `assigned_agent_id` is null on every unassigned conversation. So FULL has to
+  stay there. `messages` (policy needs `workspace_id` + `conversation_id`) and
+  `notifications` (needs `user_id`) are both candidates, and `messages` is where
+  the volume is. Remaining levers, in order of safety: fewer writes (one shipped
+  above, more available — the `conversations` row is rewritten on every single
+  message by the `messages_update_conversation` trigger), then USING INDEX on
+  `messages` alone. **Whoever does the index change must have someone watching
+  the Conversations page update live afterwards** — getting it wrong silently
+  stops the inbox refreshing, which is the exact bug migration 047 fixed.
 - [ ] **~40 sequential awaited DB calls per inbound message** in the WhatsApp
   webhook (123 `.from(` calls, two `Promise.all`). The latency and
   connection-pool risk, and the largest remaining job. Batch what is independent;
