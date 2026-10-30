@@ -21,6 +21,7 @@ import { StatCard } from '@/components/ui/StatCard';
 import { cn } from '@/lib/utils';
 import { QUICK_RANGES, type QuickRange } from '@/lib/date-range';
 import { useWorkspaceStore } from '@/store/workspace.store';
+import { OfferStatusCard } from '../OfferStatusCard';
 import { SectionCard } from './SectionCard';
 
 // ── Chart theme — reused from modules/analytics/components/AnalyticsDashboard ──
@@ -187,6 +188,11 @@ export function CommandCenter() {
 
       {/* ── Scrollable Body ────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-8">
+
+        {/* What the bot will quote today. Outside the isError/loading branch on
+            purpose: it has its own query, and it is the one thing on this page
+            that is worth seeing even when the metrics fail to load. */}
+        <OfferStatusCard />
 
         {isError ? (
           <Card>

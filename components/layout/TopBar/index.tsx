@@ -1,6 +1,6 @@
 'use client';
 
-import { Search, Bell, MessageSquare, UserCheck, Sparkles, AlertTriangle, CheckCheck } from 'lucide-react';
+import { Search, Bell, MessageSquare, UserCheck, Sparkles, AlertTriangle, CheckCheck, Tag } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,11 +25,17 @@ const NOTIF_ICON: Record<string, React.ElementType> = {
   lead_assigned:         Sparkles,
   new_message:           MessageSquare,
   sla_breach:            AlertTriangle,
+  offer_lapsing:         Tag,
+  offer_lapsed:          Tag,
 };
 
 function notificationHref(n: NotificationRow): string {
   const data = (n.data ?? {}) as Record<string, unknown>;
   if (n.type === 'lead_assigned') return '/crm';
+  // Both offer reminders are only actionable where the offer is edited. They
+  // used to fall through to the default and land the client in Conversations,
+  // which is the one page that cannot fix what the notification is about.
+  if (n.type === 'offer_lapsing' || n.type === 'offer_lapsed') return '/knowledge-base';
   if (typeof data.conversation_id === 'string') return `/conversations/${data.conversation_id}`;
   if (n.type === 'conversation_assigned' && typeof data.id === 'string') return `/conversations/${data.id}`;
   return '/conversations';

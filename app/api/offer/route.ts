@@ -2,8 +2,39 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { invalidateWorkspace } from '@/lib/workspace-cache';
-import { validateOfferInput, findConflictingAmounts } from '@/lib/offer';
+import { validateOfferInput, findConflictingAmounts, offerAlertForSettings, parseActiveOffer, todayInIST } from '@/lib/offer';
 import type { Json } from '@/types/database.types';
+
+// GET /api/offer?workspaceId=...  → the offer and where it stands today.
+//
+// The state is computed here, not in the browser: the only date that matters is
+// today in IST, and a client machine with a different clock or zone would draw
+// a different conclusion from the same offer — which is how a dashboard ends up
+// disagreeing with the bot.
+export async function GET(request: NextRequest) {
+  try {
+    const workspaceId = request.nextUrl.searchParams.get('workspaceId');
+    if (!workspaceId) return NextResponse.json({ error: 'workspaceId required' }, { status: 400 });
+
+    await requireWorkspacePermission(workspaceId, 'manage_workspace');
+
+    const db = createAdminClient() as any;
+    const { data, error } = await db.from('workspaces').select('settings').eq('id', workspaceId).single();
+    if (error || !data) return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+
+    const settings = (data.settings ?? {}) as Record<string, unknown>;
+    const today = todayInIST();
+    return NextResponse.json({
+      today,
+      offer: parseActiveOffer(settings),
+      alert: offerAlertForSettings(settings, today),
+    });
+  } catch (error) {
+    if (error instanceof AuthzError) return authzResponse(error);
+    console.error('[Offer GET]', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
 
 // PUT /api/offer  Body: { workspaceId, name, details, valid_from?, valid_until? }
 export async function PUT(request: NextRequest) {
@@ -21,7 +52,12 @@ export async function PUT(request: NextRequest) {
     const { data: existing } = await db.from('workspaces').select('settings').eq('id', workspaceId).single();
     const settings = (existing?.settings ?? {}) as Record<string, unknown>;
 
-    const active_offer = { ...parsed.offer, updated_at: new Date().toISOString(), lapse_notified: false };
+    // Both reminder flags reset: this is a different offer, or the same one with a
+    // new end date, and either way the client has not been told about THIS one.
+    const active_offer = {
+      ...parsed.offer, updated_at: new Date().toISOString(),
+      lapse_notified: false, lapse_warned: false,
+    };
     const nextSettings = { ...settings, active_offer } as Json;
 
     const { error } = await db.from('workspaces')

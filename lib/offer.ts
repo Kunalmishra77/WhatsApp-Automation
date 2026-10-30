@@ -213,3 +213,141 @@ export function validateOfferInput(
   if (vf && vu && vu < vf) return { ok: false, error: 'valid_until must be on or after valid_from' };
   return { ok: true, offer: { name, details, valid_from: vf, valid_until: vu } };
 }
+
+// ── Where does this workspace's offer stand, today? ──────────────────────────
+// The campaign wizard asks the same question at send time (offerReadinessForCampaign
+// above). This answers it for the dashboard, where nobody is about to send
+// anything — so the wording is about what the bot is doing right now, and the
+// one state the wizard cannot see is added: an offer that is about to lapse.
+//
+// Everything a client has ever been bitten by is a case below. What is
+// deliberately NOT a warning: having no offer at all. Ten of twelve workspaces
+// have none, the bot answers price questions from their knowledge base, and
+// that is a correct way to run. A red banner on ten dashboards for a
+// non-problem teaches people to ignore the banner on the eleventh.
+
+/** Days before the end date that the dashboard starts calling it out. */
+export const OFFER_ENDING_SOON_DAYS = 7;
+
+/**
+ * Days before the end date that the client is notified once.
+ *
+ * Tighter than the banner's window on purpose: the banner is passive — it waits
+ * for someone to log in, so it needs a wide window to be seen at all. The
+ * notification is active and fires once, so it should land close enough to the
+ * date to still be the thing on someone's mind. Migration 134 uses this number.
+ */
+export const OFFER_LAPSE_WARNING_DAYS = 3;
+
+/** Whole days from one 'YYYY-MM-DD' to another. Negative when `to` is earlier. */
+export function daysBetweenISO(from: string, to: string): number {
+  return Math.round(
+    (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000,
+  );
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * '2026-11-09' → '9 Nov', or '9 Nov 2025' when it is not the current year.
+ *
+ * Built from a fixed month list rather than Intl, so the same input reads the
+ * same on the server, in the browser and in tests — the server runs in UTC and
+ * the client does not, and a date-only string has no business being re-zoned.
+ */
+export function formatOfferDate(iso: string, todayISO?: string): string {
+  if (!isValidDate(iso)) return iso;
+  const [y, m, d] = iso.split('-');
+  const month = MONTHS[Number(m) - 1] ?? m;
+  const sameYear = todayISO ? todayISO.slice(0, 4) === y : false;
+  return sameYear ? `${Number(d)} ${month}` : `${Number(d)} ${month} ${y}`;
+}
+
+export type OfferAlertTone = 'neutral' | 'good' | 'info' | 'warn' | 'bad';
+
+export interface OfferAlert {
+  tone: OfferAlertTone;
+  status: OfferStatus;
+  /** Days until the end date; 0 on the last day, negative once it has passed. Null with no end date. */
+  daysLeft: number | null;
+  headline: string;
+  detail: string;
+  /** What the client would have to do about it. */
+  action: 'set' | 'add_end_date' | 'extend_or_replace' | 'none';
+}
+
+export function offerAlert(offer: ActiveOffer | null, todayISO: string): OfferAlert {
+  const status = computeOfferStatus(offer, todayISO);
+
+  if (!offer || status === 'none') {
+    return {
+      tone: 'neutral', status: 'none', daysLeft: null, action: 'set',
+      headline: 'No offer is set',
+      detail:
+        'Price questions are answered from your knowledge base and your bot persona. Set a Current Offer when you are running one, and the bot will quote that instead.',
+    };
+  }
+
+  const quoted = `"${offer.name}"`;
+
+  if (status === 'scheduled') {
+    return {
+      tone: 'info', status, action: 'none',
+      daysLeft: offer.valid_until ? daysBetweenISO(todayISO, offer.valid_until) : null,
+      headline: `${quoted} starts ${formatOfferDate(offer.valid_from!, todayISO)}`,
+      detail:
+        'Until that date the bot will not quote it — anyone who asks about price before then gets your regular plans.',
+    };
+  }
+
+  if (status === 'expired') {
+    const ago = -daysBetweenISO(todayISO, offer.valid_until!);
+    return {
+      tone: 'bad', status, daysLeft: -ago, action: 'extend_or_replace',
+      headline: `${quoted} ended ${ago === 1 ? 'yesterday' : `${ago} days ago`}`,
+      detail:
+        'The bot has stopped quoting it and answers price questions from your knowledge base instead. Extend the end date or set a new offer.',
+    };
+  }
+
+  // Running, but with no end date it never retires — Thames's "Monsoon Offer"
+  // was still its bot's only quotable price in late October.
+  if (!offer.valid_until) {
+    return {
+      tone: 'warn', status, daysLeft: null, action: 'add_end_date',
+      headline: `${quoted} has no end date`,
+      detail:
+        'It will stay the only price the bot quotes until somebody removes it by hand. Add an end date so it retires on its own.',
+    };
+  }
+
+  const daysLeft = daysBetweenISO(todayISO, offer.valid_until);
+  const ends = formatOfferDate(offer.valid_until, todayISO);
+
+  if (daysLeft <= OFFER_ENDING_SOON_DAYS) {
+    const when = daysLeft === 0 ? 'ends today' : daysLeft === 1 ? 'ends tomorrow' : `ends in ${daysLeft} days`;
+    return {
+      tone: 'warn', status, daysLeft, action: 'extend_or_replace',
+      headline: `${quoted} ${when}`,
+      detail:
+        `After ${ends} the bot stops quoting it and price questions go back to your regular plans. Extend it or set the next offer before then.`,
+    };
+  }
+
+  return {
+    tone: 'good', status, daysLeft, action: 'none',
+    headline: `The bot is quoting ${quoted}`,
+    detail: `Valid until ${ends} — ${daysLeft} days left. After that it retires itself and price questions go back to your regular plans.`,
+  };
+}
+
+export function offerAlertForSettings(
+  settings: Record<string, unknown> | null | undefined, todayISO: string,
+): OfferAlert {
+  return offerAlert(parseActiveOffer(settings), todayISO);
+}
+
+/** 'YYYY-MM-DD' for today in IST, which is the day every client reads a date as. */
+export function todayInIST(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
+}
