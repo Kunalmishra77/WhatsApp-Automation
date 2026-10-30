@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useState, useEffect, useMemo } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { applyNodeChanges, applyEdgeChanges, addEdge, type NodeChange, type EdgeChange, type Connection } from 'reactflow';
 import { ArrowLeft, Save, Loader2, AlertTriangle, X, PlayCircle, List, GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -36,7 +36,12 @@ export default function FlowBuilderPage() {
   // Warnings are withheld until the first Save so a half-wired canvas isn't
   // nagging while it's still being built. After that they stay live and clear
   // themselves as each problem is fixed.
-  const [showWarnings, setShowWarnings] = useState(false);
+  // Normally the warnings appear after a save, because that is when the author
+  // has asked for a verdict. `?review=1` opens with them showing: the AI builder
+  // sends a flow nobody wrote by hand, and it deserves to be read before it is
+  // switched on.
+  const reviewOnOpen = useSearchParams().get('review') === '1';
+  const [showWarnings, setShowWarnings] = useState(reviewOnOpen);
   const [simulatorOpen, setSimulatorOpen] = useState(false);
   // A straight-line flow opens as a list; anything that branches opens on the
   // canvas. Eleven of the eighteen live flows are straight lines, and eight of
@@ -237,7 +242,9 @@ export default function FlowBuilderPage() {
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-500" />
             <div className="min-w-0 flex-1 space-y-1">
               <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
-                Saved, but {warnings.length === 1 ? 'one thing' : `${warnings.length} things`} will not work the way the canvas suggests
+                {lastSave
+                  ? `Saved, but ${warnings.length === 1 ? 'one thing' : `${warnings.length} things`} will not work the way the canvas suggests`
+                  : `${warnings.length === 1 ? 'One thing' : `${warnings.length} things`} will not work the way the canvas suggests`}
               </p>
               <ul className="space-y-1">
                 {warnings.map((w, i) => {

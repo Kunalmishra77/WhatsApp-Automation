@@ -81,6 +81,11 @@ export default function FlowsPage() {
       const generated = await res.json() as {
         name?: string; description?: string; trigger_type?: string;
         trigger_value?: string; nodes?: unknown[]; edges?: unknown[];
+        // What the server had to change to make the flow runnable, and what the
+        // editor's own validation says about it. Both are reported rather than
+        // hidden: a generated flow is a draft, and the author is better served
+        // by being told where to look than by a clean-looking success.
+        repairs?: string[]; warnings?: Array<{ message: string }>;
         error?: string;
       };
       if (!res.ok) throw new Error(generated.error ?? 'AI generation failed');
@@ -102,10 +107,32 @@ export default function FlowsPage() {
       const saveData = await saveRes.json() as { flow?: ChatbotFlow };
       if (!saveData.flow) throw new Error('Failed to save flow');
 
-      toast.success(`Flow "${saveData.flow.name}" generated! Open it to review and edit.`);
+      const repairs = generated.repairs ?? [];
+      const issues = (generated.warnings ?? []).length;
+      if (repairs.length > 0) console.warn('[FlowsPage] AI flow repaired:', repairs);
+
+      const notes = [
+        repairs.length > 0
+          ? `${repairs.length === 1 ? 'one step' : `${repairs.length} steps`} had to be changed`
+          : null,
+        issues > 0
+          ? `${issues === 1 ? 'one thing' : `${issues} things`} to check`
+          : null,
+      ].filter(Boolean);
+
+      if (notes.length > 0) {
+        toast.warning(`Flow "${saveData.flow.name}" generated — ${notes.join(', ')}.`, {
+          description: repairs[0] ?? 'Open it and read the warnings above the canvas.',
+        });
+      } else {
+        toast.success(`Flow "${saveData.flow.name}" generated! Open it to review and edit.`);
+      }
+
       setShowAIAssistant(false);
       setAiDescription('');
-      router.push(`/flows/${saveData.flow.id}`);
+      // `review` opens the editor with its warning panel already showing: a flow
+      // nobody wrote by hand deserves to be read before it is switched on.
+      router.push(`/flows/${saveData.flow.id}${notes.length > 0 ? '?review=1' : ''}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'AI generation failed');
     } finally {

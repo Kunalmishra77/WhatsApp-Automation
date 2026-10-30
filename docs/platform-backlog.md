@@ -325,10 +325,33 @@ Phase 1 shipped in c90b0c8.
   template is run through the editor's own validation, the step list, the
   summary and the simulator in tests — a starting point that warns in the editor
   is not a starting point.
-- [ ] **Repair the AI flow builder.** `/api/flows/generate` knows only the six
-  original node types and returns a 502 that was never reproduced; diagnostics
-  were shipped but the cause is still unknown. Rewrite against the new palette
-  and run its output through the validator before showing it.
+- [x] 2026-10-30 — **AI flow builder, rewritten against the real palette.** The
+  prompt described six node types while the builder has thirteen, so every flow
+  it produced was assembled from the May version of the editor — no Wait, no
+  Collect, no Template, no AI Reply. A generated flow was always *less* than a
+  client could build by hand, which is the opposite of the point. The palette is
+  now described field by field, from what each handler actually reads, and a test
+  fails if a node type is added to the registry without being described — which
+  is how this drifted in the first place.
+  The prompt also carries the rules a flow cannot recover from at runtime: ask
+  for a name or phone with Collect and not Question, offer tap choices when the
+  answers are a known set, and never put a plain message after a wait of more
+  than 24 hours, because WhatsApp refuses it and nobody is told.
+  **On the unreproduced 502:** `jsonMode` is the only thing this route did that
+  no working AI path in the codebase does, and it is passed to every provider in
+  the failover chain — so a model that rejects `response_format` makes both
+  providers fail and the whole call return null, which matches "it 502s while
+  auto-replies generate fine the same hour". It now retries once without JSON
+  mode, and the parser reads a fenced or prefixed reply either way. Not proven,
+  but the single point of failure is gone and the error still names the model and
+  the chain that were tried.
+  The reply is normalized before the author sees it, and only unambiguously:
+  a node type the registry does not know (the engine ends the session on one), an
+  edge to a node that was never written, a missing Start, a duplicate id, a
+  missing position. A branch handle that does not match the node's branches is
+  left exactly as drawn and reported — choosing a different branch would be a
+  guess the author never sees. Every repair is named in the toast, and the flow
+  opens with the warning panel already showing. 24 tests.
 
 ## P5 — Flow builder Phase 3: power
 
