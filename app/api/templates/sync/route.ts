@@ -157,6 +157,9 @@ export async function POST(request: NextRequest) {
       const record = {
         workspace_id:   workspaceId,
         name:           mt.name,
+        // Meta's own id. The sync had it in hand and did not keep it, which is
+        // why matching has had to be done on name alone.
+        meta_template_id: mt.id,
         status:         normalizeStatus(mt.status),
         category:       normalizeCategory(mt.category),
         language:       mt.language ?? 'en',

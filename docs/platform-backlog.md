@@ -29,6 +29,21 @@ repo, or with a scroll of an old chat, can use them.
 
 ## P1 — Leads being lost, today
 
+- [x] 2026-10-30 — **Creating a template now sends it to Meta.** It used to save
+  locally and stop, with a toast asking the client to submit it — and the submit
+  button is a small icon in the list that nobody pressed. So templates sat at
+  'pending' forever and clients went to Meta's own dashboard instead, which is
+  the complaint "platform se template approve nahi hota". V4you's
+  `gym_plateform` sat untouched for two days. Two supporting fixes: the submit
+  route was reading Meta's template id and dropping it into the activity log
+  instead of the column (so `meta_template_id` was null on every row, approved
+  ones included), and nothing brought approval decisions back on a schedule —
+  migration 132 schedules `sync-template-status`.
+- [x] 2026-10-30 — **Scheduled `time-triggers`, which nothing was running.**
+  A gap in work already shipped: the flow Wait node and every question timeout
+  queue into `time_trigger_queue`, and no cron processed it, so a flow reaching
+  a Wait node would have parked forever. Migration 132.
+
 - [x] 2026-10-28 — **The campaign wizard's review step now says what the bot will
   quote.** `offerReadinessForCampaign` covers all five states that have actually
   occurred: no offer, ended, not started, running with no end date, running

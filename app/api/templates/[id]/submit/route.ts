@@ -118,11 +118,15 @@ export async function POST(
 
     const metaStatus = (metaData.status ?? 'PENDING').toLowerCase() as 'pending' | 'approved' | 'rejected';
 
+    // Meta's id was being read into the activity log and dropped, so every
+    // template row had meta_template_id null — leaving no handle to ask Meta
+    // about one template, and nothing but the name to match on when syncing.
     await adminDb
       .from('templates')
       .update({
-        status:      metaStatus,
-        updated_at:  new Date().toISOString(),
+        status:           metaStatus,
+        meta_template_id: metaData.id ?? null,
+        updated_at:       new Date().toISOString(),
       })
       .eq('id', templateId);
 

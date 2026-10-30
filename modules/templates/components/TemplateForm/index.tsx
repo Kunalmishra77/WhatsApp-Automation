@@ -19,7 +19,7 @@ import {
   Link, Phone, MessageSquare, Timer, LayoutGrid, List, Copy, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { WhatsAppPreview } from '../WhatsAppPreview';
-import { useCreateTemplate, useUpdateTemplate } from '../../hooks/useTemplates';
+import { useCreateTemplate, useUpdateTemplate, useSubmitTemplate } from '../../hooks/useTemplates';
 import { extractVariables } from '../../services/template.service';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import type { TemplateRow } from '../../services/template.service';
@@ -132,6 +132,7 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
   const isEdit      = !!template;
   const create      = useCreateTemplate();
   const update      = useUpdateTemplate();
+  const submit      = useSubmitTemplate();
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspace?.id) ?? '';
 
   // Standard mode state
@@ -324,8 +325,33 @@ export function TemplateForm({ open, onClose, template }: TemplateFormProps) {
         await update.mutateAsync({ id: template.id, payload: payload as never });
         toast.success('Template saved');
       } else {
-        await create.mutateAsync({ ...payload, status: 'pending' } as never);
-        toast.success('Template created — submit to Meta for approval');
+        // Creating a template used to save it locally and stop there, with a
+        // toast asking the client to submit it — and the submit button is a
+        // small icon in the list that nobody pressed. So templates sat at
+        // 'pending' forever and clients went to Meta's own dashboard instead.
+        // V4you's gym_plateform sat untouched for two days. Creating one now
+        // sends it for approval, which is what pressing Create looks like it
+        // does.
+        const created = await create.mutateAsync({ ...payload, status: 'pending' } as never) as { id?: string };
+        if (created?.id) {
+          try {
+            const result = await submit.mutateAsync(created.id) as { metaStatus?: string };
+            toast.success(`Sent to Meta for approval — ${result?.metaStatus ?? 'PENDING'}`);
+          } catch (submitErr) {
+            // The template is saved either way. Meta rejects submissions for
+            // reasons the client can fix — a name already in use, a malformed
+            // variable — so the reason is shown and the row is left ready to
+            // submit again from the list.
+            toast.error(
+              `Template saved, but Meta would not accept it: ${
+                submitErr instanceof Error ? submitErr.message : 'submission failed'
+              }`,
+              { duration: 10_000 },
+            );
+          }
+        } else {
+          toast.success('Template created — submit to Meta for approval');
+        }
       }
       onClose();
     } catch (err) {
