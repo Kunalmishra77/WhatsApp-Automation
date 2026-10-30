@@ -872,6 +872,9 @@ async function handleIncomingMessage(
       cleanToken,
       waId,
       flowChoice,
+      // Already worked out above. The engine used to recompute it with two
+      // counts and a lookup of the contact_id this call is holding.
+      isFirstContactMessage,
     );
 
     // Off-topic during an active flow: AI answers, then re-ask the pending question.

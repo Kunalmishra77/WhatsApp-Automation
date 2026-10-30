@@ -724,6 +724,12 @@ export async function processFlowForMessage(
    * needs the id and title the tap itself carried.
    */
   choice?: { id?: string; title?: string },
+  /**
+   * Whether this is the contact's first message in 24 hours, which is what a
+   * `first_message` trigger means. The webhook computes it before calling and
+   * passes it through; omitted, this function works it out itself.
+   */
+  isFirstContactMessage?: boolean,
 ): Promise<FlowHandleResult> {
   try {
     // Check for active session
@@ -850,37 +856,45 @@ export async function processFlowForMessage(
 
     if (!flows || flows.length === 0) return false;
 
-    // Count inbound messages in conversation to detect first message
-    const { count: msgCount } = await (supabase as any)
-      .from('messages')
-      .select('id', { count: 'exact', head: true })
-      .eq('conversation_id', conversationId)
-      .eq('workspace_id', workspaceId)
-      .eq('direction', 'inbound');
+    // "First message" is judged per-CONTACT, not per-conversation. Conversations
+    // get auto-resolved after inactivity, so a customer who pauses a few minutes
+    // lands in a brand-new conversation and a first_message flow re-fires — the
+    // client saw the welcome menu re-sent three times inside one session.
+    //
+    // The webhook has already worked this out before calling here, so it passes
+    // the answer in. Recomputing it cost two counts plus a lookup of the
+    // contact_id the caller was already holding. The fallback below keeps this
+    // function correct for any caller that cannot supply it.
+    let isFirstMessage: boolean;
+    if (typeof isFirstContactMessage === 'boolean') {
+      isFirstMessage = isFirstContactMessage;
+    } else {
+      const { count: msgCount } = await (supabase as any)
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversationId)
+        .eq('workspace_id', workspaceId)
+        .eq('direction', 'inbound');
 
-    // "First message" must be judged per-CONTACT, not per-conversation. Conversations
-    // get auto-resolved after inactivity, so a customer who pauses a few minutes lands
-    // in a brand-new conversation and this flow re-fires — the client saw the welcome
-    // menu re-sent three times inside one session. Only greet if this contact hasn't
-    // already messaged us in the last 24h.
-    let isFirstMessage = (msgCount ?? 0) <= 1;
-    if (isFirstMessage) {
-      const { data: convRow } = await (supabase as any)
-        .from('conversations')
-        .select('contact_id')
-        .eq('id', conversationId)
-        .maybeSingle();
-      const contactId = convRow?.contact_id as string | undefined;
-      if (contactId) {
-        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        const { count: recentInbound } = await (supabase as any)
-          .from('messages')
-          .select('id', { count: 'exact', head: true })
-          .eq('workspace_id', workspaceId)
-          .eq('sender_id', contactId)
-          .eq('direction', 'inbound')
-          .gte('created_at', since);
-        if ((recentInbound ?? 0) > 1) isFirstMessage = false;
+      isFirstMessage = (msgCount ?? 0) <= 1;
+      if (isFirstMessage) {
+        const { data: convRow } = await (supabase as any)
+          .from('conversations')
+          .select('contact_id')
+          .eq('id', conversationId)
+          .maybeSingle();
+        const cid = convRow?.contact_id as string | undefined;
+        if (cid) {
+          const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+          const { count: recentInbound } = await (supabase as any)
+            .from('messages')
+            .select('id', { count: 'exact', head: true })
+            .eq('workspace_id', workspaceId)
+            .eq('sender_id', cid)
+            .eq('direction', 'inbound')
+            .gte('created_at', since);
+          if ((recentInbound ?? 0) > 1) isFirstMessage = false;
+        }
       }
     }
     const lowerContent = messageContent.toLowerCase().trim();
