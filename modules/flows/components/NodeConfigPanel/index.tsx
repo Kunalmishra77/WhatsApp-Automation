@@ -13,7 +13,7 @@ import type {
   FlowNode, FlowNodeData,
   StartNodeData, MessageNodeData, QuestionNodeData,
   ConditionNodeData, AssignAgentNodeData, EndNodeData,
-  WaitNodeData, MediaNodeData, ActionNodeData, TemplateNodeData, AiReplyNodeData, CollectNodeData, FlowChoice, FlowActionOp,
+  WaitNodeData, MediaNodeData, ActionNodeData, TemplateNodeData, AiReplyNodeData, CollectNodeData, WebhookNodeData, FlowChoice, FlowActionOp,
 } from '../../types';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -821,6 +821,93 @@ export function NodeConfigPanel({ node, onSave, onDelete, onClose }: NodeConfigP
           </>
         );
       }
+      case 'webhook': {
+        const d = formData as Partial<WebhookNodeData>;
+        const body = d.body ?? [];
+        const saveFrom = d.saveFrom ?? [];
+        return (
+          <>
+            <div className="space-y-1.5">
+              <Label>Label</Label>
+              <Input value={d.label ?? ''} onChange={(e) => set('label', e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Address</Label>
+              <Input value={d.url ?? ''} onChange={(e) => set('url', e.target.value)}
+                placeholder="https://your-system.com/leads" />
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                Must be a public https address. Private and internal addresses
+                are refused, because the call is made from our servers.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>How to send</Label>
+              <Select value={d.method ?? 'POST'} onValueChange={(v) => set('method', v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="POST">POST (as JSON)</SelectItem>
+                  <SelectItem value="GET">GET (as query parameters)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2 rounded-md border border-border p-2.5">
+              <Label className="text-xs">What to send</Label>
+              {body.map((f, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <Input className="h-8 w-28 text-sm" value={f.key}
+                    onChange={(e) => { const next = [...body]; next[i] = { ...f, key: e.target.value }; set('body', next); }}
+                    placeholder="field" />
+                  <Input className="h-8 flex-1 text-sm" value={f.value}
+                    onChange={(e) => { const next = [...body]; next[i] = { ...f, value: e.target.value }; set('body', next); }}
+                    placeholder="{{name}}" />
+                  <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground"
+                    onClick={() => set('body', body.filter((_, j) => j !== i))} aria-label="Remove field">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" className="h-8 w-full text-xs"
+                onClick={() => set('body', [...body, { key: '', value: '' }])}>
+                Add a field
+              </Button>
+            </div>
+
+            <div className="space-y-2 rounded-md border border-border p-2.5">
+              <Label className="text-xs">What to read back (optional)</Label>
+              {saveFrom.map((f, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <Input className="h-8 flex-1 text-sm" value={f.responseKey}
+                    onChange={(e) => { const next = [...saveFrom]; next[i] = { ...f, responseKey: e.target.value }; set('saveFrom', next); }}
+                    placeholder="data.slot" />
+                  <span className="text-xs text-muted-foreground">→</span>
+                  <Input className="h-8 w-24 text-sm" value={f.saveAs}
+                    onChange={(e) => { const next = [...saveFrom]; next[i] = { ...f, saveAs: e.target.value }; set('saveFrom', next); }}
+                    placeholder="slot" />
+                  <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground"
+                    onClick={() => set('saveFrom', saveFrom.filter((_, j) => j !== i))} aria-label="Remove">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" className="h-8 w-full text-xs"
+                onClick={() => set('saveFrom', [...saveFrom, { responseKey: '', saveAs: '' }])}>
+                Read a value back
+              </Button>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Give up after (seconds)</Label>
+              <Input type="number" min={1} max={30} value={d.timeoutSeconds ?? 10}
+                onChange={(e) => set('timeoutSeconds', Number(e.target.value))} />
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                Connect the "if it fails" line somewhere. Another company's
+                server being down should not leave your customer waiting.
+              </p>
+            </div>
+          </>
+        );
+      }
       default:
         return <p className="text-sm text-muted-foreground">No configuration needed.</p>;
     }
@@ -833,6 +920,7 @@ export function NodeConfigPanel({ node, onSave, onDelete, onClose }: NodeConfigP
     template: 'Template',
     ai_reply: 'AI Reply',
     collect: 'Ask & check',
+    webhook: 'Send to a system',
     wait: 'Wait',
     media: 'Image / File',
     action: 'Action',

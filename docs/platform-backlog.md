@@ -200,8 +200,15 @@ Phase 1 shipped in c90b0c8.
   rather than showing the fallback as though it were the answer. The fallback
   line is the client's own, because a provider outage once sent every client
   the same generic sentence.
-- [ ] **Webhook node** — POST the context out, read JSON back into variables.
-  The deliberate escape hatch, and how per-workspace Sheets stops being special.
+- [x] 2026-10-30 — **Webhook node** — posts what the flow has collected to a URL
+  the client controls and reads values back, with `ok` and `failed` branches
+  because an outside system is the one part of a flow nobody here controls.
+  It is also how a per-workspace Sheets export stops needing its own code.
+  **It carries an SSRF risk by nature** — a client-supplied URL called from our
+  servers — so private, loopback, link-local and internal addresses are refused
+  and only http(s) is allowed, with tests. A hostname check cannot stop a name
+  that resolves to a private address afterwards; the real fix is making the call
+  from somewhere with no private network to reach, and that is still open.
 - [x] 2026-10-30 — **Collect** — a question that checks the answer, re-asks in
   the author's own words, and gives up down its own branch rather than asking a
   fourth time. A bad answer is never saved, the attempt count lives in the

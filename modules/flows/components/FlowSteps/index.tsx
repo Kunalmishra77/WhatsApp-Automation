@@ -2,7 +2,7 @@
 import { useMemo } from 'react';
 import {
   MessageSquare, HelpCircle, Clock, Image as ImageIcon, Zap, UserCheck, CheckCircle,
-  ChevronUp, ChevronDown, Trash2, Plus, Play, LayoutGrid, FileCheck, Sparkles, ClipboardCheck,
+  ChevronUp, ChevronDown, Trash2, Plus, Play, LayoutGrid, FileCheck, Sparkles, ClipboardCheck, Webhook as WebhookIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -33,6 +33,7 @@ const STEP_KINDS: Array<{ type: FlowNodeType; label: string; icon: React.ReactNo
   { type: 'question', label: 'Ask a question', icon: <HelpCircle className="h-4 w-4" />, defaultData: { label: 'Question', message: '', timeoutHours: 24 } },
   { type: 'media', label: 'Send an image or file', icon: <ImageIcon className="h-4 w-4" />, defaultData: { label: 'Send Image', kind: 'image', url: '' } },
   { type: 'wait', label: 'Wait', icon: <Clock className="h-4 w-4" />, defaultData: { label: 'Wait', mode: 'duration', hours: 2 } },
+  { type: 'webhook', label: 'Send to another system', icon: <WebhookIcon className="h-4 w-4" />, defaultData: { label: 'Send to a system', url: '', method: 'POST', body: [], saveFrom: [], timeoutSeconds: 10 } },
   { type: 'collect', label: 'Ask and check the answer', icon: <ClipboardCheck className="h-4 w-4" />, defaultData: { label: 'Ask & check', message: '', expects: 'phone', saveAsVariable: '', maxAttempts: 2, timeoutHours: 24 } },
   { type: 'ai_reply', label: 'Let the bot answer', icon: <Sparkles className="h-4 w-4" />, defaultData: { label: 'AI Reply', instruction: '', fallbackMessage: 'Let me check that and get right back to you.' } },
   { type: 'template', label: 'Send a template (works after 24h)', icon: <FileCheck className="h-4 w-4" />, defaultData: { label: 'Template', templateName: '', language: 'en', bodyParams: [] } },
@@ -81,6 +82,8 @@ function summarise(step: FlowStep): string {
       return text('instruction') || 'Answers whatever they asked';
     case 'collect':
       return text('message') || 'No question written yet';
+    case 'webhook':
+      return text('url') || 'No address set';
     case 'action': {
       const ops = (d.operations as unknown[] | undefined) ?? [];
       return ops.length ? `${ops.length} action${ops.length === 1 ? '' : 's'}` : 'Nothing set';

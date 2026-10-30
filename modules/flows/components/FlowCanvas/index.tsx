@@ -10,7 +10,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import {
   StartNode, MessageNode, QuestionNode, ConditionNode, AssignAgentNode, EndNode,
-  WaitNode, MediaNode, ActionNode, TemplateNode, AiReplyNode, CollectNode,
+  WaitNode, MediaNode, ActionNode, TemplateNode, AiReplyNode, CollectNode, WebhookNode,
 } from '../nodes';
 import type { FlowNode, FlowEdge } from '../../types';
 
@@ -27,6 +27,7 @@ const nodeTypes = {
   template:     TemplateNode,
   ai_reply:     AiReplyNode,
   collect:      CollectNode,
+  webhook:      WebhookNode,
 };
 
 interface FlowCanvasProps {

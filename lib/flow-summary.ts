@@ -85,6 +85,12 @@ export function describeStep(step: FlowStep): string {
       return saved ? `${asks}, saving it as ${saved}` : asks;
     }
 
+    case 'webhook': {
+      let host = '';
+      try { host = str('url') ? new URL(str('url')).host : ''; } catch { host = ''; }
+      return host ? `sends what it has to ${host}` : 'sends what it has to another system';
+    }
+
     case 'ai_reply':
       return str('instruction')
         ? `answers from the knowledge base (${str('instruction')})`

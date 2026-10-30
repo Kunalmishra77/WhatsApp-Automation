@@ -460,6 +460,40 @@ function makeOps(
         action_data:     { session_id: sessionId, handle },
       });
     },
+    async callWebhook({ url, method, payload, timeoutSeconds }) {
+      // Someone else's server is the one part of a flow nobody here controls,
+      // so every failure is a returned value rather than a thrown error — the
+      // step has a branch for it and the customer is never left mid-sentence.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
+      try {
+        const target = method === 'GET'
+          ? `${url}${url.includes('?') ? '&' : '?'}${new URLSearchParams(payload).toString()}`
+          : url;
+        const res = await fetch(target, {
+          method,
+          signal: controller.signal,
+          ...(method === 'POST'
+            ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
+            : {}),
+        });
+        // A response that is not JSON is not a failure — plenty of endpoints
+        // answer "ok" — so the status decides and the body is best-effort.
+        let data: unknown;
+        try { data = await res.json(); } catch { data = undefined; }
+        if (!res.ok) {
+          console.error(`[FlowWebhook] ${url} returned ${res.status}`);
+          return { ok: false, status: res.status, data };
+        }
+        return { ok: true, status: res.status, data };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[FlowWebhook] ${url} failed:`, message);
+        return { ok: false, error: message };
+      } finally {
+        clearTimeout(timer);
+      }
+    },
     async cancelSchedules() {
       // A session may have several pending wake-ups — a question's timeout and a
       // wait it reached by another path. Whatever the customer does next, none of

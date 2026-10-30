@@ -65,6 +65,19 @@ export interface FlowOps {
   // fires; nothing fires if the session has moved on by then.
   schedule(atIso: string, handle: string): Promise<void>;
   cancelSchedules(): Promise<void>;
+  /**
+   * Calls a URL the client controls. Behind the facade because the handler
+   * must stay runnable in the editor's simulator, which makes no real call.
+   *
+   * Never throws: an outside system being down is an ordinary event in a flow,
+   * and the step has a failure branch for it.
+   */
+  callWebhook(request: {
+    url: string;
+    method: 'POST' | 'GET';
+    payload: Record<string, string>;
+    timeoutSeconds: number;
+  }): Promise<{ ok: boolean; status?: number; data?: unknown; error?: string }>;
 }
 
 /**

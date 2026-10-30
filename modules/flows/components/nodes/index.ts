@@ -10,3 +10,4 @@ export { ActionNode }      from './ActionNode';
 export { TemplateNode }     from './TemplateNode';
 export { AiReplyNode }      from './AiReplyNode';
 export { CollectNode }      from './CollectNode';
+export { WebhookNode }      from './WebhookNode';

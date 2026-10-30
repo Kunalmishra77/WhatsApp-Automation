@@ -2,7 +2,7 @@ import type { Node, Edge } from 'reactflow';
 
 export type FlowNodeType =
   | 'start' | 'message' | 'question' | 'condition' | 'assign_agent' | 'end'
-  | 'wait' | 'media' | 'action' | 'template' | 'ai_reply' | 'collect';
+  | 'wait' | 'media' | 'action' | 'template' | 'ai_reply' | 'collect' | 'webhook';
 export type ComparisonOperator = '>=' | '>' | '<' | '<=' | '==' | '!=';
 
 export interface StartNodeData    { label: string; triggerType: 'keyword' | 'first_message'; triggerValue: string; }
@@ -112,6 +112,17 @@ export interface CollectNodeData {
   timeoutHours?: number;
 }
 
+export interface WebhookNodeData {
+  label: string;
+  url?: string;
+  method?: 'POST' | 'GET';
+  /** Sent as JSON. Values may be flow placeholders like {{name}}. */
+  body?: Array<{ key: string; value: string }>;
+  /** Reads fields out of the JSON response into flow variables. */
+  saveFrom?: Array<{ responseKey: string; saveAs: string }>;
+  timeoutSeconds?: number;
+}
+
 export type FlowNodeData =
   | StartNodeData
   | MessageNodeData
@@ -124,7 +135,8 @@ export type FlowNodeData =
   | ActionNodeData
   | TemplateNodeData
   | AiReplyNodeData
-  | CollectNodeData;
+  | CollectNodeData
+  | WebhookNodeData;
 
 export type FlowNode = Node<FlowNodeData, FlowNodeType>;
 export type FlowEdge = Edge;

@@ -164,6 +164,10 @@ export async function simulateFlow(
       setContactField: noop, assignTo: noop, createTask: noop,
       notifyTeam: noop, optOut: noop,
       schedule: async () => {}, cancelSchedules: noop,
+      // No real call: a simulator that posted to a client's live CRM every
+      // time someone typed would be a trap. It reports success so the rest of
+      // the flow can be read.
+      callWebhook: async () => ({ ok: true, data: {} }),
     };
 
     for (let step = 0; step < MAX_STEPS_PER_TURN; step++) {

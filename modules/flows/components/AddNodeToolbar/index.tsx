@@ -1,7 +1,7 @@
 'use client';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { MessageSquare, HelpCircle, GitBranch, UserCheck, CheckCircle, Clock, Image as ImageIcon, Zap, FileCheck, Sparkles, ClipboardCheck } from 'lucide-react';
+import { MessageSquare, HelpCircle, GitBranch, UserCheck, CheckCircle, Clock, Image as ImageIcon, Zap, FileCheck, Sparkles, ClipboardCheck, Webhook as WebhookIcon } from 'lucide-react';
 import type { FlowNode, FlowNodeData } from '../../types';
 
 interface AddNodeToolbarProps {
@@ -46,6 +46,13 @@ const NODE_BUTTONS: Array<{
     icon: <ImageIcon className="h-4 w-4" />,
     defaultData: { label: 'Send Image', kind: 'image', url: '' },
     color: 'text-cyan-600',
+  },
+  {
+    type: 'webhook',
+    label: 'Send to another system',
+    icon: <WebhookIcon className="h-4 w-4" />,
+    defaultData: { label: 'Send to a system', url: '', method: 'POST', body: [], saveFrom: [], timeoutSeconds: 10 },
+    color: 'text-slate-600',
   },
   {
     type: 'collect',
