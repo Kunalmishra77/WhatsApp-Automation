@@ -133,8 +133,12 @@ export async function simulateFlow(
     let waitingAt: string | null = null;
 
     // Saving the reply into the parked node's variable is the engine's job, so
-    // it is done here too rather than inside a handler.
-    if (resuming && current) {
+    // it is done here too rather than inside a handler — but only for the steps
+    // the engine does it for. A Collect keeps its own answer, because a value
+    // is only worth storing once it has passed the check; pre-saving here made
+    // the simulator accept an answer production would have rejected, which is
+    // the one thing a simulator must never do.
+    if (resuming && current && current.type !== 'collect') {
       const d = current.data as { saveAsVariable?: string } | null;
       const saveAs = d?.saveAsVariable;
       if (saveAs && reply !== null) {

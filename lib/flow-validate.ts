@@ -125,11 +125,22 @@ export function validateFlow(
   }
 
   // ── 2. Placeholders nothing fills ───────────────────────────────────────────
+  // Every step that stores an answer, not only Question — a Collect saves one
+  // too, and a Webhook can read several out of a response. Missing them here
+  // made the validator insist a variable was never saved while the step that
+  // saves it sat two lines above.
   const saved = new Set<string>();
   for (const n of nodes) {
-    if (n.type === 'question') {
+    if (n.type === 'question' || n.type === 'collect') {
       const v = text(n, 'saveAsVariable')?.trim();
       if (v) saved.add(v);
+    }
+    if (n.type === 'webhook') {
+      const rows = (n.data as { saveFrom?: Array<{ saveAs?: string }> } | null)?.saveFrom ?? [];
+      for (const r of rows) {
+        const v = r.saveAs?.trim();
+        if (v) saved.add(v);
+      }
     }
   }
 
@@ -196,9 +207,15 @@ export function validateFlow(
 
       const node = byId.get(id);
       const next = new Set(known);
-      if (node?.type === 'question') {
+      if (node?.type === 'question' || node?.type === 'collect') {
         const v = text(node, 'saveAsVariable')?.trim();
         if (v) next.add(v);
+      }
+      if (node?.type === 'webhook') {
+        for (const r of ((node.data as { saveFrom?: Array<{ saveAs?: string }> } | null)?.saveFrom ?? [])) {
+          const v = r.saveAs?.trim();
+          if (v) next.add(v);
+        }
       }
       for (const t of out.get(id) ?? []) queue.push({ id: t, known: next });
     }
