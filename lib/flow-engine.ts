@@ -1,9 +1,11 @@
 import { createAdminClient } from '@/services/supabase/admin';
 import { callAI } from '@/lib/ai-client';
+import { getAIReply, fetchKnowledgeBaseContext } from '@/lib/ai-reply';
+import { getWorkspaceById } from '@/lib/workspace-cache';
 import { notifyWorkspaceSheets } from '@/lib/sheets-notify';
 import { handlerFor } from './flow-nodes';
 import { findNextNode, MAX_STEPS_PER_TURN } from './flow-nodes/walk';
-import type { FlowOps, SendFacade, NodeResult, ListSection, MediaKind } from './flow-nodes/types';
+import type { FlowOps, SendFacade, AiFacade, NodeResult, ListSection, MediaKind } from './flow-nodes/types';
 import {
   evaluateCondition, interpolateTemplate, isSkippableQuestion, looksMultiField,
   parseNumberFromReply, questionVarCounts, extractableFields, parseExtraction,
@@ -472,6 +474,56 @@ function makeOps(
   };
 }
 
+// ── The bot's own voice ───────────────────────────────────────────────────────
+// Behind a facade so a node handler needs no server-only import and the
+// editor's simulator can run the same handler against a stub.
+function makeAi(
+  supabase: AdminClient,
+  workspaceId: string,
+  contactPhone: string,
+): AiFacade {
+  return {
+    async reply(incoming, instruction) {
+      try {
+        const ws = await getWorkspaceById(supabase, workspaceId);
+        if (!ws) return null;
+
+        const settings = (ws.settings as Record<string, unknown> | null) ?? {};
+        const kb = await fetchKnowledgeBaseContext(supabase, workspaceId, incoming);
+
+        const { data: contact } = await (supabase as any)
+          .from('contacts').select('name')
+          .eq('workspace_id', workspaceId).eq('phone', contactPhone).maybeSingle();
+
+        // The instruction rides with the message rather than replacing the
+        // persona, so the answer still sounds like this business.
+        const question = instruction
+          ? `${incoming}
+
+[Answer this with one thing in mind: ${instruction}]`
+          : incoming;
+
+        return await getAIReply(
+          question,
+          (contact?.name as string | null) ?? 'there',
+          kb,
+          undefined,
+          settings,
+          ws.name ?? 'our team',
+          [],
+          null,
+          workspaceId,
+        );
+      } catch (err) {
+        // A model outage must not stop the flow; the handler sends its own
+        // fallback and the conversation continues.
+        console.error('[FlowAI] reply failed:', err);
+        return null;
+      }
+    },
+  };
+}
+
 // ── The engine ────────────────────────────────────────────────────────────────
 // Walks the flow. Each node's handler says what it did and where control goes;
 // edge resolution, session advancement, variable merging and the step limit all
@@ -504,6 +556,7 @@ async function runFlowFrom(
 ): Promise<boolean> {
   const send = makeSend(supabase, workspaceId, conversationId, phoneNumberId, accessToken, contactPhone);
   const ops  = makeOps(supabase, workspaceId, conversationId, sessionId, contactId, contactPhone);
+  const ai   = makeAi(supabase, workspaceId, contactPhone);
 
   let node: FlowNode | null = startNode;
   // Date and time are refreshed every turn. A session parked for two days would
@@ -533,6 +586,7 @@ async function runFlowFrom(
       vars,
       send,
       ops,
+      ai,
       workspaceId,
       conversationId,
       sessionId,
@@ -759,8 +813,13 @@ export async function processFlowForMessage(
       // Parked on a question: the reply is an answer unless it is plainly a
       // different question, in which case the AI answers first and the engine
       // re-asks. The session stays put either way, so no answer is lost.
-      if (currentNode.type === 'question') {
+      //
+      // A Collect step parks the same way, with one difference below: it keeps
+      // its own answer, because a value is only worth saving once it has passed
+      // the check the step exists to make.
+      if (currentNode.type === 'question' || currentNode.type === 'collect') {
         const qData = currentNode.data as QuestionNodeData;
+        const isCollect = currentNode.type === 'collect';
 
         if (await isOffTopicReply(
           qData.message, messageContent, await workspaceOffTopicTerms(supabase, workspaceId),
@@ -775,7 +834,7 @@ export async function processFlowForMessage(
         // label like `[Tapped button: "Book Now"]` and would be a poor answer.
         const answerText = (choice?.title ?? messageContent).trim();
 
-        if (qData.saveAsVariable) {
+        if (qData.saveAsVariable && !isCollect) {
           context = {
             ...context,
             // Numeric value for condition nodes
@@ -790,7 +849,7 @@ export async function processFlowForMessage(
         // engine can skip those questions. Gated + strict, so simple single
         // answers and existing flows are unaffected.
         const varCounts = questionVarCounts(nodes);
-        if (looksMultiField(messageContent)) {
+        if (!isCollect && looksMultiField(messageContent)) {
           const fields = extractableFields(nodes, varCounts)
             .filter((f) => f.variable !== qData.saveAsVariable);
           const extracted = await extractFlowVariables(messageContent, fields);

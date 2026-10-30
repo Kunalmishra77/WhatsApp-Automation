@@ -15,6 +15,8 @@ import { waitHandler } from './wait';
 import { mediaHandler } from './media';
 import { actionHandler } from './action';
 import { templateHandler } from './template';
+import { aiReplyHandler } from './ai-reply';
+import { collectHandler } from './collect';
 
 const HANDLERS: NodeHandler[] = [
   // The six that existed before the registry. Their behaviour is unchanged.
@@ -29,6 +31,8 @@ const HANDLERS: NodeHandler[] = [
   mediaHandler,
   actionHandler,
   templateHandler,
+  aiReplyHandler,
+  collectHandler,
 ];
 
 export const NODE_HANDLERS: Record<string, NodeHandler> = Object.fromEntries(

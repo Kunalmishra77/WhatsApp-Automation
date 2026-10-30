@@ -13,7 +13,7 @@ import type {
   FlowNode, FlowNodeData,
   StartNodeData, MessageNodeData, QuestionNodeData,
   ConditionNodeData, AssignAgentNodeData, EndNodeData,
-  WaitNodeData, MediaNodeData, ActionNodeData, TemplateNodeData, FlowChoice, FlowActionOp,
+  WaitNodeData, MediaNodeData, ActionNodeData, TemplateNodeData, AiReplyNodeData, CollectNodeData, FlowChoice, FlowActionOp,
 } from '../../types';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -721,6 +721,106 @@ export function NodeConfigPanel({ node, onSave, onDelete, onClose }: NodeConfigP
           </>
         );
       }
+      case 'ai_reply': {
+        const d = formData as Partial<AiReplyNodeData>;
+        return (
+          <>
+            <div className="space-y-1.5">
+              <Label>Label</Label>
+              <Input value={d.label ?? ''} onChange={(e) => set('label', e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>What should it answer? (optional)</Label>
+              <Textarea
+                rows={3}
+                value={d.instruction ?? ''}
+                onChange={(e) => set('instruction', e.target.value)}
+                placeholder="e.g. only about our pricing and plans, in one short paragraph"
+              />
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                Leave this empty and the bot simply answers whatever the customer
+                asked, using the same persona and knowledge base it uses
+                everywhere else. Fill it in to keep the answer on one subject.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>If the AI cannot be reached</Label>
+              <Textarea
+                rows={2}
+                value={d.fallbackMessage ?? ''}
+                onChange={(e) => set('fallbackMessage', e.target.value)}
+                placeholder="Let me check that and get right back to you."
+              />
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                A provider outage once sent every client the same generic line.
+                Say something of your own here so a customer is never left
+                waiting in silence.
+              </p>
+            </div>
+          </>
+        );
+      }
+      case 'collect': {
+        const d = formData as Partial<CollectNodeData>;
+        return (
+          <>
+            <div className="space-y-1.5">
+              <Label>Label</Label>
+              <Input value={d.label ?? ''} onChange={(e) => set('label', e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Question</Label>
+              <Textarea rows={3} value={d.message ?? ''} onChange={(e) => set('message', e.target.value)}
+                placeholder="What is your mobile number?" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>What should the answer be?</Label>
+              <Select value={d.expects ?? 'any'} onValueChange={(v) => set('expects', v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="phone">A mobile number</SelectItem>
+                  <SelectItem value="email">An email address</SelectItem>
+                  <SelectItem value="name">A name</SelectItem>
+                  <SelectItem value="date">A date</SelectItem>
+                  <SelectItem value="time">A time</SelectItem>
+                  <SelectItem value="number">A number</SelectItem>
+                  <SelectItem value="any">Anything</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                An answer that does not fit is not saved. A plain Question would
+                have kept "asdf" as the phone number and nobody would have known.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Save the answer as</Label>
+              <Input value={d.saveAsVariable ?? ''} onChange={(e) => set('saveAsVariable', e.target.value)}
+                placeholder="e.g. phone" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>If the answer does not fit, say</Label>
+              <Textarea rows={2} value={d.retryMessage ?? ''} onChange={(e) => set('retryMessage', e.target.value)}
+                placeholder="Leave empty to use a sensible default" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Tries before giving up</Label>
+                <Input type="number" min={1} max={5} value={d.maxAttempts ?? 2}
+                  onChange={(e) => set('maxAttempts', Number(e.target.value))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">No reply after (hours)</Label>
+                <Input type="number" min={0} max={72} value={d.timeoutHours ?? 24}
+                  onChange={(e) => set('timeoutHours', Number(e.target.value))} />
+              </div>
+            </div>
+            <p className="text-[10px] leading-snug text-muted-foreground">
+              Connect the "gives up" line to a person. Asking a fourth time is
+              worse than handing the conversation over.
+            </p>
+          </>
+        );
+      }
       default:
         return <p className="text-sm text-muted-foreground">No configuration needed.</p>;
     }
@@ -731,6 +831,8 @@ export function NodeConfigPanel({ node, onSave, onDelete, onClose }: NodeConfigP
     message: 'Message',
     question: 'Question',
     template: 'Template',
+    ai_reply: 'AI Reply',
+    collect: 'Ask & check',
     wait: 'Wait',
     media: 'Image / File',
     action: 'Action',

@@ -8,3 +8,5 @@ export { WaitNode }        from './WaitNode';
 export { MediaNode }       from './MediaNode';
 export { ActionNode }      from './ActionNode';
 export { TemplateNode }     from './TemplateNode';
+export { AiReplyNode }      from './AiReplyNode';
+export { CollectNode }      from './CollectNode';

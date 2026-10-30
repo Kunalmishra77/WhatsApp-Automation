@@ -2,7 +2,7 @@ import type { Node, Edge } from 'reactflow';
 
 export type FlowNodeType =
   | 'start' | 'message' | 'question' | 'condition' | 'assign_agent' | 'end'
-  | 'wait' | 'media' | 'action' | 'template';
+  | 'wait' | 'media' | 'action' | 'template' | 'ai_reply' | 'collect';
 export type ComparisonOperator = '>=' | '>' | '<' | '<=' | '==' | '!=';
 
 export interface StartNodeData    { label: string; triggerType: 'keyword' | 'first_message'; triggerValue: string; }
@@ -89,6 +89,29 @@ export interface TemplateNodeData {
   bodyParams?: string[];
 }
 
+export interface AiReplyNodeData {
+  label: string;
+  /** Narrows the answer, e.g. "only about our pricing and plans". */
+  instruction?: string;
+  /** Sent when the model cannot be reached, so the customer is never ignored. */
+  fallbackMessage?: string;
+}
+
+export type CollectKind = 'any' | 'name' | 'phone' | 'email' | 'number' | 'date' | 'time';
+
+export interface CollectNodeData {
+  label: string;
+  message?: string;
+  /** What the answer has to look like before it is accepted. */
+  expects?: CollectKind;
+  saveAsVariable?: string;
+  /** Sent when the answer does not fit, before asking again. */
+  retryMessage?: string;
+  /** Re-asks before taking the "gave up" branch. Default 2. */
+  maxAttempts?: number;
+  timeoutHours?: number;
+}
+
 export type FlowNodeData =
   | StartNodeData
   | MessageNodeData
@@ -99,7 +122,9 @@ export type FlowNodeData =
   | WaitNodeData
   | MediaNodeData
   | ActionNodeData
-  | TemplateNodeData;
+  | TemplateNodeData
+  | AiReplyNodeData
+  | CollectNodeData;
 
 export type FlowNode = Node<FlowNodeData, FlowNodeType>;
 export type FlowEdge = Edge;

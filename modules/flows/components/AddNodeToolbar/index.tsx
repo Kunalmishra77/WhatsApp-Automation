@@ -1,7 +1,7 @@
 'use client';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { MessageSquare, HelpCircle, GitBranch, UserCheck, CheckCircle, Clock, Image as ImageIcon, Zap, FileCheck } from 'lucide-react';
+import { MessageSquare, HelpCircle, GitBranch, UserCheck, CheckCircle, Clock, Image as ImageIcon, Zap, FileCheck, Sparkles, ClipboardCheck } from 'lucide-react';
 import type { FlowNode, FlowNodeData } from '../../types';
 
 interface AddNodeToolbarProps {
@@ -46,6 +46,20 @@ const NODE_BUTTONS: Array<{
     icon: <ImageIcon className="h-4 w-4" />,
     defaultData: { label: 'Send Image', kind: 'image', url: '' },
     color: 'text-cyan-600',
+  },
+  {
+    type: 'collect',
+    label: 'Ask & check',
+    icon: <ClipboardCheck className="h-4 w-4" />,
+    defaultData: { label: 'Ask & check', message: '', expects: 'phone', saveAsVariable: '', maxAttempts: 2, timeoutHours: 24 },
+    color: 'text-sky-600',
+  },
+  {
+    type: 'ai_reply',
+    label: 'AI Reply',
+    icon: <Sparkles className="h-4 w-4" />,
+    defaultData: { label: 'AI Reply', instruction: '', fallbackMessage: 'Let me check that and get right back to you.' },
+    color: 'text-fuchsia-600',
   },
   {
     type: 'template',

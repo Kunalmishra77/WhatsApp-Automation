@@ -67,6 +67,21 @@ export interface FlowOps {
   cancelSchedules(): Promise<void>;
 }
 
+/**
+ * The bot's own voice, available to a step that wants to answer rather than
+ * recite. Behind a facade like `send` and `ops`, so a handler stays free of
+ * server-only imports and the editor's simulator can run it unchanged.
+ */
+export interface AiFacade {
+  /**
+   * Answers `incoming` using this workspace's persona and knowledge base.
+   * `instruction` narrows it — "only about pricing", "keep it to one line".
+   * Returns null when the model could not be reached, and the caller decides
+   * what to do rather than this throwing mid-conversation.
+   */
+  reply(incoming: string, instruction?: string): Promise<string | null>;
+}
+
 export interface NodeRunContext {
   node: FlowNode;
   /**
@@ -88,6 +103,7 @@ export interface NodeRunContext {
   vars: Readonly<FlowContext>;
   send: SendFacade;
   ops: FlowOps;
+  ai: AiFacade;
   workspaceId: string;
   conversationId: string;
   sessionId: string;

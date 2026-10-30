@@ -77,6 +77,19 @@ export function describeStep(step: FlowStep): string {
         ? `sends the “${str('templateName')}” template`
         : 'sends a template';
 
+    case 'collect': {
+      const what = { name: 'a name', phone: 'a mobile number', email: 'an email',
+        number: 'a number', date: 'a date', time: 'a time', any: 'an answer' }[String(d.expects ?? 'any')] ?? 'an answer';
+      const saved = str('saveAsVariable');
+      const asks = `asks for ${what} and checks it`;
+      return saved ? `${asks}, saving it as ${saved}` : asks;
+    }
+
+    case 'ai_reply':
+      return str('instruction')
+        ? `answers from the knowledge base (${str('instruction')})`
+        : 'answers from the knowledge base';
+
     case 'assign_agent':
       return 'hands the conversation to a person';
 

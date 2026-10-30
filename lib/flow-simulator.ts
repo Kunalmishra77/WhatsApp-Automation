@@ -151,6 +151,12 @@ export async function simulateFlow(
       async template(name, _language, params) { events.push({ kind: 'template', nodeId: current!.id, name, params }); },
     };
 
+    // The simulator makes no AI call — it would cost money per keystroke and
+    // give a different answer every run. The transcript says so plainly.
+    const ai = {
+      reply: async () => null,
+    };
+
     const noop = async () => {};
     const ops: FlowOps = {
       setConversationStatus: noop,
@@ -172,6 +178,20 @@ export async function simulateFlow(
 
       visited.push(current.id);
 
+      // No AI call is made here, so the transcript says what would have been
+      // written instead of showing the fallback and letting someone believe
+      // that is the real answer.
+      if (current.type === 'ai_reply') {
+        const d = current.data as { instruction?: string } | null;
+        events.push({
+          kind: 'note',
+          nodeId: current.id,
+          text: d?.instruction
+            ? `The bot would answer from your knowledge base — ${d.instruction}`
+            : 'The bot would answer from your knowledge base here.',
+        });
+      }
+
       // An Action node's effects are described rather than performed, so the
       // transcript shows what would happen without touching any data.
       if (current.type === 'action') {
@@ -189,6 +209,7 @@ export async function simulateFlow(
         vars,
         send,
         ops,
+        ai,
         workspaceId: 'sim', conversationId: 'sim', sessionId: 'sim',
         contactId: null, contactPhone: options.phone ?? '91XXXXXXXXXX',
         interpolate: (text: string) => interpolateTemplate(text, vars),

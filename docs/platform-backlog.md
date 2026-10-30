@@ -193,12 +193,22 @@ Phase 1 shipped in c90b0c8.
   body and lets each be filled from a saved answer. The 24-hour warning goes
   quiet when a Template follows the wait and stays loud when a plain message
   does — both have tests.
-- [ ] **AI Reply node** — hand one turn to the persona and knowledge base, then
-  return to the flow.
+- [x] 2026-10-30 — **AI Reply node.** Hands one turn to the workspace's persona
+  and knowledge base, then carries on. Behind an `ai` facade like `send` and
+  `ops`, so the handler keeps no server-only import and the simulator runs it
+  unchanged — the simulator makes no model call and says so in the transcript
+  rather than showing the fallback as though it were the answer. The fallback
+  line is the client's own, because a provider outage once sent every client
+  the same generic sentence.
 - [ ] **Webhook node** — POST the context out, read JSON back into variables.
   The deliberate escape hatch, and how per-workspace Sheets stops being special.
-- [ ] **Switch** (many-way branch), **Collect** (validated input with re-ask and
-  a give-up branch), **Jump** (reuse a sub-flow), **Split** (A/B).
+- [x] 2026-10-30 — **Collect** — a question that checks the answer, re-asks in
+  the author's own words, and gives up down its own branch rather than asking a
+  fourth time. A bad answer is never saved, the attempt count lives in the
+  session so a customer who returns a day later is not silently on their last
+  try, and smart extraction is off here because guessing works against a step
+  whose job is to check.
+- [ ] **Switch** (many-way branch), **Jump** (reuse a sub-flow), **Split** (A/B).
 - [ ] **Richer triggers**: button or list reply id, template button click, ad
   click by ad id, lead created / tag added / temperature changed, conversation
   idle N hours, a schedule, campaign reply, manual/API, any-message fallback.
