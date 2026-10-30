@@ -7,3 +7,4 @@ export { EndNode }         from './EndNode';
 export { WaitNode }        from './WaitNode';
 export { MediaNode }       from './MediaNode';
 export { ActionNode }      from './ActionNode';
+export { TemplateNode }     from './TemplateNode';

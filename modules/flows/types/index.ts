@@ -2,7 +2,7 @@ import type { Node, Edge } from 'reactflow';
 
 export type FlowNodeType =
   | 'start' | 'message' | 'question' | 'condition' | 'assign_agent' | 'end'
-  | 'wait' | 'media' | 'action';
+  | 'wait' | 'media' | 'action' | 'template';
 export type ComparisonOperator = '>=' | '>' | '<' | '<=' | '==' | '!=';
 
 export interface StartNodeData    { label: string; triggerType: 'keyword' | 'first_message'; triggerValue: string; }
@@ -79,6 +79,16 @@ export interface ActionNodeData {
   operations?: FlowActionOp[];
 }
 
+export interface TemplateNodeData {
+  label: string;
+  /** The template's name as Meta knows it. */
+  templateName?: string;
+  /** Its language code. A template exists once per language. */
+  language?: string;
+  /** Values for {{1}}, {{2}} … in the template body, in order. */
+  bodyParams?: string[];
+}
+
 export type FlowNodeData =
   | StartNodeData
   | MessageNodeData
@@ -88,7 +98,8 @@ export type FlowNodeData =
   | EndNodeData
   | WaitNodeData
   | MediaNodeData
-  | ActionNodeData;
+  | ActionNodeData
+  | TemplateNodeData;
 
 export type FlowNode = Node<FlowNodeData, FlowNodeType>;
 export type FlowEdge = Edge;

@@ -72,6 +72,11 @@ export function describeStep(step: FlowStep): string {
       return [...new Set(names)].join(' and ');
     }
 
+    case 'template':
+      return str('templateName')
+        ? `sends the “${str('templateName')}” template`
+        : 'sends a template';
+
     case 'assign_agent':
       return 'hands the conversation to a person';
 

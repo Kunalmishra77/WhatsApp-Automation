@@ -2,7 +2,7 @@
 import { useMemo } from 'react';
 import {
   MessageSquare, HelpCircle, Clock, Image as ImageIcon, Zap, UserCheck, CheckCircle,
-  ChevronUp, ChevronDown, Trash2, Plus, Play, LayoutGrid,
+  ChevronUp, ChevronDown, Trash2, Plus, Play, LayoutGrid, FileCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -33,6 +33,7 @@ const STEP_KINDS: Array<{ type: FlowNodeType; label: string; icon: React.ReactNo
   { type: 'question', label: 'Ask a question', icon: <HelpCircle className="h-4 w-4" />, defaultData: { label: 'Question', message: '', timeoutHours: 24 } },
   { type: 'media', label: 'Send an image or file', icon: <ImageIcon className="h-4 w-4" />, defaultData: { label: 'Send Image', kind: 'image', url: '' } },
   { type: 'wait', label: 'Wait', icon: <Clock className="h-4 w-4" />, defaultData: { label: 'Wait', mode: 'duration', hours: 2 } },
+  { type: 'template', label: 'Send a template (works after 24h)', icon: <FileCheck className="h-4 w-4" />, defaultData: { label: 'Template', templateName: '', language: 'en', bodyParams: [] } },
   { type: 'action', label: 'Do something', icon: <Zap className="h-4 w-4" />, defaultData: { label: 'Action', operations: [] } },
   { type: 'assign_agent', label: 'Hand over to a person', icon: <UserCheck className="h-4 w-4" />, defaultData: { label: 'Handoff to Agent', message: 'Connecting you to an agent...' } },
   { type: 'end', label: 'End the flow', icon: <CheckCircle className="h-4 w-4" />, defaultData: { label: 'End', message: 'Thank you! Have a great day.' } },
@@ -72,6 +73,8 @@ function summarise(step: FlowStep): string {
       }
       return parts.length ? parts.join(' ') : 'No delay set';
     }
+    case 'template':
+      return text('templateName') || 'No template chosen yet';
     case 'action': {
       const ops = (d.operations as unknown[] | undefined) ?? [];
       return ops.length ? `${ops.length} action${ops.length === 1 ? '' : 's'}` : 'Nothing set';

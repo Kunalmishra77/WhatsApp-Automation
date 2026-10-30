@@ -96,7 +96,7 @@ async function saveOutboundMessage(
   conversationId: string,
   text: string,
   waMessageId: string | null,
-  msgType: 'text' | 'interactive' = 'text',
+  msgType: 'text' | 'interactive' | 'template' = 'text',
 ) {
   const now = new Date().toISOString();
   await (supabase as any).from('messages').insert({
@@ -308,6 +308,24 @@ function makeSend(
       });
       const label = name ? `[Location: ${name}]` : '[Location]';
       await saveOutboundMessage(supabase, workspaceId, conversationId, label, id);
+    },
+    async template(name, language, bodyParams) {
+      const id = await send({
+        type: 'template',
+        template: {
+          name,
+          language: { code: language },
+          ...(bodyParams.length > 0
+            ? { components: [{ type: 'body', parameters: bodyParams.map((text) => ({ type: 'text', text })) }] }
+            : {}),
+        },
+      });
+      // The conversation shows which template went out. Its wording lives with
+      // Meta, so the thread cannot show the text itself.
+      const label = bodyParams.length > 0
+        ? `[Template: ${name} — ${bodyParams.join(', ')}]`
+        : `[Template: ${name}]`;
+      await saveOutboundMessage(supabase, workspaceId, conversationId, label, id, 'template');
     },
     async list(body, buttonText, sections: ListSection[], header, footer) {
       const id = await send({

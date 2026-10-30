@@ -38,6 +38,15 @@ export interface SendFacade {
   media(kind: MediaKind, url: string, caption?: string, filename?: string): Promise<void>;
   location(latitude: number, longitude: number, name?: string, address?: string): Promise<void>;
   list(body: string, buttonText: string, sections: ListSection[], header?: string, footer?: string): Promise<void>;
+  /**
+   * An approved WhatsApp template. The only message that may be sent more than
+   * 24 hours after the customer's last one — everything else above is refused
+   * by WhatsApp outside that window, which is what makes a long Wait useless
+   * without this.
+   *
+   * `bodyParams` fill {{1}}, {{2}} … in the template's body, in order.
+   */
+  template(name: string, language: string, bodyParams: string[]): Promise<void>;
 }
 
 // Everything a node does that is not a message. Each operation is scoped to the

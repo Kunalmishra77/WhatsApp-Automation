@@ -186,9 +186,13 @@ Phase 1 shipped in c90b0c8.
 
 ## P5 — Flow builder Phase 3: power
 
-- [ ] **Template node** — send an approved WhatsApp template. The only way to
-  reopen a conversation after 24 hours, so wait-then-follow-up is incomplete
-  without it.
+- [x] 2026-10-30 — **Template node.** The only message WhatsApp allows more
+  than 24 hours after the customer last wrote, so a long Wait finally leads
+  somewhere. The editor picks from the workspace's approved templates, shows
+  the approved wording, counts the template's own {{1}}, {{2}} blanks from its
+  body and lets each be filled from a saved answer. The 24-hour warning goes
+  quiet when a Template follows the wait and stays loud when a plain message
+  does — both have tests.
 - [ ] **AI Reply node** — hand one turn to the persona and knowledge base, then
   return to the flow.
 - [ ] **Webhook node** — POST the context out, read JSON back into variables.

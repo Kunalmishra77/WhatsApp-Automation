@@ -51,6 +51,7 @@ export interface FlowWarning {
     | 'dead_end'
     | 'empty_copy'
     | 'media_without_file'
+    | 'template_not_chosen'
     | 'wait_past_the_window';
   message: string;
 }
@@ -245,6 +246,9 @@ export function validateFlow(
         (typeof d.minutes === 'number' ? d.minutes / 60 : 0);
       if (hours < HOURS_IN_WINDOW) continue;
       const after = (out.get(n.id) ?? []).map((id) => byId.get(id)).filter(Boolean);
+      // A Template step is the supported way to reach someone outside the
+      // window, so a wait that leads to one is exactly right.
+      if (after.some((x) => x!.type === 'template')) continue;
       if (after.some((x) => SPEAKS.has(x!.type ?? ''))) {
         warnings.push({
           nodeId: n.id,
@@ -268,6 +272,14 @@ export function validateFlow(
         message: n.type === 'question'
           ? 'This asks nothing — the customer will get an empty message and the flow will wait for a reply anyway.'
           : 'There is no message written here, so this step sends nothing.',
+      });
+    }
+
+    if (n.type === 'template' && !text(n, 'templateName')?.trim()) {
+      warnings.push({
+        nodeId: n.id,
+        kind: 'template_not_chosen',
+        message: 'No template is chosen here, so this step sends nothing. Pick one of your approved templates.',
       });
     }
 

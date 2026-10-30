@@ -32,6 +32,7 @@ export type SimEvent =
   | { kind: 'buttons'; nodeId: string; body: string; buttons: string[] }
   | { kind: 'list'; nodeId: string; body: string; buttonText: string; sections: ListSection[] }
   | { kind: 'media'; nodeId: string; mediaKind: MediaKind; url: string; caption?: string }
+  | { kind: 'template'; nodeId: string; name: string; params: string[] }
   | { kind: 'location'; nodeId: string; name?: string }
   | { kind: 'action'; nodeId: string; description: string }
   | { kind: 'wait'; nodeId: string; until: string }
@@ -147,6 +148,7 @@ export async function simulateFlow(
       async media(mediaKind, url, caption) { events.push({ kind: 'media', nodeId: current!.id, mediaKind, url, caption }); },
       async location(_lat, _lng, name) { events.push({ kind: 'location', nodeId: current!.id, name }); },
       async list(body, buttonText, sections) { events.push({ kind: 'list', nodeId: current!.id, body, buttonText, sections }); },
+      async template(name, _language, params) { events.push({ kind: 'template', nodeId: current!.id, name, params }); },
     };
 
     const noop = async () => {};

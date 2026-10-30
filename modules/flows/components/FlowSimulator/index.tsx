@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Send, RotateCcw, X, Clock, Zap, UserCheck, CheckCircle, Info, Image as ImageIcon, MapPin } from 'lucide-react';
+import { Send, RotateCcw, X, Clock, Zap, UserCheck, CheckCircle, Info, Image as ImageIcon, MapPin, FileCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -32,6 +32,7 @@ const EVENT_ICON: Partial<Record<SimEvent['kind'], React.ReactNode>> = {
   handoff:  <UserCheck className="h-3 w-3" />,
   end:      <CheckCircle className="h-3 w-3" />,
   note:     <Info className="h-3 w-3" />,
+  template: <FileCheck className="h-3 w-3" />,
   media:    <ImageIcon className="h-3 w-3" />,
   location: <MapPin className="h-3 w-3" />,
 };
@@ -77,6 +78,7 @@ function EventRow({ event, nodes }: { event: SimEvent; nodes: FlowNode[] }) {
     event.kind === 'media'    ? `Sends ${event.mediaKind}${event.caption ? ` — "${event.caption}"` : ''}`
     : event.kind === 'location' ? `Sends a location pin${event.name ? ` — ${event.name}` : ''}`
     : event.kind === 'action'   ? event.description
+    : event.kind === 'template' ? `Sends the “${event.name}” template${event.params.length ? ` — ${event.params.join(', ')}` : ''}`
     : event.kind === 'wait'     ? `Waits until ${event.until}`
     : event.kind === 'handoff'  ? 'Hands over to a person'
     : event.kind === 'end'      ? 'Flow ends here'

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { useTemplates } from '@/modules/templates/hooks/useTemplates';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -12,7 +13,7 @@ import type {
   FlowNode, FlowNodeData,
   StartNodeData, MessageNodeData, QuestionNodeData,
   ConditionNodeData, AssignAgentNodeData, EndNodeData,
-  WaitNodeData, MediaNodeData, ActionNodeData, FlowChoice, FlowActionOp,
+  WaitNodeData, MediaNodeData, ActionNodeData, TemplateNodeData, FlowChoice, FlowActionOp,
 } from '../../types';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -56,6 +57,9 @@ interface NodeConfigPanelProps {
 
 export function NodeConfigPanel({ node, onSave, onDelete, onClose }: NodeConfigPanelProps) {
   const [formData, setFormData] = useState<Record<string, unknown>>({});
+  // Only approved templates can be sent, so the author picks from the real list
+  // rather than typing a name that may not exist.
+  const { data: templates = [] } = useTemplates();
 
   useEffect(() => {
     if (node) {
@@ -631,6 +635,92 @@ export function NodeConfigPanel({ node, onSave, onDelete, onClose }: NodeConfigP
           </>
         );
       }
+      case 'template': {
+        const d = formData as Partial<TemplateNodeData>;
+        const approved = templates.filter((t) => t.status === 'approved');
+        const chosen = approved.find((t) => t.name === d.templateName);
+        // Meta numbers a template's blanks {{1}}, {{2}} … so the count comes
+        // from the body itself rather than from anything stored here.
+        const blanks = chosen
+          ? [...new Set([...(chosen.body ?? '').matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((m) => Number(m[1])))]
+              .sort((a, b) => a - b)
+          : [];
+        const params = d.bodyParams ?? [];
+        return (
+          <>
+            <div className="space-y-1.5">
+              <Label>Label</Label>
+              <Input value={d.label ?? ''} onChange={(e) => set('label', e.target.value)} />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Template</Label>
+              <Select
+                value={d.templateName ?? ''}
+                onValueChange={(v) => {
+                  const t = approved.find((x) => x.name === v);
+                  set('templateName', v);
+                  if (t?.language) set('language', t.language);
+                  // Blanks belong to the chosen template, so anything mapped
+                  // for the previous one would be meaningless here.
+                  set('bodyParams', []);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={approved.length ? 'Choose an approved template' : 'No approved templates yet'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {approved.map((t) => (
+                    <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                Only approved templates can be sent. A template is the only
+                message WhatsApp allows more than 24 hours after the customer
+                last wrote, which is what makes a long wait worth having.
+              </p>
+            </div>
+
+            {chosen && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">What it says</Label>
+                <p className="whitespace-pre-wrap rounded-md border border-border bg-muted/40 p-2 text-xs leading-snug">
+                  {chosen.body}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  Written and approved in WhatsApp — it cannot be edited here.
+                </p>
+              </div>
+            )}
+
+            {blanks.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-xs">Fill its blanks</Label>
+                {blanks.map((num, i) => (
+                  <div key={num} className="space-y-1">
+                    <span className="text-[11px] text-muted-foreground">{`{{${num}}}`}</span>
+                    <Input
+                      className="h-8 text-sm"
+                      value={params[i] ?? ''}
+                      onChange={(e) => {
+                        const next = [...params];
+                        while (next.length < blanks.length) next.push('');
+                        next[i] = e.target.value;
+                        set('bodyParams', next.slice(0, blanks.length));
+                      }}
+                      placeholder="{{name}} or fixed text"
+                    />
+                  </div>
+                ))}
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  Use an answer the flow saved, like {'{{name}}'}, or type something fixed.
+                </p>
+              </div>
+            )}
+          </>
+        );
+      }
       default:
         return <p className="text-sm text-muted-foreground">No configuration needed.</p>;
     }
@@ -640,6 +730,7 @@ export function NodeConfigPanel({ node, onSave, onDelete, onClose }: NodeConfigP
     start: 'Start',
     message: 'Message',
     question: 'Question',
+    template: 'Template',
     wait: 'Wait',
     media: 'Image / File',
     action: 'Action',
