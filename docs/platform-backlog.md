@@ -527,16 +527,50 @@ Phase 1 shipped in c90b0c8.
 
 From the 18-point program (2026-09-30). Migration 100 is applied.
 
-- [ ] #4 Team "Assigned Work" view, from the existing `tasks` data
-- [ ] #9 "AI Revenue Intelligence" shows lead scoring, not money — rename to AI
-  Lead Intelligence, or add real order-attributed revenue
-- [ ] #10 dashboard polish (CommandCenter already has charts)
-- [ ] #6 billing and Meta-spend real-data states
-- [ ] #7 bookings/events workflow
-- [ ] #11 profile, #16 login, #15 landing design
-- [ ] #12 UI/UX pass, #13 mobile
-- [ ] #14 integrations architecture (Settings → Integrations)
-- [ ] #17 features research
+**Checked one by one on 2026-10-31; this list was stale.** Five of the nine were
+already built and never ticked. What they say now is what the code says.
+
+- [x] #4 Team "Assigned Work" view — built:
+  `modules/team/components/AssignedWork/index.tsx`, a tab in TeamPage, reading
+  the existing `/api/tasks` and grouping by assignee.
+- [x] #9 "AI Revenue Intelligence" — renamed. The page is headed "AI Lead
+  Intelligence", its subtitle says lead scoring, and nothing on it claims money.
+  Only the route path (`/ai-revenue`) still carries the old name, which no
+  client sees.
+- [x] #7 bookings/events workflow — built: `app/(dashboard)/bookings/`, plus
+  Google Calendar and WhatsApp Forms settings.
+- [x] #14 integrations architecture — built: Settings → Integrations, with
+  per-channel tabs (GBP, Google Ads, Google Calendar, Meta Ads, Shopify).
+- [x] #16 login — built, along with signup, verify-email, forgot/reset
+  password, accept-invite, pending-approval and session-limit.
+- [x] 2026-10-31 — #6 **billing and Meta-spend real-data states.** The real
+  finding, and it was worth the look: Marketing ROI showed "Ad spend ₹0 / ROAS —
+  / Net ROI —" under a heading promising "spend, revenue, ROAS and true ROI
+  across every channel". A client could not tell whether they spent nothing or
+  never connected an ad account — and **14 of the 15 workspaces have no ad
+  account at all**, so almost every one was reading ₹0 as a counted figure. ₹0
+  is a claim; "not connected" is the truth and the only one of the two a client
+  can act on.
+  Now: a dash instead of ₹0 when nothing is connected, and a line naming what is
+  missing with a link to the right Settings tab. Only shown when there is
+  something to say.
+  **Two things verified against production rather than assumed, and both would
+  have shipped wrong:** `settings.meta_ads` does not exist anywhere — the Meta
+  config route writes `meta_ad_account_id` — and Google Ads keeps its customer id
+  in its own `google_ads_connections` table, not in settings. A guess at either
+  would have read "not connected" forever, including for Umang Hospital, which
+  IS connected to Google Ads. That is the same bug class as the one being fixed.
+  Also checked and clean: the marketing site's pricing is hardcoded and
+  hand-synced with `billing_plans`, and all twelve amounts match today (GST
+  stripped on both sides). The risk is structural, not current.
+  `meta_ad_spend_daily` is empty because nobody has connected Meta Ads, not
+  because the sync is broken — google-sync has succeeded every six hours.
+
+- [ ] #10 dashboard polish, #12 UI/UX pass, #13 mobile, #15 landing design,
+  #11 profile, #17 features research. **These have no finish line as written**
+  and were left rather than pretended at. Each needs one concrete complaint to
+  become a task: a page that is wrong, a screen that breaks at phone width, a
+  number a client misread. Ask the owner for one before starting.
 
 ## P7 — Blocked on someone else
 

@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { microsToCurrency } from '@/lib/google-ads';
+import { describeSource, adSpendIsMeasured, type RoiSource } from '@/lib/roi-sources';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -113,6 +114,36 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // ── 3b) Which ad accounts are actually connected ───────────────────────
+    //
+    // Without this the page shows "Ad spend ₹0" whether a client spent
+    // nothing or never connected an ad account, and today none of the fifteen
+    // workspaces has either credential — so every one of them was reading ₹0
+    // as a counted figure. ₹0 is a claim; "not connected" is the truth, and
+    // the only one of the two a client can act on.
+    //
+    // Each channel is asked where its credentials actually live, which is not
+    // the same place for the two of them. Checked against production rather
+    // than assumed: `settings.meta_ads` does not exist anywhere — the Meta
+    // config route writes `meta_ad_account_id` — and Google Ads keeps its
+    // customer id in its own `google_ads_connections` table, not in settings.
+    // A guess at either key would have read "not connected" forever, including
+    // for the one workspace that IS connected to Google Ads.
+    let adSources: RoiSource[] = [];
+    {
+      const [wsRes, gRes] = await Promise.all([
+        db.from('workspaces').select('settings').eq('id', workspaceId).maybeSingle(),
+        db.from('google_ads_connections')
+          .select('customer_id').eq('workspace_id', workspaceId).maybeSingle(),
+      ]);
+      const settings = (wsRes?.data?.settings ?? {}) as Record<string, unknown>;
+      const metaAccount = settings.meta_ad_account_id;
+      adSources = [
+        describeSource('meta_ads', typeof metaAccount === 'string' && metaAccount.trim().length > 0, false),
+        describeSource('google_ads', !!gRes?.data?.customer_id, false),
+      ];
+    }
+
     // ── 4) Meta (Facebook/Instagram) ad spend ──────────────────────────────
     let metaAdSpend = 0;
     {
@@ -165,9 +196,21 @@ export async function GET(request: NextRequest) {
     const totalSpend = round2(totals.spend);
     const totalRevenue = round2(totals.revenue);
 
+    // hasSpend is set from what was actually read, so a source that is
+    // connected and quiet is distinguishable from one that is not there.
+    const spendByKey: Record<string, number> = { meta_ads: metaAdSpend, google_ads: googleSpend };
+    adSources = adSources.map((s) => ({ ...s, hasSpend: (spendByKey[s.key] ?? 0) > 0 }));
+
     return NextResponse.json({
       channels,
       currency,
+      ad_sources: adSources,
+      /**
+       * False when no ad account is connected. The page shows a dash rather
+       * than ₹0 for ad spend, ROAS and ROI — the platform has not measured
+       * zero, it has measured nothing.
+       */
+      ad_spend_measured: adSpendIsMeasured(adSources),
       totals: {
         ...totals,
         spend: totalSpend,

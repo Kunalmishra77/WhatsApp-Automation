@@ -6,7 +6,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { PieChart, RefreshCw, TrendingUp, Wallet, Target } from 'lucide-react';
+import Link from 'next/link';
+import { PieChart, RefreshCw, TrendingUp, Wallet, Target, Info } from 'lucide-react';
+import { summariseSources, type RoiSource } from '@/lib/roi-sources';
 import { useWorkspaceStore } from '@/store/workspace.store';
 
 const CHANNEL_META: Record<string, { label: string; cls: string }> = {
@@ -64,11 +66,18 @@ export default function MarketingRoiPage() {
   const roasText = (r: number | null) => (r != null ? `${r.toFixed(2)}×` : '—');
   const roiText = (r: number | null) => (r != null ? `${r > 0 ? '+' : ''}${r}%` : '—');
 
+  // No ad account connected means the platform has not measured ₹0, it has
+  // measured nothing. A dash says that; a zero claims a figure it never
+  // counted, under a heading that promises "every channel".
+  const adSources: RoiSource[] = data?.ad_sources ?? [];
+  const adSpendMeasured: boolean = data?.ad_spend_measured ?? false;
+  const sourceNote = summariseSources(adSources);
+
   const kpis = [
     { label: 'Revenue', value: money(totals.revenue), icon: TrendingUp, color: 'bg-emerald-500' },
-    { label: 'ROAS', value: roasText(totals.roas), icon: Target, color: 'bg-brand-500' },
-    { label: 'Ad spend', value: money(totals.ad_spend), icon: Wallet, color: 'bg-red-500' },
-    { label: 'Net ROI', value: roiText(totals.net_roi), icon: TrendingUp, color: 'bg-amber-500' },
+    { label: 'ROAS', value: adSpendMeasured ? roasText(totals.roas) : '—', icon: Target, color: 'bg-brand-500' },
+    { label: 'Ad spend', value: adSpendMeasured ? money(totals.ad_spend) : '—', icon: Wallet, color: 'bg-red-500' },
+    { label: 'Net ROI', value: adSpendMeasured ? roiText(totals.net_roi) : '—', icon: TrendingUp, color: 'bg-amber-500' },
   ];
 
   return (
@@ -97,6 +106,21 @@ export default function MarketingRoiPage() {
           </div>
         ))}
       </div>
+
+      {/* What the figures above do and do not include. Only shown when there is
+          something to say — an explanation nobody needs is noise, and noise is
+          how the explanations that matter get skipped. */}
+      {!isLoading && sourceNote && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          <p className="text-xs leading-relaxed text-amber-900">
+            {sourceNote}{' '}
+            <Link href="/settings?tab=integrations" className="font-semibold underline underline-offset-2">
+              Connect an ad account
+            </Link>
+          </p>
+        </div>
+      )}
 
       {/* Date filter */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
