@@ -78,6 +78,17 @@ repo, or with a scroll of an old chat, can use them.
 
 ## P3 — Scalability, in measured order
 
+- [ ] **The app container leaks zombie processes.** 294 of them on 2026-10-30,
+  all parented to the `next-server` process inside the AGENTiX container
+  (`w80g8co4gwcgccccw080c4ss`), accumulated over about 40 hours — roughly seven
+  an hour. Not urgent: the process table takes weeks to fill and every deploy
+  resets it. But nothing in this codebase calls `child_process`, and the only
+  spawn-prone dependency is `@playwright/test`, which is a devDependency. So
+  something spawns and never reaps, and what it is cannot be worked out without
+  the zombies' own command names:
+  `ps -eo stat,ppid,comm | awk '$1 ~ /Z/ {print $3}' | sort | uniq -c | sort -rn`
+  run on the server after they have accumulated again.
+
 Baseline and the queries that produced it: `memory/scalability-measured-baseline.md`.
 `pg_stat_statements` is enabled — start there, not in the code.
 
