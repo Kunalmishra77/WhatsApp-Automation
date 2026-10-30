@@ -148,9 +148,14 @@ Phase 1 shipped in c90b0c8.
   tests run the broken Fitness First flow through it and assert all five
   messages land in one turn. What it cannot do is stated in the panel: no AI
   call, so every reply counts as an answer, and a wait is shown and skipped.
-- [ ] **Guided step-list view.** Eight of eighteen live flows are two to four
-  nodes: one auto-reply. Those clients opened a node canvas to write a single
-  message. Same stored flow, a vertical list of steps, canvas one click away.
+- [x] 2026-10-30 — **Guided step-list view.** Measured against the live flows
+  rather than guessed: eleven of the eighteen are straight lines and open as a
+  list, and eight of those are two to four nodes — a single auto-reply someone
+  built on a node canvas. Same stored flow, same node ids, canvas one click
+  away, and the view is chosen automatically until the author picks one.
+  `lib/flow-steps.ts` refuses to flatten anything it cannot show — a branch, a
+  loop, a question with choices, or a node left off the chain — because saving
+  from a list that had dropped one would delete it.
 - [ ] **Extended validation.** `lib/flow-validate.ts` warns on a condition with
   no question above it and on a `{{variable}}` nothing saves. Add: unreachable
   nodes, dead ends, empty messages, more outgoing edges than the node has

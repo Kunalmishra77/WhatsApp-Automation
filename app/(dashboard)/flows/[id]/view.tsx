@@ -2,7 +2,7 @@
 import { useCallback, useState, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { applyNodeChanges, applyEdgeChanges, addEdge, type NodeChange, type EdgeChange, type Connection } from 'reactflow';
-import { ArrowLeft, Save, Loader2, AlertTriangle, X, PlayCircle } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, AlertTriangle, X, PlayCircle, List, GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -11,8 +11,11 @@ import { FlowCanvas } from '@/modules/flows/components/FlowCanvas';
 import { NodeConfigPanel } from '@/modules/flows/components/NodeConfigPanel';
 import { AddNodeToolbar } from '@/modules/flows/components/AddNodeToolbar';
 import { FlowSimulator } from '@/modules/flows/components/FlowSimulator';
+import { FlowSteps } from '@/modules/flows/components/FlowSteps';
+import { toSteps } from '@/lib/flow-steps';
 import { useFlow, useUpdateFlow } from '@/modules/flows/hooks/useFlows';
 import { validateFlow } from '@/lib/flow-validate';
+import { cn } from '@/lib/utils';
 import type { FlowNode, FlowEdge, FlowNodeData } from '@/modules/flows/types';
 
 export default function FlowBuilderPage() {
@@ -34,8 +37,18 @@ export default function FlowBuilderPage() {
   // themselves as each problem is fixed.
   const [showWarnings, setShowWarnings] = useState(false);
   const [simulatorOpen, setSimulatorOpen] = useState(false);
+  // A straight-line flow opens as a list; anything that branches opens on the
+  // canvas. Eleven of the eighteen live flows are straight lines, and eight of
+  // those are a single auto-reply someone built on a node canvas.
+  const [view, setView] = useState<'steps' | 'canvas'>('canvas');
+  const [viewChosen, setViewChosen] = useState(false);
 
   const warnings = useMemo(() => validateFlow(nodes, edges), [nodes, edges]);
+
+  useEffect(() => {
+    if (viewChosen || nodes.length === 0) return;
+    setView(toSteps(nodes, edges).ok ? 'steps' : 'canvas');
+  }, [nodes, edges, viewChosen]);
 
   // Sync flow data into local state once loaded
   useEffect(() => {
@@ -136,6 +149,28 @@ export default function FlowBuilderPage() {
             checked={isActive}
             onCheckedChange={setIsActive}
           />
+          <div className="mr-1 flex rounded-md border border-border p-0.5">
+            <button
+              type="button"
+              onClick={() => { setView('steps'); setViewChosen(true); }}
+              className={cn(
+                'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
+                view === 'steps' ? 'bg-muted font-medium' : 'text-muted-foreground',
+              )}
+            >
+              <List className="h-3 w-3" /> Steps
+            </button>
+            <button
+              type="button"
+              onClick={() => { setView('canvas'); setViewChosen(true); }}
+              className={cn(
+                'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
+                view === 'canvas' ? 'bg-muted font-medium' : 'text-muted-foreground',
+              )}
+            >
+              <GitBranch className="h-3 w-3" /> Canvas
+            </button>
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -201,13 +236,29 @@ export default function FlowBuilderPage() {
 
       {/* Builder area */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left toolbar */}
-        <div className="p-3 border-r border-border bg-background flex flex-col gap-2 shrink-0">
-          <AddNodeToolbar onAddNode={handleAddNode} />
-        </div>
+        {/* Left toolbar — the step list has its own "Add a step" row, so the
+            node palette only belongs beside the canvas. */}
+        {view === 'canvas' && (
+          <div className="p-3 border-r border-border bg-background flex flex-col gap-2 shrink-0">
+            <AddNodeToolbar onAddNode={handleAddNode} />
+          </div>
+        )}
+
+        {view === 'steps' && (
+          <div className="flex-1 h-full">
+            <FlowSteps
+              nodes={nodes}
+              edges={edges}
+              onChange={(n, e) => { setNodes(n); setEdges(e); }}
+              onEditStep={setSelectedNodeId}
+              onSwitchToCanvas={() => { setView('canvas'); setViewChosen(true); }}
+              selectedNodeId={selectedNodeId}
+            />
+          </div>
+        )}
 
         {/* Canvas */}
-        <div className="flex-1 h-full">
+        <div className={cn('flex-1 h-full', view !== 'canvas' && 'hidden')}>
           <FlowCanvas
             nodes={nodes}
             edges={edges}
