@@ -253,7 +253,12 @@ async function handleIncomingMessage(
 
   const hasRealName = !!contactInfo?.profile?.name;
 
-  let contactId: string;
+  // The VIP and block flags come back with the row that is already being read
+  // or written here. They used to be fetched by a third query against the
+  // contact that had just been returned.
+  const CONTACT_FIELDS = 'id, is_vip, is_blocked';
+  let contactRow: { id: string; is_vip?: boolean | null; is_blocked?: boolean | null };
+
   if (hasRealName) {
     // We have the WhatsApp display name — full merge upsert
     const { data, error } = await (supabase as any)
@@ -262,12 +267,14 @@ async function handleIncomingMessage(
         { workspace_id: workspaceId, phone: waId, name: customerName },
         { onConflict: 'workspace_id,phone', ignoreDuplicates: false },
       )
-      .select('id')
+      .select(CONTACT_FIELDS)
       .single();
     if (error || !data) throw new Error(error?.message ?? 'Failed to upsert contact');
-    contactId = data.id as string;
+    contactRow = data;
   } else {
-    // No profile name from WhatsApp — insert if new, never overwrite an existing name
+    // No profile name from WhatsApp — insert if new, never overwrite an existing
+    // name. ignoreDuplicates returns nothing on conflict, so the row still has
+    // to be read back; it now comes back with its flags.
     await (supabase as any)
       .from('contacts')
       .upsert(
@@ -276,21 +283,16 @@ async function handleIncomingMessage(
       );
     const { data: existing, error } = await (supabase as any)
       .from('contacts')
-      .select('id')
+      .select(CONTACT_FIELDS)
       .eq('workspace_id', workspaceId)
       .eq('phone', waId)
       .single();
     if (error || !existing) throw new Error(error?.message ?? 'Failed to find contact');
-    contactId = existing.id as string;
+    contactRow = existing;
   }
 
-  // Fetch contact flags needed for VIP routing and block check
-  const { data: contactFlags } = await (supabase as any)
-    .from('contacts')
-    .select('is_vip, is_blocked')
-    .eq('id', contactId)
-    .single();
-  const contact = { id: contactId, is_vip: !!(contactFlags?.is_vip), is_blocked: !!(contactFlags?.is_blocked) };
+  const contactId: string = contactRow.id;
+  const contact = { id: contactId, is_vip: !!contactRow.is_vip, is_blocked: !!contactRow.is_blocked };
 
   // Blocked contacts are completely silenced — no message stored, no reply, no flow
   if (contact.is_blocked) {
@@ -815,12 +817,11 @@ async function handleIncomingMessage(
   }
   // ─────────────────────────────────────────────────────────────────────────────
 
-  // Fetch workspace credentials for any auto_reply actions in rules
-  const { data: wsForRules } = await supabase
-    .from('workspaces')
-    .select('phone_number_id, access_token')
-    .eq('id', workspaceId)
-    .single();
+  // The workspace was resolved at the top of this function by the cached
+  // getWorkspaceByPhoneNumberId, and it carries phone_number_id and
+  // access_token. This used to re-query the same row — one of four such
+  // round trips in a single inbound message, all for data already in hand.
+  const wsForRules = ws;
 
   // Hoisted: set inside the wsForRules block below, consumed after sendAutoReply
   // which runs in a sibling block. String = the flow question to re-ask after AI replies.
@@ -1223,7 +1224,8 @@ async function handleIncomingMessage(
 
   if (bhConfig?.is_enabled && !isWithinBusinessHours(bhConfig as BusinessHoursConfig)) {
     // Outside business hours — send away message and skip AI
-    const { data: ws } = await supabase.from('workspaces').select('phone_number_id, access_token').eq('id', workspaceId).single();
+    // Was a fourth fetch of this workspace, into a local `ws` that shadowed
+    // the one already in scope.
     if (ws?.phone_number_id && ws?.access_token) {
       const token = (ws.access_token as string).replace(/﻿/g, '').trim();
       await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
@@ -1268,13 +1270,8 @@ async function handleIncomingMessage(
     // so a vision model's server cannot fetch them directly.
     let visionImageUrl: string | undefined;
     if (msg.type === 'image' && msg.image?.id) {
-      const { data: wsForVision } = await (supabase as any)
-        .from('workspaces')
-        .select('access_token')
-        .eq('id', workspaceId)
-        .single();
-      if (wsForVision?.access_token) {
-        visionImageUrl = (await getWhatsAppMediaAsDataUrl(msg.image.id, wsForVision.access_token)) ?? undefined;
+      if (ws.access_token) {
+        visionImageUrl = (await getWhatsAppMediaAsDataUrl(msg.image.id, ws.access_token)) ?? undefined;
       }
 
       // Moderate the image before the bot answers it. One contact sent a client 111
@@ -1300,13 +1297,8 @@ async function handleIncomingMessage(
     // type" prompt if transcription is unavailable.
     let audioTranscript: string | null = null;
     if (msg.type === 'audio' && msg.audio?.id) {
-      const { data: wsForAudio } = await (supabase as any)
-        .from('workspaces')
-        .select('access_token')
-        .eq('id', workspaceId)
-        .single();
-      if (wsForAudio?.access_token) {
-        audioTranscript = await transcribeWhatsAppAudio(msg.audio.id, wsForAudio.access_token);
+      if (ws.access_token) {
+        audioTranscript = await transcribeWhatsAppAudio(msg.audio.id, ws.access_token);
       }
       // Surface the spoken words in the inbox instead of a bare "[Audio]".
       if (audioTranscript && insertedMessage?.id) {
@@ -2279,7 +2271,10 @@ async function handleOptInOut(
   if (isStop) {
     await db.from('contacts').update({ opted_out: true }).eq('id', contactId);
 
-    const { data: ws } = await supabase.from('workspaces').select('phone_number_id, access_token').eq('id', workspaceId).single();
+    // handleOptInOut has no workspace in scope. The cached lookup serves this
+    // from Redis rather than going back to the database for a row the
+    // request has already read once.
+    const ws = await getWorkspaceById(supabase, workspaceId);
     if (ws?.phone_number_id && ws?.access_token) {
       await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
         method: 'POST',
@@ -2296,7 +2291,10 @@ async function handleOptInOut(
   if (isStart) {
     await db.from('contacts').update({ opted_out: false }).eq('id', contactId);
 
-    const { data: ws } = await supabase.from('workspaces').select('phone_number_id, access_token').eq('id', workspaceId).single();
+    // handleOptInOut has no workspace in scope. The cached lookup serves this
+    // from Redis rather than going back to the database for a row the
+    // request has already read once.
+    const ws = await getWorkspaceById(supabase, workspaceId);
     if (ws?.phone_number_id && ws?.access_token) {
       await fetch(`https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`, {
         method: 'POST',
