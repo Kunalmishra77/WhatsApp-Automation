@@ -465,7 +465,30 @@ Phase 1 shipped in c90b0c8.
   filling the gap with a confident 0%.
   Verified the SQL against Postgres on a synthetic path set, including a looping
   path: a step reached twice by one person counts once. 17 tests.
-- [ ] **Version history and rollback.** Non-technical people edit live flows.
+- [x] 2026-10-30 — **Version history and rollback.** Non-technical people edit
+  live flows, and a client who deleted the wrong branch at 11pm had no way back
+  and no way to see what changed.
+  The snapshot is taken by a trigger on `chatbot_flows`, not by the save route
+  (migration 141). That is deliberate: this repository holds nine migrations
+  that reached in and rewrote `nodes` directly, and those are the riskiest
+  changes of all because nobody is watching when they run. A version written by
+  the application would have missed every one of them. They are marked
+  `source: 'sql'` and the panel says "changed directly in the database" rather
+  than showing a blank where a name goes.
+  A restore writes the version back, which fires the same trigger — so the
+  state being replaced is kept and the restore is itself undoable. `is_active`
+  is NOT restored: whether a flow is live is a decision about today, not a
+  property of the version being brought back, and restoring an old shape must
+  not silently switch a flow on. Active sessions in that flow are cleared, the
+  call migration 133 made by hand — a customer parked on a step that no longer
+  exists is worse than one who starts again.
+  Each row says what the save did ("removed 2 steps", "rewired connections"),
+  because a list of timestamps makes someone restore versions one at a time to
+  find the one they want. Dragging a node is reported as moving steps, not as an
+  edit. 15 tests.
+  Capped at 50 per flow: a flow is saved by a person clicking Save, so 50 is
+  months of editing, and the cap is what stops the history outgrowing the thing
+  it is history of.
 
 ## P6 — Platform audit leftovers
 

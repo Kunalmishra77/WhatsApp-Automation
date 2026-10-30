@@ -58,7 +58,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Flow not found' }, { status: 404 });
     }
 
-    await requireWorkspacePermission(workspaceId, 'manage_templates');
+    const ctx = await requireWorkspacePermission(workspaceId, 'manage_templates');
 
     const body = await request.json() as Record<string, unknown>;
 
@@ -80,10 +80,31 @@ export async function PATCH(
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Run on the saved row, not the body: `is_active`, the trigger and the
-    // nodes are exactly the fields a PATCH may leave untouched, so the body
-    // alone cannot answer "does this flow now collide with another?".
-    const warnings = await flowSaveWarnings(supabase, workspaceId, data);
+    // Two things about the save that has just happened, in one wait.
+    //
+    // The version was already written by a trigger on the table (migration
+    // 141), which is what catches changes made by SQL too. Only the name on it
+    // comes from here: the routes use the admin client, so the trigger has no
+    // auth.uid() to read. Awaited rather than fired and forgotten — a promise
+    // left running past the response is not guaranteed to finish on a
+    // serverless runtime, and an attribution that usually works is worse than
+    // one that always does.
+    //
+    // The warnings are checks the pure validator cannot make, run on the saved
+    // row rather than the body: `is_active`, the trigger and the nodes are
+    // exactly the fields a PATCH may leave untouched, so the body alone cannot
+    // answer "does this flow now collide with another?".
+    const [attribution, warnings] = await Promise.all([
+      (supabase as any).rpc('flow_version_attribute', {
+        p_flow: id, p_workspace: workspaceId, p_user: ctx.userId,
+      }),
+      flowSaveWarnings(supabase, workspaceId, data),
+    ]);
+
+    // Never fails the save: the version exists either way, just unattributed.
+    if (attribution?.error) {
+      console.error('[Flows PATCH] version attribution failed:', attribution.error.message);
+    }
 
     return NextResponse.json({ flow: data, warnings });
   } catch (error) {
