@@ -132,10 +132,40 @@ Baseline and the queries that produced it: `memory/scalability-measured-baseline
   `messages` alone. **Whoever does the index change must have someone watching
   the Conversations page update live afterwards** — getting it wrong silently
   stops the inbox refreshing, which is the exact bug migration 047 fixed.
-- [ ] **~40 sequential awaited DB calls per inbound message** in the WhatsApp
-  webhook (123 `.from(` calls, two `Promise.all`). The latency and
-  connection-pool risk, and the largest remaining job. Batch what is independent;
-  cache what is per-workspace.
+- [x] 2026-10-30 — **The inbound path's round trips, measured and reduced.**
+  Four reads an ordinary message paid for in series are now one wait or gone:
+  * `campaign_recipients` by contact, `wa_form_sessions` by conversation and the
+    first-inbound probe are started together after the message row is written
+    and consumed where they were consumed before, so which handler wins a
+    message is unchanged. The by-phone campaign fallback joins them instead of
+    waiting for the first to come back empty — which pg_stat_statements says is
+    81% of messages.
+  * `handleOptInOut` read the contact row the upsert four lines above had just
+    returned. `opted_out` joined that select; the query is gone.
+  * Three handlers (order status, CSAT, auto-CSAT) re-read the workspace they
+    were handed, for the two fields needed to send a reply. Passed in now.
+  * Two exact counts asked "how many?" where the answer needed was "more than
+    one?". An exact count has no LIMIT, so the cost grew with the length of the
+    conversation; both are bounded probes now, as are the spam check's two
+    counts, which also ran one after the other for no reason.
+  `startRead` is the mechanism, and its rejection handler is load-bearing: a
+  pre-started read with no handler attached turns a transport failure into an
+  unhandled rejection, which in this process is a dead webhook.
+  **Migration 135 is the other half and the larger win** — `campaign_recipients`
+  had no index on `phone`, so that 81% of messages ran 13.3 ms instead of 0.1 ms
+  (160 s of database time since 17 Sept), and 717 ms against the largest
+  workspace, scanning 321,929 rows to return nothing.
+- [ ] **Still sequential in the inbound path**: `contacts` upsert → `conversations`
+  read → `conversations` upsert → `messages` insert, which is four round trips
+  that genuinely depend on each other. Collapsing them needs one database
+  function, not more batching. Measure before doing it — the four are all
+  sub-millisecond index operations today.
+- [ ] **272 seconds of database time in two dashboard counts**
+  (`messages` by workspace + direction + status + created_at, 2,835 and 2,840
+  calls at 48 ms). Not the webhook. Found while measuring it; unexamined.
+- [ ] **The Conversations list's lateral joins**: 471 calls at 470 ms and 89 at
+  1,178 ms. The page's query count came down (migration 127); the cost per query
+  did not.
 - [ ] **In-memory `Map` caches block horizontal scaling.** `lib/ai-reply.ts`,
   `lib/campaign-executor.ts` and others cache per-container, so a second app
   instance would serve stale personas and double-send. Move to Redis — the client

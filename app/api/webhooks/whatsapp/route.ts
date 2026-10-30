@@ -128,6 +128,33 @@ export async function POST(request: NextRequest) {
   }
 }
 
+/**
+ * Issues a Supabase read now rather than when it is awaited.
+ *
+ * A PostgREST builder is lazy: it sends nothing until something awaits it. So
+ * three reads written one after another become three round trips one after
+ * another even when none of them depends on the others — which is most of what
+ * an inbound message costs. Starting them together makes them one wait.
+ *
+ * The rejection handler is not decoration. Without a handler attached at the
+ * moment the request starts, a transport failure in the gap before the await is
+ * an unhandled rejection, and in this process that is a dead webhook instead of
+ * a logged error. Turning it into the `{ data, error }` shape every caller
+ * already handles means a failed read behaves exactly as it did when it was
+ * sequential.
+ */
+function startRead<T>(
+  query: PromiseLike<{ data: T; error: { message: string } | null }>,
+): Promise<{ data: T | null; error: { message: string } | null }> {
+  return Promise.resolve(query).then(
+    (result) => result,
+    (cause: unknown) => ({
+      data: null,
+      error: { message: cause instanceof Error ? cause.message : String(cause) },
+    }),
+  );
+}
+
 async function recordWebhookEvent(
   supabase: AdminClient,
   payload: WhatsAppPayload,
@@ -256,8 +283,10 @@ async function handleIncomingMessage(
   // The VIP and block flags come back with the row that is already being read
   // or written here. They used to be fetched by a third query against the
   // contact that had just been returned.
-  const CONTACT_FIELDS = 'id, is_vip, is_blocked';
-  let contactRow: { id: string; is_vip?: boolean | null; is_blocked?: boolean | null };
+  // `opted_out` joined this list for the same reason the other two are here:
+  // handleOptInOut was reading the very row this upsert returns, one query later.
+  const CONTACT_FIELDS = 'id, is_vip, is_blocked, opted_out';
+  let contactRow: { id: string; is_vip?: boolean | null; is_blocked?: boolean | null; opted_out?: boolean | null };
 
   if (hasRealName) {
     // We have the WhatsApp display name — full merge upsert
@@ -292,7 +321,12 @@ async function handleIncomingMessage(
   }
 
   const contactId: string = contactRow.id;
-  const contact = { id: contactId, is_vip: !!contactRow.is_vip, is_blocked: !!contactRow.is_blocked };
+  const contact = {
+    id: contactId,
+    is_vip: !!contactRow.is_vip,
+    is_blocked: !!contactRow.is_blocked,
+    opted_out: !!contactRow.opted_out,
+  };
 
   // Blocked contacts are completely silenced — no message stored, no reply, no flow
   if (contact.is_blocked) {
@@ -417,6 +451,57 @@ async function handleIncomingMessage(
     throw new Error(messageError.message);
   }
 
+  // ── Three reads this message needs, started together ──────────────────────
+  // Each of these used to be issued at the point it was consumed, which put
+  // three round trips in series on the path of every ordinary message: nothing
+  // in any of them depends on the other two. They are still CONSUMED where they
+  // were, in the same order, so which handler wins a message is unchanged.
+  const CR_FIELDS = 'id, campaign_id, sent_at, whatsapp_msg_id, status, conversation_id';
+  const campaignRecipientsRead = startRead<RecipientCandidate[]>(
+    (supabase as any)
+      .from('campaign_recipients')
+      .select(CR_FIELDS)
+      .eq('contact_id', contactId)
+      .eq('workspace_id', workspaceId),
+  );
+  // The by-phone lookup covers CSV and manual campaigns, whose recipient rows
+  // have no contact_id. It was issued only when the lookup above came back
+  // empty, which pg_stat_statements says is 81% of inbound messages — 12,089 of
+  // 14,995 — each paying a round trip in series for an answer that is itself
+  // almost always empty. Asked alongside the others it costs no extra wait, and
+  // the preference between the two results is unchanged. It is also 133 times
+  // more expensive per call than the contact lookup, because `phone` has no
+  // index; migration 135 is the other half of this.
+  const campaignRecipientsByPhoneRead = waId
+    ? startRead<RecipientCandidate[]>(
+        (supabase as any)
+          .from('campaign_recipients')
+          .select(CR_FIELDS)
+          .eq('phone', waId)
+          .eq('workspace_id', workspaceId),
+      )
+    : null;
+  const formSessionRead = startRead<any>(
+    (supabase as any)
+      .from('wa_form_sessions')
+      .select('*, wa_forms(questions, completion_message, workspace_id, name)')
+      .eq('conversation_id', conversation.id)
+      .eq('status', 'active')
+      .maybeSingle(),
+  );
+  // Is the row just inserted the only inbound one in this conversation? This was
+  // an exact count, and an exact count has no LIMIT: it scanned every inbound
+  // row in the conversation on every inbound message, so the cost of asking grew
+  // with the length of the conversation while the answer never needed two rows.
+  const inboundProbeRead = startRead<Array<{ id: string }>>(
+    (supabase as any)
+      .from('messages')
+      .select('id')
+      .eq('conversation_id', conversation.id)
+      .eq('direction', 'inbound')
+      .limit(2),
+  );
+
   // ── Conversation log → Google Sheets (non-blocking) ───────────────────────
   // Every inbound message is logged to the workspace's Google Sheet.
   // Works for any workspace that has `sheets_webhook_url` (VMS) or
@@ -491,21 +576,14 @@ async function handleIncomingMessage(
 
     let candidates: RecipientCandidate[] = [];
     {
-      const { data: byContact, error: crFindErr } = await (supabase as any)
-        .from('campaign_recipients')
-        .select('id, campaign_id, sent_at, whatsapp_msg_id, status, conversation_id')
-        .eq('contact_id', contactId)
-        .eq('workspace_id', workspaceId);
+      const { data: byContact, error: crFindErr } = await campaignRecipientsRead;
       if (crFindErr) console.error('[Webhook] Campaign reply lookup error:', crFindErr.message);
       candidates = (byContact ?? []) as RecipientCandidate[];
 
-      // Fallback by phone (CSV/manual campaigns where contact_id is NULL on the recipient).
-      if (candidates.length === 0 && waId) {
-        const { data: byPhone, error: phoneCrErr } = await (supabase as any)
-          .from('campaign_recipients')
-          .select('id, campaign_id, sent_at, whatsapp_msg_id, status, conversation_id')
-          .eq('phone', waId)
-          .eq('workspace_id', workspaceId);
+      // By phone for CSV/manual campaigns, whose recipient rows carry no
+      // contact_id. The contact match still wins when there is one.
+      if (candidates.length === 0 && campaignRecipientsByPhoneRead) {
+        const { data: byPhone, error: phoneCrErr } = await campaignRecipientsByPhoneRead;
         if (phoneCrErr) console.error('[Webhook] Campaign reply phone-lookup error:', phoneCrErr.message);
         candidates = (byPhone ?? []) as RecipientCandidate[];
       }
@@ -695,7 +773,7 @@ async function handleIncomingMessage(
   // ─────────────────────────────────────────────────────────────────────────────
 
   // ── Opt-out / Opt-in detection ─────────────────────────────────────────────
-  const optResult = await handleOptInOut(supabase, contact.id, workspaceId, waId, content);
+  const optResult = await handleOptInOut(supabase, contact.id, workspaceId, waId, content, contact.opted_out);
   if (optResult === 'out' || optResult === 'in') {
     console.log(`[Webhook] Contact ${waId} opted ${optResult}`);
     return;
@@ -710,7 +788,9 @@ async function handleIncomingMessage(
   // ─────────────────────────────────────────────────────────────────────────────
 
   // ── Order status detection ──────────────────────────────────────────────────
-  const orderHandled = await checkAndHandleOrderQuery(supabase, waId, workspaceId, content);
+  const orderHandled = await checkAndHandleOrderQuery(
+    supabase, waId, workspaceId, content, phoneNumberId, ws.access_token ?? null,
+  );
   if (orderHandled) {
     console.log(`[Webhook] Order status query handled for ${waId}`);
     return;
@@ -718,6 +798,13 @@ async function handleIncomingMessage(
   // ─────────────────────────────────────────────────────────────────────────────
 
   // ── WA Form session detection (before CSAT/rules/flow/AI) ───────────────────
+  const formSession = await formSessionRead;
+  // Fail-open, the same as every other check on this path, but never silently:
+  // a read that failed means a customer mid-form gets the bot instead of the
+  // next question, and that has to be findable in the logs.
+  if (formSession.error) {
+    console.error('[Webhook] Form session lookup failed:', formSession.error.message);
+  }
   const formHandled = await checkAndHandleFormSession(
     supabase,
     conversation.id,
@@ -727,6 +814,7 @@ async function handleIncomingMessage(
     content,
     phoneNumberId,
     ws.access_token as string,
+    formSession.data,
   );
   if (formHandled) {
     console.log(`[Webhook] Form session handled for conversation ${conversation.id}`);
@@ -738,9 +826,10 @@ async function handleIncomingMessage(
   const csatHandled = await checkAndHandleCsatReply(
     supabase,
     conversation.id,
-    workspaceId,
     waId,
     content,
+    phoneNumberId,
+    ws.access_token ?? null,
   );
   if (csatHandled) {
     console.log(`[Webhook] CSAT reply handled for conversation ${conversation.id}`);
@@ -761,6 +850,8 @@ async function handleIncomingMessage(
     contact.id,
     waId,
     content,
+    phoneNumberId,
+    ws.access_token ?? null,
   );
   if (autoCsatHandled) {
     console.log(`[Webhook] Auto-CSAT reply handled for conversation ${conversation.id}`);
@@ -768,15 +859,8 @@ async function handleIncomingMessage(
   }
   // ─────────────────────────────────────────────────────────────────────────────
 
-  // Count inbound messages in this conversation (including the one just inserted)
-  // If count is exactly 1, this is the first inbound message.
-  const { count: msgCount } = await (supabase as any)
-    .from('messages')
-    .select('id', { count: 'exact', head: true })
-    .eq('conversation_id', conversation.id)
-    .eq('direction', 'inbound');
-
-  const isFirstMessage = (msgCount ?? 0) <= 1;
+  const { data: inboundProbe } = await inboundProbeRead;
+  const isFirstMessage = (inboundProbe?.length ?? 0) <= 1;
 
   // Greeting-specific "first message": judged per CONTACT, not per conversation.
   // Conversations auto-resolve after inactivity, so a customer who pauses a few
@@ -787,14 +871,16 @@ async function handleIncomingMessage(
   let isFirstContactMessage = isFirstMessage;
   if (isFirstContactMessage) {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { count: recentInbound } = await (supabase as any)
+    // Same bounded probe: the question is "more than one?", not "how many?".
+    const { data: recentInbound } = await (supabase as any)
       .from('messages')
-      .select('id', { count: 'exact', head: true })
+      .select('id')
       .eq('workspace_id', workspaceId)
       .eq('sender_id', contact.id)
       .eq('direction', 'inbound')
-      .gte('created_at', since);
-    if ((recentInbound ?? 0) > 1) isFirstContactMessage = false;
+      .gte('created_at', since)
+      .limit(2);
+    if ((recentInbound?.length ?? 0) > 1) isFirstContactMessage = false;
   }
 
   // ── Outbound webhooks (fire-and-forget) ────────────────────────────────────
@@ -1150,19 +1236,20 @@ async function handleIncomingMessage(
 
       // Engagement-gated spam: recomputed on every inbound, regardless of whether
       // this message categorized successfully.
-      const { count: inboundCount } = await (supabaseForCat as any)
-        .from('messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('conversation_id', convIdForCat)
-        .eq('direction', 'inbound');
-      const { count: leadCount } = await (supabaseForCat as any)
-        .from('leads')
-        .select('id', { count: 'exact', head: true })
-        .eq('contact_id', contactIdForCat);
+      // decideSpam asks two yes/no questions — is this the conversation's only
+      // inbound message, and does a lead exist — so two rows and one row answer
+      // them. They were exact counts, which scan every row they match, run one
+      // after the other; nothing in the second depends on the first.
+      const [inboundRows, leadRows] = await Promise.all([
+        (supabaseForCat as any).from('messages').select('id')
+          .eq('conversation_id', convIdForCat).eq('direction', 'inbound').limit(2),
+        (supabaseForCat as any).from('leads').select('id')
+          .eq('contact_id', contactIdForCat).limit(1),
+      ]);
       const is_spam = decideSpam({
         label: intentLabel ?? null,
-        inboundCount: inboundCount ?? 0,
-        hasLead: (leadCount ?? 0) > 0,
+        inboundCount: inboundRows.data?.length ?? 0,
+        hasLead: (leadRows.data?.length ?? 0) > 0,
       });
       await (supabaseForCat as any)
         .from('conversations')
@@ -2264,6 +2351,8 @@ async function handleOptInOut(
   workspaceId: string,
   phone: string,
   content: string,
+  /** From the contact row the caller already read. Saves a query on every message. */
+  alreadyOptedOut: boolean,
 ): Promise<'out' | 'in' | 'blocked' | null> {
   const lower = content.trim().toLowerCase();
   const db = supabase as any;
@@ -2311,9 +2400,8 @@ async function handleOptInOut(
     return 'in';
   }
 
-  // Check if contact is already opted out
-  const { data: contact } = await db.from('contacts').select('opted_out').eq('id', contactId).single();
-  if (contact?.opted_out) return 'blocked';
+  // Already opted out? The caller read this off the contact row it upserted.
+  if (alreadyOptedOut) return 'blocked';
 
   return null;
 }
@@ -2688,6 +2776,10 @@ async function checkAndHandleOrderQuery(
   contactPhone: string,
   workspaceId: string,
   content: string,
+  // The caller resolved the workspace to get here. This used to read the same
+  // row again for the two fields needed to send the reply.
+  phoneNumberId: string,
+  accessToken: string | null,
 ): Promise<boolean> {
   if (!content) return false;
 
@@ -2728,21 +2820,15 @@ async function checkAndHandleOrderQuery(
     `Status: ${(order.status as string).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}` +
     expectedLine + notesLine;
 
-  const { data: ws } = await supabase
-    .from('workspaces')
-    .select('phone_number_id, access_token')
-    .eq('id', workspaceId)
-    .single();
-
-  if (!ws?.phone_number_id || !ws?.access_token) return false;
+  if (!accessToken) return false;
 
   try {
     await fetch(
-      `https://graph.facebook.com/v19.0/${ws.phone_number_id as string}/messages`,
+      `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`,
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${(ws.access_token as string).replace(/﻿/g, '').trim()}`,
+          Authorization: `Bearer ${accessToken.replace(/﻿/g, '').trim()}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -2765,9 +2851,11 @@ async function checkAndHandleOrderQuery(
 async function checkAndHandleCsatReply(
   supabase: AdminClient,
   conversationId: string,
-  workspaceId: string,
   contactPhone: string,
   content: string,
+  // From the caller, which already has the workspace this conversation belongs to.
+  phoneNumberId: string,
+  accessToken: string | null,
 ): Promise<boolean> {
   const trimmed = content.trim();
   const score = parseInt(trimmed, 10);
@@ -2794,20 +2882,14 @@ async function checkAndHandleCsatReply(
     .eq('id', pending.id);
 
   // Send thank-you
-  const { data: ws } = await supabase
-    .from('workspaces')
-    .select('phone_number_id, access_token')
-    .eq('id', workspaceId)
-    .single();
-
-  if (ws?.phone_number_id && ws?.access_token) {
+  if (accessToken) {
     try {
       await fetch(
-        `https://graph.facebook.com/v19.0/${ws.phone_number_id}/messages`,
+        `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`,
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${(ws.access_token as string).replace(/﻿/g, '').trim()}`,
+            Authorization: `Bearer ${accessToken.replace(/﻿/g, '').trim()}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -2841,6 +2923,9 @@ async function checkAndHandleAutoCsatReply(
   contactId: string,
   contactPhone: string,
   content: string,
+  // From the caller, which resolved this workspace to receive the message.
+  phoneNumberId: string,
+  accessToken: string | null,
 ): Promise<boolean> {
   const trimmed = content.trim();
   const scoreMatch = trimmed.match(/^[1-5]$/);
@@ -2893,14 +2978,9 @@ async function checkAndHandleAutoCsatReply(
 
   await db.from('conversations').update({ meta: { ...meta, csat_pending: false } }).eq('id', conversationId);
 
-  const { data: ws } = await supabase
-    .from('workspaces')
-    .select('phone_number_id, access_token')
-    .eq('id', workspaceId)
-    .single();
-  if (ws?.phone_number_id && ws?.access_token) {
-    const token = (ws.access_token as string).replace(/﻿/g, '').trim();
-    await sendAutoCsatWhatsAppText(ws.phone_number_id, token, contactPhone, CSAT_THANK_YOU).catch((e) => {
+  if (accessToken) {
+    const token = accessToken.replace(/﻿/g, '').trim();
+    await sendAutoCsatWhatsAppText(phoneNumberId, token, contactPhone, CSAT_THANK_YOU).catch((e) => {
       console.error('[AutoCSAT] Failed to send thank-you:', e);
     });
   }
@@ -3040,16 +3120,16 @@ async function checkAndHandleFormSession(
   answer: string,
   phoneNumberId: string,
   accessToken: string,
+  /**
+   * The active form session for this conversation, if any — read at the top of
+   * the request alongside the other reads that do not depend on each other.
+   * Passed in rather than looked up here so it is not a round trip of its own
+   * on the path of every message, including the overwhelming majority that are
+   * not form answers.
+   */
+  session: any,
 ): Promise<boolean> {
   const db = supabase as any;
-
-  // Find active form session for this conversation
-  const { data: session } = await db
-    .from('wa_form_sessions')
-    .select('*, wa_forms(questions, completion_message, workspace_id, name)')
-    .eq('conversation_id', conversationId)
-    .eq('status', 'active')
-    .maybeSingle();
 
   if (!session) return false;
 
