@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
+import { flowSaveWarnings } from '@/lib/flow-save-warnings';
 
 async function getFlowWorkspaceId(flowId: string): Promise<string | null> {
   const supabase = createAdminClient();
@@ -79,7 +80,12 @@ export async function PATCH(
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ flow: data });
+    // Run on the saved row, not the body: `is_active`, the trigger and the
+    // nodes are exactly the fields a PATCH may leave untouched, so the body
+    // alone cannot answer "does this flow now collide with another?".
+    const warnings = await flowSaveWarnings(supabase, workspaceId, data);
+
+    return NextResponse.json({ flow: data, warnings });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);
     console.error('[Flows PATCH]', error);

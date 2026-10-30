@@ -15,7 +15,7 @@ import { FlowSteps } from '@/modules/flows/components/FlowSteps';
 import { toSteps } from '@/lib/flow-steps';
 import { describeFlow } from '@/lib/flow-summary';
 import { useFlow, useUpdateFlow } from '@/modules/flows/hooks/useFlows';
-import { validateFlow } from '@/lib/flow-validate';
+import { validateFlow, type FlowWarning } from '@/lib/flow-validate';
 import { cn } from '@/lib/utils';
 import type { FlowNode, FlowEdge, FlowNodeData } from '@/modules/flows/types';
 
@@ -44,7 +44,30 @@ export default function FlowBuilderPage() {
   const [view, setView] = useState<'steps' | 'canvas'>('canvas');
   const [viewChosen, setViewChosen] = useState(false);
 
-  const warnings = useMemo(() => validateFlow(nodes, edges), [nodes, edges]);
+  // The checks only the server can make — a trigger another active flow reaches
+  // first, a template that no longer exists.
+  //
+  // Kept with the exact state that was sent, and shown only while the canvas
+  // still matches it. A "this flow will never run" left on screen after the
+  // author changed the trigger is worse than no warning at all, and comparing
+  // by reference is enough: React replaces these arrays on every edit, and
+  // handleSave stores the very arrays it posted. Derived rather than cleared in
+  // an effect, so an edit cannot cause a second render pass.
+  const [lastSave, setLastSave] = useState<{
+    warnings: FlowWarning[];
+    nodes: FlowNode[];
+    edges: FlowEdge[];
+    isActive: boolean;
+  } | null>(null);
+
+  const localWarnings = useMemo(() => validateFlow(nodes, edges), [nodes, edges]);
+  const warnings = useMemo(() => {
+    const fresh =
+      lastSave && lastSave.nodes === nodes && lastSave.edges === edges && lastSave.isActive === isActive
+        ? lastSave.warnings
+        : [];
+    return [...localWarnings, ...fresh];
+  }, [localWarnings, lastSave, nodes, edges, isActive]);
   // Derived from the nodes every time, so it cannot drift from what the flow
   // does. Reading a sentence takes no knowledge of what the shapes mean, and a
   // flow whose steps are in the wrong order reads obviously wrong.
@@ -101,7 +124,7 @@ export default function FlowBuilderPage() {
     setIsSaving(true);
     setShowWarnings(true);
     try {
-      await updateFlow.mutateAsync({
+      const saved = await updateFlow.mutateAsync({
         id: flowId,
         patch: {
           name: flowName,
@@ -112,6 +135,7 @@ export default function FlowBuilderPage() {
           trigger_value: (nodes.find((n) => n.type === 'start')?.data as { triggerValue?: string })?.triggerValue ?? null,
         },
       });
+      setLastSave({ warnings: saved.warnings, nodes, edges, isActive });
     } finally {
       setIsSaving(false);
     }
@@ -216,10 +240,12 @@ export default function FlowBuilderPage() {
                 Saved, but {warnings.length === 1 ? 'one thing' : `${warnings.length} things`} will not work the way the canvas suggests
               </p>
               <ul className="space-y-1">
-                {warnings.map((w) => {
+                {warnings.map((w, i) => {
                   const label = (nodes.find((n) => n.id === w.nodeId)?.data as { label?: string } | undefined)?.label;
                   return (
-                    <li key={`${w.kind}-${w.nodeId}`}>
+                    // Index in the key: a flow can shadow several others, and
+                    // every one of those warnings sits on the same start node.
+                    <li key={`${w.kind}-${w.nodeId}-${i}`}>
                       <button
                         type="button"
                         onClick={() => setSelectedNodeId(w.nodeId)}

@@ -52,7 +52,14 @@ export interface FlowWarning {
     | 'empty_copy'
     | 'media_without_file'
     | 'template_not_chosen'
-    | 'wait_past_the_window';
+    | 'wait_past_the_window'
+    // Produced at save time by lib/flow-validate-db.ts, which needs the
+    // workspace's other flows and its template list. Same type on purpose, so
+    // the editor renders them in the one list the author already reads.
+    | 'trigger_never_fires'
+    | 'trigger_shadows_another'
+    | 'template_missing'
+    | 'template_not_approved';
   message: string;
 }
 

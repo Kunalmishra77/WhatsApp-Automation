@@ -42,9 +42,9 @@ export function useUpdateFlow() {
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Partial<ChatbotFlow> }) =>
       updateFlow(id, patch),
-    onSuccess: (data) => {
+    onSuccess: ({ flow }) => {
       queryClient.invalidateQueries({ queryKey: ['flows', workspaceId] });
-      queryClient.invalidateQueries({ queryKey: ['flow', data.id] });
+      queryClient.invalidateQueries({ queryKey: ['flow', flow.id] });
     },
   });
 }

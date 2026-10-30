@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { hasFeature } from '@/lib/plan-features';
+import { flowSaveWarnings } from '@/lib/flow-save-warnings';
 import type { FlowNode, FlowEdge } from '@/modules/flows/types';
 
 const DEFAULT_START_NODE: FlowNode = {
@@ -102,7 +103,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ flow: data }, { status: 201 });
+    // Checks the pure validator cannot make, run on the saved row rather than
+    // the request body: whether another active flow reaches the customer first,
+    // and whether the templates this flow sends still exist. Advice, not a
+    // blocker — the save has already happened.
+    const warnings = await flowSaveWarnings(supabase, workspaceId, data);
+
+    return NextResponse.json({ flow: data, warnings }, { status: 201 });
   } catch (error) {
     if (error instanceof AuthzError) return authzResponse(error);
     console.error('[Flows POST]', error);

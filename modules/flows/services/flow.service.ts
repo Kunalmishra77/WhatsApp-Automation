@@ -1,6 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from '@/services/supabase/client';
 import type { ChatbotFlow } from '../types';
+import type { FlowWarning } from '@/lib/flow-validate';
+
+/**
+ * A save carries back the checks only the server can make — a trigger another
+ * active flow reaches first, a template that no longer exists. Returned beside
+ * the flow rather than thrown: the save succeeded, and these are advice.
+ */
+export interface SavedFlow {
+  flow: ChatbotFlow;
+  warnings: FlowWarning[];
+}
 
 export async function fetchFlows(workspaceId: string): Promise<ChatbotFlow[]> {
   const res = await fetch(`/api/flows?workspaceId=${workspaceId}`);
@@ -30,7 +41,7 @@ export async function createFlow(workspaceId: string, name: string): Promise<Cha
 export async function updateFlow(
   id: string,
   patch: Partial<ChatbotFlow>,
-): Promise<ChatbotFlow> {
+): Promise<SavedFlow> {
   const res = await fetch(`/api/flows/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -38,7 +49,7 @@ export async function updateFlow(
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error ?? 'Failed to update flow');
-  return data.flow as ChatbotFlow;
+  return { flow: data.flow as ChatbotFlow, warnings: (data.warnings ?? []) as FlowWarning[] };
 }
 
 export async function deleteFlow(id: string): Promise<void> {

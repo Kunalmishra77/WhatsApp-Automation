@@ -287,10 +287,32 @@ Phase 1 shipped in c90b0c8.
   deliver. An empty `end` or handoff is deliberately not flagged — stopping
   quietly is a real choice, and false warnings teach people to ignore all of
   them.
-- [ ] **Two remaining validation checks need the database**, so they do not
-  belong in the pure validator: two active flows sharing a trigger, and a
-  referenced template that no longer exists. Both want a check at save time in
-  the API route.
+- [x] 2026-10-30 — **The two database-backed checks, at save time.** Both run
+  on the SAVED row rather than the request body, because `is_active`, the
+  trigger and the nodes are exactly the fields a PATCH may leave untouched — the
+  body alone cannot answer "does this flow now collide with another?".
+  The trigger check is not a duplicate-detector. The engine matches with
+  `content.includes(keyword)`, so the SHORTER keyword swallows every message
+  carrying the longer one: a flow on "Book" silently kills a flow on "Book Now".
+  It reports both directions, because only one of them is visible from the flow
+  the author is looking at — this flow never running, and this flow stopping
+  another from ever running. Checked against the live set: Razorveda's four
+  simultaneous active flows are clean, so nothing warns today.
+  The template check knows a template is approved per LANGUAGE, so the name
+  existing is not enough, and it names the languages the workspace does have. A
+  node with nothing chosen is left to the pure validator, because saying it
+  twice teaches people to skim.
+  `lib/flow-validate-db.ts` is pure and takes the rows as arguments (23 tests,
+  no database); `lib/flow-save-warnings.ts` is the only part that reads one, and
+  it fetches the template list only when a flow actually has a template step.
+
+- [ ] **`chatbot_flows` has no `priority` column**, but `flow-engine.ts` sorts
+  on `flow.priority ?? 0` — so every flow scores 0, the real order is
+  oldest-first, and an author has no way to change which of two matching flows
+  wins. Found while writing the trigger-conflict warning, whose advice had to be
+  narrowed to "change the trigger or turn the other one off" because raising
+  priority is not something a client can do. The column, plus a control for it,
+  belongs with the richer-triggers work in P5.
 - [x] 2026-10-30 — **Plain-language flow summary** above the builder, derived
   from the nodes on every render so it cannot drift. A branching flow is not
   flattened into one sentence — that would describe a flow that does not exist;
