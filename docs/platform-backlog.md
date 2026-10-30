@@ -184,9 +184,33 @@ Baseline and the queries that produced it: `memory/scalability-measured-baseline
   Found alongside it: **two byte-identical indexes on `whatsapp_msg_id`**, one
   unique and one not. The duplicate returned 1 tuple in 2,838 scans while being
   written on all 30,430 message inserts in the period; dropped (10 MB).
-- [ ] **The Conversations list's lateral joins**: 471 calls at 470 ms and 89 at
-  1,178 ms. The page's query count came down (migration 127); the cost per query
-  did not.
+- [x] 2026-10-30 — **The two expensive lateral joins were the Meta Leads page,
+  fetching whole threads to show one message.** Measured: the list query 473
+  calls at 476 ms (225.2 s, the single largest statement on the platform), the
+  CSV export 89 at 1,177.8 ms (104.8 s). Both embedded `messages` with no limit
+  to display one field — the customer's opening message — then filtered, sorted
+  and took the first in JS. The export did it for BOTH directions: a platform-wide
+  export read **40,864 message rows to fill 3,940 CSV cells**, all of them
+  json_agg'd and serialized. Now ordered and limited in the database, which
+  `idx_messages_conversation` already serves: one row per conversation.
+  The list query's larger half was `messages!inner`. PostgREST turns an inner
+  embed into an `EXISTS (SELECT … FROM messages …)` on the exact-count side,
+  which has no LIMIT — so one page load ran it once per labelled conversation in
+  the workspace, 1,699 times for Umang Hospital, 8,090 of the query's 9,209
+  buffers. It filtered nothing: the label is applied when an inbound ad-referral
+  message arrives, and 0 of 3,940 labelled conversations platform-wide have no
+  inbound message. Measured after: **9,209 buffers → 906, 14.75 ms → 3.58 ms**
+  locally, and the saving should be larger in production, where RLS adds a
+  function call to every row that EXISTS loop touched.
+  Deliberately NOT added: a GIN index on `labels`. For Umang Hospital 1,699 of
+  the workspace's 2,320 conversations carry the label, so it is barely selective
+  within a workspace and the bitmap scan would still read most of the rows.
+- [ ] **Meta Leads filters `platform` in JS, after pagination** — so a filtered
+  page shows fewer than 25 rows and `totalPages` counts unfiltered leads. Not a
+  perf bug; found while fixing one. `platform` lives in `meta->ad_source`, which
+  PostgREST cannot filter on, so this needs either a generated column or the
+  filter pushed into an RPC.
+
 - [ ] **`idx_messages_workspace` should now be redundant** — it is a prefix of
   `idx_messages_workspace_created` (migration 136), and its 40,036 scans read
   263 million tuples, which is the bitmap plan that index was added to replace.

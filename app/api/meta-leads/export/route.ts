@@ -13,7 +13,8 @@ interface MetaConv {
   created_at: string | null;
   meta: { ad_source?: { platform?: string; headline?: string; body?: string; ad_id?: string; ctwa_clid?: string; source?: string } } | null;
   contact: { name?: string | null; phone?: string | null } | null;
-  messages: Array<{ content?: string | null; direction?: string | null; created_at?: string | null }> | null;
+  /** At most one row: the earliest inbound message, ordered and limited in the query. */
+  messages: Array<{ content?: string | null; created_at?: string | null }> | null;
 }
 
 const HEADERS = [
@@ -53,15 +54,24 @@ export async function GET(req: NextRequest) {
   };
 
   // Platform lives in a nested JSONB field not filterable via PostgREST — filter per page in JS.
+  //
+  // The CSV has one column from `messages`: the customer's opening message. The
+  // embed used to fetch EVERY message of every conversation — both directions, no
+  // limit — and JS then filtered to inbound, sorted and took the first. The
+  // database does all three now, which is why this export reads one row per
+  // conversation instead of a whole thread (3.2 on average, 57 at worst).
   async function* pages(): AsyncGenerator<MetaConv[]> {
     for await (const page of paginateAll<MetaConv>((offset, pageSize) =>
       applyFilters(supabase.from('conversations').select(`
         id, status, created_at, meta,
         contact:contacts!contact_id(name, phone),
-        messages(content, direction, created_at)
+        messages(content, created_at)
       `))
+        .eq('messages.direction', 'inbound')
         .order('created_at', { ascending: false })
         .order('id', { ascending: true })
+        .order('created_at', { referencedTable: 'messages', ascending: true })
+        .limit(1, { referencedTable: 'messages' })
         .range(offset, offset + pageSize - 1),
     )) {
       yield platform
@@ -77,9 +87,8 @@ export async function GET(req: NextRequest) {
 
   return streamingCsvResponse<MetaConv>(HEADERS, pages(), (row) => {
     const ad = row.meta?.ad_source ?? {};
-    const firstMsg = (row.messages ?? [])
-      .filter((m) => m.direction === 'inbound')
-      .sort((a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime())[0];
+    // The one row the embed returns: inbound, earliest first, limited to 1 above.
+    const firstMsg = (row.messages ?? [])[0];
     return [
       row.contact?.name ?? '', row.contact?.phone ?? '', ad.platform ?? 'facebook',
       ad.headline ?? '', ad.body ?? '', ad.ad_id ?? '', ad.ctwa_clid ?? '', ad.source ?? '',

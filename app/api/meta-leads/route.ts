@@ -33,17 +33,35 @@ export async function GET(req: NextRequest) {
 
   // Filter by "Meta Ad Lead" label — reliable TEXT[] filter that Supabase JS handles natively
   // (JSONB path filter `.not('meta->ad_source','is',null)` is not supported by PostgREST)
+  //
+  // The embedded `messages` exists to show one thing: the customer's opening
+  // message. It used to be fetched as `messages!inner(...)` with no limit, so the
+  // lateral aggregated EVERY inbound message of every conversation on the page
+  // into JSON — up to 57 of them — and JS then sorted and took the earliest. It is
+  // now ordered and limited in the database, which `idx_messages_conversation`
+  // (conversation_id, created_at) already serves.
+  //
+  // `!inner` is gone too, and that is the larger half: it made PostgREST add an
+  // `EXISTS (SELECT … FROM messages WHERE conversation_id = …)` to the exact-count
+  // side, which has no LIMIT — so one page load ran that subquery once per labelled
+  // conversation in the workspace, 1,699 times for Umang Hospital. It filtered
+  // nothing: the label is applied when an inbound ad-referral message arrives, and
+  // 0 of the platform's 3,940 labelled conversations have no inbound message. Were
+  // one ever to exist, it now appears with an empty first message instead of
+  // vanishing from the client's lead list, which is the better of the two.
   let q = (supabase as any)
     .from('conversations')
     .select(`
       id, status, created_at, meta, labels,
       contact:contacts!contact_id(id, name, phone),
-      messages!inner(content, direction, created_at)
+      messages(content, created_at)
     `, { count: 'exact' })
     .eq('workspace_id', workspaceId)
     .contains('labels', ['Meta Ad Lead'])
     .eq('messages.direction', 'inbound')
     .order('created_at', { ascending: false })
+    .order('created_at', { referencedTable: 'messages', ascending: true })
+    .limit(1, { referencedTable: 'messages' })
     .range(offset, offset + limit - 1);
 
   if (status) q = q.eq('status', status);
@@ -55,9 +73,8 @@ export async function GET(req: NextRequest) {
 
   let leads = (rows ?? []).map((row: any) => {
     const adSource = row.meta?.ad_source ?? {};
-    const firstMsg = (row.messages ?? [])
-      .filter((m: any) => m.direction === 'inbound')
-      .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
+    // The one row the embed returns: inbound, earliest first, limited to 1 above.
+    const firstMsg = (row.messages ?? [])[0];
 
     return {
       id:               row.id,
