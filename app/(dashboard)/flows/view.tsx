@@ -15,7 +15,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { useFlows, useCreateFlow, useDeleteFlow, useUpdateFlow } from '@/modules/flows/hooks/useFlows';
 import type { ChatbotFlow } from '@/modules/flows/types';
-import { FLOW_TEMPLATES } from '@/lib/flow-templates';
+import { FLOW_TEMPLATES, templatesByVertical } from '@/lib/flow-templates';
 import { useWorkspaceStore } from '@/store/workspace.store';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -341,8 +341,13 @@ export default function FlowsPage() {
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5">
               <Sparkles className="h-3.5 w-3.5 text-amber-500" /> Templates
             </p>
+            {/* Grouped by the kind of business: thirteen templates in one flat
+                grid is a list nobody reads to the end of. */}
+            {templatesByVertical().map((group) => (
+            <div key={group.vertical} className="mb-5 last:mb-0">
+            <p className="mb-2 text-[11px] font-medium text-muted-foreground">{group.vertical}</p>
             <div className="grid grid-cols-2 gap-3">
-              {FLOW_TEMPLATES.map((tpl) => (
+              {group.templates.map((tpl) => (
                 <button
                   key={tpl.id}
                   onClick={() => void handleCreateFromTemplate(tpl.id)}
@@ -362,6 +367,8 @@ export default function FlowsPage() {
                 </button>
               ))}
             </div>
+            </div>
+            ))}
           </div>
         </DialogContent>
       </Dialog>

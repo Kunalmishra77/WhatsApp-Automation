@@ -1,4 +1,5 @@
 import type { FlowNode, FlowEdge } from '@/modules/flows/types';
+import { VERTICAL_TEMPLATES } from './flow-templates-verticals';
 
 export interface FlowTemplate {
   id: string;
@@ -210,7 +211,10 @@ const APPOINTMENT: FlowTemplate = {
   ],
 };
 
-export const FLOW_TEMPLATES: FlowTemplate[] = [
+// The seven above work for any business. The vertical packs below are written
+// for the kinds of business actually on this platform, so a gym owner does not
+// start from "Lead Qualifier" and write every line themselves.
+const GENERAL: FlowTemplate[] = [
   WELCOME,
   OUT_OF_OFFICE,
   LEAD_QUALIFIER,
@@ -219,3 +223,18 @@ export const FLOW_TEMPLATES: FlowTemplate[] = [
   FAQ_BOT,
   APPOINTMENT,
 ];
+
+export const FLOW_TEMPLATES: Array<FlowTemplate & { vertical?: string }> = [
+  ...GENERAL,
+  ...VERTICAL_TEMPLATES,
+];
+
+/** Templates grouped for display, with the general ones first. */
+export function templatesByVertical(): Array<{ vertical: string; templates: FlowTemplate[] }> {
+  const groups = new Map<string, FlowTemplate[]>([['For any business', [...GENERAL]]]);
+  for (const t of VERTICAL_TEMPLATES) {
+    const list = groups.get(t.vertical);
+    if (list) list.push(t); else groups.set(t.vertical, [t]);
+  }
+  return [...groups].map(([vertical, templates]) => ({ vertical, templates }));
+}

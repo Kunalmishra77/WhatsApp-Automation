@@ -53,7 +53,14 @@ export function toSteps(nodes: FlowNode[], edges: FlowEdge[]): StepsResult {
   for (;;) {
     const outgoing = edges.filter((e) => e.source === currentId);
     if (outgoing.length === 0) break;
-    if (outgoing.length > 1) {
+
+    // Several lines out of one step are fine while they all arrive at the same
+    // place. That is what a question with buttons looks like when the author
+    // has not sent the answers anywhere different yet — the customer taps
+    // instead of typing, and the flow is still a straight line. Only lines that
+    // genuinely part company need the canvas.
+    const targets = new Set(outgoing.map((e) => e.target));
+    if (targets.size > 1) {
       return { ok: false, reason: 'This flow branches, so it needs the canvas to show it.' };
     }
 
@@ -68,12 +75,6 @@ export function toSteps(nodes: FlowNode[], edges: FlowEdge[]): StepsResult {
     }
     if (BRANCHING.has(next.type ?? '')) {
       return { ok: false, reason: 'This flow branches, so it needs the canvas to show it.' };
-    }
-    if (next.type === 'question') {
-      const d = next.data as { choices?: unknown[]; buttons?: unknown[] } | null;
-      if ((d?.choices?.length ?? 0) > 0 || (d?.buttons?.length ?? 0) > 0) {
-        return { ok: false, reason: 'A question here offers choices, and each choice can go its own way — that needs the canvas.' };
-      }
     }
 
     seen.add(nextId);
@@ -114,12 +115,30 @@ export function fromSteps(start: FlowNode, steps: FlowStep[]): { nodes: FlowNode
     } as FlowNode)),
   ];
 
+  const byId = new Map(nodes.map((n) => [n.id, n]));
   const chain = [start.id, ...steps.map((s) => s.id)];
-  const edges: FlowEdge[] = chain.slice(0, -1).map((source, i) => ({
-    id: `e-${source}-${chain[i + 1]}`,
-    source,
-    target: chain[i + 1]!,
-  } as FlowEdge));
+  const edges: FlowEdge[] = [];
+
+  for (let i = 0; i < chain.length - 1; i++) {
+    const source = chain[i]!;
+    const target = chain[i + 1]!;
+    const node = byId.get(source);
+    const choices = node?.type === 'question'
+      ? ((node.data as { choices?: Array<{ id: string }> } | null)?.choices ?? [])
+      : [];
+
+    if (choices.length > 0) {
+      // One line per choice, plus one for anything typed. Collapsing these into
+      // a single default edge would silently unwire every button the moment
+      // someone saved from the step list.
+      for (const c of choices) {
+        edges.push({ id: `e-${source}-${target}-${c.id}`, source, target, sourceHandle: `choice_${c.id}` } as FlowEdge);
+      }
+      edges.push({ id: `e-${source}-${target}-other`, source, target, sourceHandle: 'other' } as FlowEdge);
+    } else {
+      edges.push({ id: `e-${source}-${target}`, source, target } as FlowEdge);
+    }
+  }
 
   return { nodes, edges };
 }

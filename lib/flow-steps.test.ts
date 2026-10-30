@@ -56,16 +56,50 @@ describe('toSteps — the flows that must stay on the canvas', () => {
     if (!r.ok) expect(r.reason).toMatch(/branches/i);
   });
 
-  // A question with choices gets one outgoing handle per choice, so it branches
-  // even when only one line has been drawn yet.
-  it('refuses a question that offers choices', () => {
+  // Buttons are not a branch until they lead somewhere different. A question
+  // whose choices all arrive at the same next step is still a straight line —
+  // the customer just taps instead of typing.
+  it('accepts a question whose choices all lead to the same step', () => {
     const nodes = [
       node('s', 'start'),
-      node('q', 'question', { message: 'Interested?', choices: [{ id: 'y', title: 'Yes' }] }),
+      node('q', 'question', { message: 'Interested?', choices: [{ id: 'y', title: 'Yes' }, { id: 'n', title: 'No' }] }),
+      node('m', 'message', { message: 'Thanks' }),
     ];
-    const r = toSteps(nodes, [edge('s', 'q')]);
+    const edges = [
+      edge('s', 'q'),
+      edge('q', 'm', 'choice_y'), edge('q', 'm', 'choice_n'), edge('q', 'm', 'other'),
+    ];
+    const r = toSteps(nodes, edges);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.steps.map((x) => x.id)).toEqual(['q', 'm']);
+  });
+
+  it('refuses a question whose choices go different ways', () => {
+    const nodes = [
+      node('s', 'start'),
+      node('q', 'question', { message: 'Interested?', choices: [{ id: 'y', title: 'Yes' }, { id: 'n', title: 'No' }] }),
+      node('yes', 'message', { message: 'Great' }),
+      node('no', 'message', { message: 'No problem' }),
+    ];
+    const r = toSteps(nodes, [edge('s', 'q'), edge('q', 'yes', 'choice_y'), edge('q', 'no', 'choice_n')]);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/choices/i);
+    if (!r.ok) expect(r.reason).toMatch(/branches/i);
+  });
+
+  // Saving from the step list must put the buttons' wiring back, or a round
+  // trip through the list would quietly unwire every choice.
+  it('puts a branch back for every choice on the way out', () => {
+    const nodes = [
+      node('s', 'start'),
+      node('q', 'question', { message: 'Interested?', choices: [{ id: 'y', title: 'Yes' }, { id: 'n', title: 'No' }] }),
+      node('m', 'message', { message: 'Thanks' }),
+    ];
+    const edges = [edge('s', 'q'), edge('q', 'm', 'choice_y'), edge('q', 'm', 'choice_n'), edge('q', 'm', 'other')];
+    const r = toSteps(nodes, edges);
+    if (!r.ok) throw new Error('expected a listable flow');
+    const rebuilt = fromSteps(r.start, r.steps);
+    const handles = rebuilt.edges.filter((e) => e.source === 'q').map((e) => e.sourceHandle).sort();
+    expect(handles).toEqual(['choice_n', 'choice_y', 'other']);
   });
 
   it('refuses a loop', () => {

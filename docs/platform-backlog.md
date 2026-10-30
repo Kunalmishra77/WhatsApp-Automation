@@ -171,9 +171,14 @@ Phase 1 shipped in c90b0c8.
   from the nodes on every render so it cannot drift. A branching flow is not
   flattened into one sentence — that would describe a flow that does not exist;
   it gets the trigger, a step count, and where to look.
-- [ ] **Vertical template packs** with real Hindi and English copy: gym, clinic,
-  salon, resort, D2C, real estate, coaching, software demo. The five existing
-  presets are generic.
+- [x] 2026-10-30 — **Vertical template packs**: gym, clinic, salon and spa,
+  resort, D2C, real estate, coaching, software demo — copy in the mixed Hindi
+  and English these businesses write to their own customers, grouped by trade in
+  the picker. Each one uses a Wait, an Action and tap-to-answer buttons, because
+  a client finds a step by meeting it, not by being told it exists. Every
+  template is run through the editor's own validation, the step list, the
+  summary and the simulator in tests — a starting point that warns in the editor
+  is not a starting point.
 - [ ] **Repair the AI flow builder.** `/api/flows/generate` knows only the six
   original node types and returns a 502 that was never reproduced; diagnostics
   were shipped but the cause is still unknown. Rewrite against the new palette
