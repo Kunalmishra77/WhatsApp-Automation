@@ -2,7 +2,7 @@
 import { useCallback, useState, useEffect, useMemo } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { applyNodeChanges, applyEdgeChanges, addEdge, type NodeChange, type EdgeChange, type Connection } from 'reactflow';
-import { ArrowLeft, Save, Loader2, AlertTriangle, X, PlayCircle, List, GitBranch } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, AlertTriangle, X, PlayCircle, List, GitBranch, TrendingDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -11,6 +11,7 @@ import { FlowCanvas } from '@/modules/flows/components/FlowCanvas';
 import { NodeConfigPanel } from '@/modules/flows/components/NodeConfigPanel';
 import { AddNodeToolbar } from '@/modules/flows/components/AddNodeToolbar';
 import { FlowSimulator } from '@/modules/flows/components/FlowSimulator';
+import { FlowDropoff } from '@/modules/flows/components/FlowDropoff';
 import { FlowSteps } from '@/modules/flows/components/FlowSteps';
 import { toSteps } from '@/lib/flow-steps';
 import { describeFlow } from '@/lib/flow-summary';
@@ -43,6 +44,9 @@ export default function FlowBuilderPage() {
   const reviewOnOpen = useSearchParams().get('review') === '1';
   const [showWarnings, setShowWarnings] = useState(reviewOnOpen);
   const [simulatorOpen, setSimulatorOpen] = useState(false);
+  // One side panel at a time. Two of them leave the canvas too narrow to
+  // read, which is the point of having a canvas.
+  const [dropoffOpen, setDropoffOpen] = useState(false);
   // A straight-line flow opens as a list; anything that branches opens on the
   // canvas. Eleven of the eighteen live flows are straight lines, and eight of
   // those are a single auto-reply someone built on a node canvas.
@@ -209,11 +213,21 @@ export default function FlowBuilderPage() {
             variant="outline"
             size="sm"
             className="gap-2"
-            onClick={() => setSimulatorOpen((o) => !o)}
+            onClick={() => { setSimulatorOpen((o) => !o); setDropoffOpen(false); }}
             title="Run this flow here, without messaging a real number"
           >
             <PlayCircle className="h-3.5 w-3.5" />
             Try it
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => { setDropoffOpen((o) => !o); setSimulatorOpen(false); }}
+            title="See which step customers stop at"
+          >
+            <TrendingDown className="h-3.5 w-3.5" />
+            Drop-off
           </Button>
           <Button
             onClick={() => void handleSave()}
@@ -325,6 +339,18 @@ export default function FlowBuilderPage() {
             nodes={nodes}
             edges={edges}
             onClose={() => setSimulatorOpen(false)}
+          />
+        )}
+
+        {/* Drop-off — reads saved sessions, so it reports the flow as it has
+            actually been running rather than as it is being edited. Selecting a
+            step from here is the point: the worst number should take you to the
+            message that produced it. */}
+        {dropoffOpen && (
+          <FlowDropoff
+            flowId={flowId}
+            onClose={() => setDropoffOpen(false)}
+            onSelect={(nodeId) => setSelectedNodeId(nodeId)}
           />
         )}
 

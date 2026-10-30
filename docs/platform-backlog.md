@@ -445,10 +445,26 @@ Phase 1 shipped in c90b0c8.
   `resumeFlowSession` now logs a missing session loudly and apart from a stale
   one. The silent `return false` is why this hid for months.
 
-- [ ] **Per-node drop-off analytics** — where customers leave a flow. Unblocked
-  by migration 139 (there was no history to read before it), but needs the path
-  recorded: `current_node_id` says where a session is now, not which steps it
-  passed, so "how many reached step 4" cannot be answered from it.
+- [x] 2026-10-30 — **Per-node drop-off.** A completion rate says people are
+  leaving; only this says where, and a step with 90 arrivals and 80 stops is
+  invisible in any count of completions.
+  `current_node_id` could not answer it — it says where a session is now, not
+  which steps it passed, so "how many reached step 4" was unanswerable. The path
+  is recorded by a trigger inside the UPDATE the engine already issues on every
+  advance (migration 140): no extra round trip on the inbound path, and no lost
+  append when two messages race, which a read-modify-write in the app would
+  have. Affordable here and not on `messages` for one measured reason —
+  `flow_sessions` is not in the `supabase_realtime` publication and has default
+  replica identity, so a growing array costs nothing in WAL decoding.
+  The judgements are in `lib/flow-dropoff.ts` and tested, not merely rendered:
+  an End or a handoff is never blamed (otherwise a working flow reads as 100%
+  drop-off at its last step), a step fewer than 10 people reached is never named
+  as the problem (3 of 3 leaving is not a finding), and a step nobody reached is
+  kept rather than hidden because it is usually the step after the one losing
+  people. The panel's one-line summary says "too few so far to say" instead of
+  filling the gap with a confident 0%.
+  Verified the SQL against Postgres on a synthetic path set, including a looping
+  path: a step reached twice by one person counts once. 17 tests.
 - [ ] **Version history and rollback.** Non-technical people edit live flows.
 
 ## P6 — Platform audit leftovers
