@@ -2,7 +2,9 @@ import type { Node, Edge } from 'reactflow';
 
 export type FlowNodeType =
   | 'start' | 'message' | 'question' | 'condition' | 'assign_agent' | 'end'
-  | 'wait' | 'media' | 'action' | 'template' | 'ai_reply' | 'collect' | 'webhook';
+  | 'wait' | 'media' | 'action' | 'template' | 'ai_reply' | 'collect' | 'webhook'
+  // Control flow: none of these says anything, each decides where the flow goes.
+  | 'switch' | 'jump' | 'split';
 export type ComparisonOperator = '>=' | '>' | '<' | '<=' | '==' | '!=';
 
 export interface StartNodeData    { label: string; triggerType: 'keyword' | 'first_message'; triggerValue: string; }
@@ -123,6 +125,33 @@ export interface WebhookNodeData {
   timeoutSeconds?: number;
 }
 
+/** One branch of a Switch. `id` is what the branch edge is keyed on. */
+export interface SwitchCase { id: string; match: string; label?: string; }
+
+export interface SwitchNodeData {
+  label: string;
+  /** What to judge: the message that just arrived, or a saved answer. */
+  source?: 'reply' | 'variable';
+  variable?: string;
+  matchType?: 'contains' | 'equals' | 'starts_with';
+  /** Tried in order; the first match wins. Everything else takes `default`. */
+  cases?: SwitchCase[];
+}
+
+export interface JumpNodeData {
+  label: string;
+  /** A step in THIS flow to continue at. */
+  targetNodeId?: string;
+}
+
+/** One arm of a Split. A weight of 0 keeps the branch wired but sends nobody. */
+export interface SplitVariant { id: string; label?: string; weight?: number; }
+
+export interface SplitNodeData {
+  label: string;
+  variants?: SplitVariant[];
+}
+
 export type FlowNodeData =
   | StartNodeData
   | MessageNodeData
@@ -136,7 +165,10 @@ export type FlowNodeData =
   | TemplateNodeData
   | AiReplyNodeData
   | CollectNodeData
-  | WebhookNodeData;
+  | WebhookNodeData
+  | SwitchNodeData
+  | JumpNodeData
+  | SplitNodeData;
 
 export type FlowNode = Node<FlowNodeData, FlowNodeType>;
 export type FlowEdge = Edge;

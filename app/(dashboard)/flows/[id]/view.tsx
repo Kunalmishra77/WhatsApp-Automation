@@ -332,6 +332,7 @@ export default function FlowBuilderPage() {
         {selectedNode && (
           <NodeConfigPanel
             node={selectedNode}
+            allNodes={nodes}
             onSave={handleNodeSave}
             onDelete={handleNodeDelete}
             onClose={() => setSelectedNodeId(null)}

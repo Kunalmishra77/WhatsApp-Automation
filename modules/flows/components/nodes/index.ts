@@ -11,3 +11,6 @@ export { TemplateNode }     from './TemplateNode';
 export { AiReplyNode }      from './AiReplyNode';
 export { CollectNode }      from './CollectNode';
 export { WebhookNode }      from './WebhookNode';
+export { SwitchNode }       from './SwitchNode';
+export { JumpNode }         from './JumpNode';
+export { SplitNode }        from './SplitNode';

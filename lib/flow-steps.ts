@@ -76,6 +76,12 @@ export function toSteps(nodes: FlowNode[], edges: FlowEdge[]): StepsResult {
     if (BRANCHING.has(next.type ?? '')) {
       return { ok: false, reason: 'This flow branches, so it needs the canvas to show it.' };
     }
+    // A Jump sends control somewhere no edge goes, so the chain the list reads
+    // stops here and everything after it would be reported as unconnected —
+    // which is true of the edges and false of the flow. Said plainly instead.
+    if (next.type === 'jump') {
+      return { ok: false, reason: 'This flow jumps to another step, which the step list cannot show.' };
+    }
 
     seen.add(nextId);
     steps.push({ id: next.id, type: (next.type ?? 'message') as FlowNodeType, data: next.data });

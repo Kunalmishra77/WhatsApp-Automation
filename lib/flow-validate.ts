@@ -59,7 +59,11 @@ export interface FlowWarning {
     | 'trigger_never_fires'
     | 'trigger_shadows_another'
     | 'template_missing'
-    | 'template_not_approved';
+    | 'template_not_approved'
+    // Phase 3 control flow. A Jump moves control without an edge, so these are
+    // the two ways it can silently end a flow instead of continuing it.
+    | 'jump_without_target'
+    | 'jump_target_missing';
   message: string;
 }
 
@@ -92,9 +96,20 @@ export function validateFlow(
 
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const out = new Map<string, string[]>();
-  for (const e of edges) {
-    const list = out.get(e.source);
-    if (list) list.push(e.target); else out.set(e.source, [e.target]);
+  const push = (source: string, target: string) => {
+    const list = out.get(source);
+    if (list) list.push(target); else out.set(source, [target]);
+  };
+  for (const e of edges) push(e.source, e.target);
+
+  // A Jump moves control without an edge, so every check measured from the
+  // start node has to see it as one. Without this the step a Jump leads to
+  // reads as unreachable and the Jump itself as a dead end — two confident
+  // warnings about a flow that works, which is how a validator gets ignored.
+  for (const n of nodes) {
+    if (n.type !== 'jump') continue;
+    const target = text(n, 'targetNodeId')?.trim();
+    if (target && byId.has(target)) push(n.id, target);
   }
 
   // ── 1. Conditions reachable without passing a question ──────────────────────
@@ -321,6 +336,27 @@ export function validateFlow(
             : 'No file link is set, so this step sends nothing.',
         });
       }
+    }
+
+    // A Jump with nothing chosen, or pointing at a step that has since been
+    // deleted, ends the session where it stands. It reads as a step that
+    // continues somewhere, which is exactly why it needs saying.
+    if (n.type === 'jump') {
+      const target = text(n, 'targetNodeId')?.trim();
+      if (!target) {
+        warnings.push({
+          nodeId: n.id,
+          kind: 'jump_without_target',
+          message: 'This Go to step has no step chosen, so the flow ends here instead of continuing.',
+        });
+      } else if (!byId.has(target)) {
+        warnings.push({
+          nodeId: n.id,
+          kind: 'jump_target_missing',
+          message: `This Go to step points at "${target}", which is not in this flow any more. The flow ends here.`,
+        });
+      }
+      continue;
     }
 
     // Running out of connections mid-flow leaves the customer waiting.

@@ -384,7 +384,37 @@ Phase 1 shipped in c90b0c8.
   session so a customer who returns a day later is not silently on their last
   try, and smart extraction is off here because guessing works against a step
   whose job is to check.
-- [ ] **Switch** (many-way branch), **Jump** (reuse a sub-flow), **Split** (A/B).
+- [x] 2026-10-30 — **Switch, Jump and Split.** None of the three says anything;
+  each one decides where the flow goes, which is the half of the palette that
+  did not exist.
+  **Switch** is one subject with an ordered list of cases and a real `default`
+  branch. It replaces three Conditions in a row — and those were worse than
+  verbose: every one of them judged the same message, so which test ran first
+  decided the flow and nobody reading the canvas could tell. It can also judge a
+  saved answer against another saved answer, which a Condition cannot do at all.
+  **Jump** continues at another step in the same flow, which is how four
+  branches share one ending instead of the same three messages copied into each.
+  It stays within the flow on purpose: a session belongs to one flow, and
+  jumping into another would mean a session half in each, with two triggers and
+  two sets of answers. The validator now treats a Jump as a connection — without
+  that, the shared tail read as unreachable and the Jump as a dead end, two
+  confident warnings about a flow that works, which is how a validator gets
+  ignored.
+  **Split** decides its arm from a hash of the session id, not from
+  `Math.random`. A customer who goes quiet and replies tomorrow lands in the arm
+  they were already in, the simulator shows what production will do, and a test
+  can assert it. An arm weighted 0 keeps its branch wired but takes no new
+  people, so an experiment ends without cutting off the sessions inside the
+  losing arm.
+  **A test caught a real bug in that hash.** FNV-1a's last byte barely reaches
+  the high bits, and the high bits are what picks the arm — so two Splits in one
+  flow ("sess:sp-1", "sess:sp-2") sent every session down the SAME arm in both:
+  two experiments silently measuring the same half of the audience. Fixed with
+  an fmix32 finalizer, plus `Math.imul` for the multiply, which was losing low
+  bits past 2^53. 30 tests.
+  The simulator gained a "try as another person" control, shown only when the
+  flow has a Split — with a fixed session id the author could only ever preview
+  one arm of their own A/B test.
 - [ ] **Richer triggers**: button or list reply id, template button click, ad
   click by ad id, lead created / tag added / temperature changed, conversation
   idle N hours, a schedule, campaign reply, manual/API, any-message fallback.

@@ -18,6 +18,9 @@ import { templateHandler } from './template';
 import { aiReplyHandler } from './ai-reply';
 import { collectHandler } from './collect';
 import { webhookHandler } from './webhook';
+import { switchHandler } from './switch';
+import { jumpHandler } from './jump';
+import { splitHandler } from './split';
 
 const HANDLERS: NodeHandler[] = [
   // The six that existed before the registry. Their behaviour is unchanged.
@@ -35,6 +38,11 @@ const HANDLERS: NodeHandler[] = [
   aiReplyHandler,
   collectHandler,
   webhookHandler,
+  // Phase 3 — control flow rather than conversation. None of them sends a
+  // message; each one decides where the flow goes next.
+  switchHandler,
+  jumpHandler,
+  splitHandler,
 ];
 
 export const NODE_HANDLERS: Record<string, NodeHandler> = Object.fromEntries(

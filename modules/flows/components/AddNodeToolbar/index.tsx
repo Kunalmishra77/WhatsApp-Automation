@@ -1,7 +1,7 @@
 'use client';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { MessageSquare, HelpCircle, GitBranch, UserCheck, CheckCircle, Clock, Image as ImageIcon, Zap, FileCheck, Sparkles, ClipboardCheck, Webhook as WebhookIcon } from 'lucide-react';
+import { MessageSquare, HelpCircle, GitBranch, UserCheck, CheckCircle, Clock, Image as ImageIcon, Zap, FileCheck, Sparkles, ClipboardCheck, Webhook as WebhookIcon, Shuffle, CornerDownRight, SplitSquareHorizontal } from 'lucide-react';
 import type { FlowNode, FlowNodeData } from '../../types';
 
 interface AddNodeToolbarProps {
@@ -88,6 +88,27 @@ const NODE_BUTTONS: Array<{
     icon: <GitBranch className="h-4 w-4" />,
     defaultData: { label: 'Condition', keyword: '', matchType: 'contains' },
     color: 'text-amber-600',
+  },
+  {
+    type: 'switch',
+    label: 'Many ways (more than yes/no)',
+    icon: <Shuffle className="h-4 w-4" />,
+    defaultData: { label: 'Which one?', source: 'reply', matchType: 'contains', cases: [] },
+    color: 'text-orange-600',
+  },
+  {
+    type: 'split',
+    label: 'Split test (A/B)',
+    icon: <SplitSquareHorizontal className="h-4 w-4" />,
+    defaultData: { label: 'A/B test', variants: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] },
+    color: 'text-pink-600',
+  },
+  {
+    type: 'jump',
+    label: 'Go to another step',
+    icon: <CornerDownRight className="h-4 w-4" />,
+    defaultData: { label: 'Go to step', targetNodeId: '' },
+    color: 'text-lime-600',
   },
   {
     type: 'assign_agent',

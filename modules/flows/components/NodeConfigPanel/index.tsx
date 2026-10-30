@@ -14,6 +14,7 @@ import type {
   StartNodeData, MessageNodeData, QuestionNodeData,
   ConditionNodeData, AssignAgentNodeData, EndNodeData,
   WaitNodeData, MediaNodeData, ActionNodeData, TemplateNodeData, AiReplyNodeData, CollectNodeData, WebhookNodeData, FlowChoice, FlowActionOp,
+  SwitchNodeData, JumpNodeData, SplitNodeData,
 } from '../../types';
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -50,12 +51,17 @@ function defaultOp(type: FlowActionOp['type']): FlowActionOp {
 
 interface NodeConfigPanelProps {
   node: FlowNode | null;
+  /**
+   * Every step in the flow. Only the Jump panel needs it — it picks a step to
+   * continue at, and an author should not have to copy a node id by hand.
+   */
+  allNodes?: FlowNode[];
   onSave: (nodeId: string, data: FlowNodeData) => void;
   onDelete: (nodeId: string) => void;
   onClose: () => void;
 }
 
-export function NodeConfigPanel({ node, onSave, onDelete, onClose }: NodeConfigPanelProps) {
+export function NodeConfigPanel({ node, allNodes, onSave, onDelete, onClose }: NodeConfigPanelProps) {
   const [formData, setFormData] = useState<Record<string, unknown>>({});
   // Only approved templates can be sent, so the author picks from the real list
   // rather than typing a name that may not exist.
@@ -908,6 +914,169 @@ export function NodeConfigPanel({ node, onSave, onDelete, onClose }: NodeConfigP
           </>
         );
       }
+      case 'switch': {
+        const d = formData as Partial<SwitchNodeData>;
+        const cases = d.cases ?? [];
+        return (
+          <>
+            <div className="space-y-1.5">
+              <Label>What is this deciding?</Label>
+              <Input value={d.label ?? ''} onChange={(e) => set('label', e.target.value)}
+                placeholder="Which service are they asking about?" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Look at</Label>
+              <Select value={d.source ?? 'reply'} onValueChange={(v) => set('source', v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="reply">What they just said</SelectItem>
+                  <SelectItem value="variable">A saved answer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {d.source === 'variable' && (
+              <div className="space-y-1.5">
+                <Label>Which saved answer</Label>
+                <Input value={d.variable ?? ''} onChange={(e) => set('variable', e.target.value)}
+                  placeholder="city" />
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>Match how</Label>
+              <Select value={d.matchType ?? 'contains'} onValueChange={(v) => set('matchType', v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="contains">Contains the words</SelectItem>
+                  <SelectItem value="equals">Is exactly</SelectItem>
+                  <SelectItem value="starts_with">Starts with</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2 rounded-md border border-border p-2.5">
+              <Label className="text-xs">Options, checked top to bottom</Label>
+              {cases.map((c, i) => (
+                <div key={c.id} className="flex items-center gap-1.5">
+                  <Input className="h-8 w-24 text-sm" value={c.label ?? ''}
+                    onChange={(e) => { const next = [...cases]; next[i] = { ...c, label: e.target.value }; set('cases', next); }}
+                    placeholder="Name" />
+                  <Input className="h-8 flex-1 text-sm" value={c.match}
+                    onChange={(e) => { const next = [...cases]; next[i] = { ...c, match: e.target.value }; set('cases', next); }}
+                    placeholder="facial" />
+                  <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground"
+                    onClick={() => set('cases', cases.filter((_, j) => j !== i))} aria-label="Remove option">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" className="h-8 w-full text-xs"
+                onClick={() => set('cases', [...cases, { id: newChoiceId(), match: '', label: '' }])}>
+                Add an option
+              </Button>
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                The first option that matches wins, so put the most specific
+                first. Connect &quot;Anything else&quot; too — that is where
+                everything you did not list goes.
+              </p>
+            </div>
+          </>
+        );
+      }
+      case 'split': {
+        const d = formData as Partial<SplitNodeData>;
+        const variants = d.variants ?? [];
+        const total = variants.reduce((sum, v) => sum + Math.max(0, v.weight ?? 1), 0);
+        return (
+          <>
+            <div className="space-y-1.5">
+              <Label>What are you testing?</Label>
+              <Input value={d.label ?? ''} onChange={(e) => set('label', e.target.value)}
+                placeholder="Discount offer vs free trial" />
+            </div>
+
+            <div className="space-y-2 rounded-md border border-border p-2.5">
+              <Label className="text-xs">Arms</Label>
+              {variants.map((v, i) => {
+                const weight = Math.max(0, v.weight ?? 1);
+                const share = total > 0 ? Math.round((weight / total) * 100) : 0;
+                return (
+                  <div key={v.id} className="flex items-center gap-1.5">
+                    <Input className="h-8 flex-1 text-sm" value={v.label ?? ''}
+                      onChange={(e) => { const next = [...variants]; next[i] = { ...v, label: e.target.value }; set('variants', next); }}
+                      placeholder="Discount" />
+                    <Input className="h-8 w-16 text-sm" type="number" min={0} value={weight}
+                      onChange={(e) => { const next = [...variants]; next[i] = { ...v, weight: Math.max(0, Number(e.target.value)) }; set('variants', next); }} />
+                    <span className="w-9 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">
+                      {weight === 0 ? 'off' : `${share}%`}
+                    </span>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground"
+                      onClick={() => set('variants', variants.filter((_, j) => j !== i))} aria-label="Remove arm">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                );
+              })}
+              <Button variant="outline" size="sm" className="h-8 w-full text-xs"
+                onClick={() => set('variants', [...variants, { id: newChoiceId(), label: '', weight: 1 }])}>
+                Add an arm
+              </Button>
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                The numbers are shares, not percentages — 3 and 1 means three
+                times as many. Set an arm to 0 to stop sending new people down
+                it without cutting off anyone already in it.
+              </p>
+            </div>
+            <p className="text-[10px] leading-snug text-muted-foreground">
+              A person always gets the same arm, even if they reply days later.
+            </p>
+          </>
+        );
+      }
+      case 'jump': {
+        const d = formData as Partial<JumpNodeData>;
+        // Itself excluded: a Jump to itself is a loop that does nothing but
+        // burn the turn's step budget.
+        const options = (allNodes ?? []).filter((n) => n.id !== node.id && n.type !== 'start');
+        const chosen = d.targetNodeId?.trim() ?? '';
+        const missing = chosen.length > 0 && !options.some((n) => n.id === chosen);
+        return (
+          <>
+            <div className="space-y-1.5">
+              <Label>Label</Label>
+              <Input value={d.label ?? ''} onChange={(e) => set('label', e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Continue at</Label>
+              <Select value={chosen} onValueChange={(v) => set('targetNodeId', v)}>
+                <SelectTrigger><SelectValue placeholder="Choose a step" /></SelectTrigger>
+                <SelectContent>
+                  {options.map((n) => (
+                    <SelectItem key={n.id} value={n.id}>
+                      {(n.data as { label?: string } | undefined)?.label ?? n.type} ({n.type})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {missing && (
+                <p className="text-[10px] leading-snug text-amber-600">
+                  The step this pointed at has been deleted. Choose another, or
+                  the flow will end here.
+                </p>
+              )}
+              {options.length === 0 && (
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  There is nothing else in this flow to go to yet.
+                </p>
+              )}
+              <p className="text-[10px] leading-snug text-muted-foreground">
+                Use this where several branches end the same way — one shared
+                ending you edit once, instead of the same three messages copied
+                into every branch.
+              </p>
+            </div>
+          </>
+        );
+      }
       default:
         return <p className="text-sm text-muted-foreground">No configuration needed.</p>;
     }
@@ -927,6 +1096,9 @@ export function NodeConfigPanel({ node, onSave, onDelete, onClose }: NodeConfigP
     condition: 'Condition',
     assign_agent: 'Handoff to Agent',
     end: 'End',
+    switch: 'Many ways',
+    split: 'Split test',
+    jump: 'Go to step',
   };
 
   return (

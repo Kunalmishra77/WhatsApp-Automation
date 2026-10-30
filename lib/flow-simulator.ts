@@ -59,6 +59,13 @@ export interface SimOptions {
   contactName?: string;
   workspaceName?: string;
   phone?: string;
+  /**
+   * Who this run pretends to be. It matters for a Split, which decides its arm
+   * from the session id so the same person always lands in the same one — with
+   * a fixed id the author could only ever preview one arm of their own A/B
+   * test, and would have no way to see the other.
+   */
+  sessionId?: string;
 }
 
 function describeAction(op: Record<string, unknown>): string {
@@ -218,7 +225,7 @@ export async function simulateFlow(
         send,
         ops,
         ai,
-        workspaceId: 'sim', conversationId: 'sim', sessionId: 'sim',
+        workspaceId: 'sim', conversationId: 'sim', sessionId: options.sessionId ?? 'sim',
         contactId: null, contactPhone: options.phone ?? '91XXXXXXXXXX',
         interpolate: (text: string) => interpolateTemplate(text, vars),
       };

@@ -11,6 +11,7 @@ import 'reactflow/dist/style.css';
 import {
   StartNode, MessageNode, QuestionNode, ConditionNode, AssignAgentNode, EndNode,
   WaitNode, MediaNode, ActionNode, TemplateNode, AiReplyNode, CollectNode, WebhookNode,
+  SwitchNode, JumpNode, SplitNode,
 } from '../nodes';
 import type { FlowNode, FlowEdge } from '../../types';
 
@@ -28,6 +29,9 @@ const nodeTypes = {
   ai_reply:     AiReplyNode,
   collect:      CollectNode,
   webhook:      WebhookNode,
+  switch:       SwitchNode,
+  jump:         JumpNode,
+  split:        SplitNode,
 };
 
 interface FlowCanvasProps {

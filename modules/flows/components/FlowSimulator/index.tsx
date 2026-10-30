@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Send, RotateCcw, X, Clock, Zap, UserCheck, CheckCircle, Info, Image as ImageIcon, MapPin, FileCheck } from 'lucide-react';
+import { Send, RotateCcw, X, Clock, Zap, UserCheck, CheckCircle, Info, Image as ImageIcon, MapPin, FileCheck, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -97,18 +97,24 @@ export function FlowSimulator({ nodes, edges, onClose, onVisit }: FlowSimulatorP
   const [replies, setReplies] = useState<string[]>([]);
   const [input, setInput] = useState('');
   const [turns, setTurns] = useState<SimTurn[]>([]);
+  // Who this run pretends to be. A Split picks its arm from the session id, so
+  // without a way to change it the author could only ever preview one arm of
+  // their own A/B test. "Another person" is that way.
+  const [person, setPerson] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const hasSplit = useMemo(() => nodes.some((n) => n.type === 'split'), [nodes]);
 
   // The whole conversation is re-run from the start on every change, so the
   // transcript always reflects the flow as it is saved right now — edit a node
   // and the same replies replay against the new version.
   useEffect(() => {
     let cancelled = false;
-    void simulateFlow(nodes, edges, replies).then((t) => {
+    void simulateFlow(nodes, edges, replies, { sessionId: `sim-${person}` }).then((t) => {
       if (!cancelled) setTurns(t);
     });
     return () => { cancelled = true; };
-  }, [nodes, edges, replies]);
+  }, [nodes, edges, replies, person]);
 
   const last = turns[turns.length - 1];
   const waiting = last?.waitingAt ?? null;
@@ -140,9 +146,23 @@ export function FlowSimulator({ nodes, edges, onClose, onVisit }: FlowSimulatorP
       <div className="flex items-center justify-between border-b border-border bg-card px-3 py-2">
         <div>
           <p className="text-sm font-medium">Try this flow</p>
-          <p className="text-[11px] text-muted-foreground">Nothing is sent to WhatsApp</p>
+          <p className="text-[11px] text-muted-foreground">
+            Nothing is sent to WhatsApp{hasSplit ? ` · person ${person + 1}` : ''}
+          </p>
         </div>
         <div className="flex items-center gap-1">
+          {/* Only where it changes anything: a flow with no Split behaves the
+              same for everyone, and a button that does nothing is worse than
+              no button. */}
+          {hasSplit && (
+            <Button
+              variant="ghost" size="icon" className="h-7 w-7"
+              title="Try as another person (to see the other arm of the split)"
+              onClick={() => { setPerson((p) => p + 1); setReplies([]); setInput(''); }}
+            >
+              <Users className="h-3.5 w-3.5" />
+            </Button>
+          )}
           <Button
             variant="ghost" size="icon" className="h-7 w-7"
             title="Start again"

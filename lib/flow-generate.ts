@@ -43,10 +43,21 @@ const PALETTE = [
    'message: string, expects: "any"|"name"|"phone"|"email"|"number"|"date"|"time", ' +
    'saveAsVariable: string, retryMessage: string, maxAttempts: number, timeoutHours: number. ' +
    'Branches: the default edge, plus one with sourceHandle "gave_up"'],
-  ['condition', 'judges the last message or a saved number, two branches',
+  ['condition', 'judges the last message or a saved number, exactly two branches',
    'conditionType: "keyword"|"variable_compare", keyword: string, ' +
    'matchType: "contains"|"equals"|"starts_with", variable, operator, value. ' +
    'Branches: sourceHandle "yes" and "no"'],
+  ['switch', 'one question, MANY branches — use this instead of chaining conditions',
+   'source: "reply"|"variable", variable: string, ' +
+   'matchType: "contains"|"equals"|"starts_with", ' +
+   'cases: [{id, match, label}] tried in order, first match wins. ' +
+   'Branches: one per case with sourceHandle "case_<id>", plus "default" for ' +
+   'everything you did not list — always wire "default"'],
+  ['jump', 'continues at another step in THIS flow; use it to share one ending between branches',
+   'targetNodeId: the id of a step you created'],
+  ['split', 'an A/B test — sends each person down one arm and keeps them there',
+   'variants: [{id, label, weight}] (weight is a share, so 3 and 1 means three ' +
+   'times as many; 0 retires an arm). Branches: sourceHandle "variant_<id>"'],
   ['wait', 'pauses the flow; the customer can still talk to the bot meanwhile',
    'mode: "duration"|"time", minutes/hours/days: number, atTime: "HH:MM", weekday: 0-6'],
   ['template', 'an approved WhatsApp template — the ONLY message allowed more than 24h after the customer last wrote',
@@ -92,8 +103,10 @@ RULES
 4. A "wait" of more than 24 hours must be followed by "template", not "message". WhatsApp refuses everything else outside that window, so a plain message after a long wait sends nothing at all.
 5. Use "ai_reply" where the customer may ask anything — it answers from the business's own knowledge base instead of you guessing their prices.
 6. Use "action" to tag the lead or set its temperature, so the flow feeds the CRM rather than only talking.
-7. Edges: { id, source, target, sourceHandle? }. A branching node needs one edge per branch, with the sourceHandle named above. Never draw an edge to a node you did not create.
-8. Positions: start at {x:250,y:50}, 150px down per step, 300px apart per branch.
+7. Three or more ways to go is a "switch", not three "condition" nodes in a row. Chained conditions all judge the same message, so which one runs first decides the flow and nobody reading it can tell.
+8. Where several branches end the same way, write that ending ONCE and send each branch to it with a "jump". Do not repeat the same two messages in every branch.
+9. Edges: { id, source, target, sourceHandle? }. A branching node needs one edge per branch, with the sourceHandle named above. Never draw an edge to a node you did not create.
+10. Positions: start at {x:250,y:50}, 150px down per step, 300px apart per branch.
 
 Return ONLY JSON:
 {
