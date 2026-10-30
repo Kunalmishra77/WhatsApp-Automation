@@ -156,12 +156,17 @@ Phase 1 shipped in c90b0c8.
   `lib/flow-steps.ts` refuses to flatten anything it cannot show — a branch, a
   loop, a question with choices, or a node left off the chain — because saving
   from a list that had dropped one would delete it.
-- [ ] **Extended validation.** `lib/flow-validate.ts` warns on a condition with
-  no question above it and on a `{{variable}}` nothing saves. Add: unreachable
-  nodes, dead ends, empty messages, more outgoing edges than the node has
-  handles, two active flows sharing a trigger, a missing template, a variable
-  read before it is written, and a wait that would push a message outside the
-  24-hour window without a template.
+- [x] 2026-10-30 — **Extended validation.** Seven checks where there were two:
+  unreachable nodes, dead ends, empty copy, media with no file, a misspelt
+  `{{system.*}}` built-in, a variable read before any route has saved it, and a
+  wait longer than 24 hours followed by a message that WhatsApp would not
+  deliver. An empty `end` or handoff is deliberately not flagged — stopping
+  quietly is a real choice, and false warnings teach people to ignore all of
+  them.
+- [ ] **Two remaining validation checks need the database**, so they do not
+  belong in the pure validator: two active flows sharing a trigger, and a
+  referenced template that no longer exists. Both want a check at save time in
+  the API route.
 - [ ] **Plain-language flow summary**, derived from the nodes so it cannot drift.
   The fastest way for a client to see a flow is wrong.
 - [ ] **Vertical template packs** with real Hindi and English copy: gym, clinic,
