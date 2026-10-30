@@ -45,7 +45,15 @@
 --
 -- Returns counts so the HTTP route can report what it did instead of guessing.
 
-CREATE OR REPLACE FUNCTION public.cleanup_stale_flow_sessions()
+-- DROP first: migration 052's version returns void, and `CREATE OR REPLACE`
+-- cannot change a function's return type — it fails with "cannot change return
+-- type of existing function", which is how this migration failed on its first
+-- run. Returning counts is the point, so the signature has to change; the
+-- pg_cron job below holds its command as text, so dropping the function does
+-- not disturb it.
+DROP FUNCTION IF EXISTS public.cleanup_stale_flow_sessions();
+
+CREATE FUNCTION public.cleanup_stale_flow_sessions()
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
