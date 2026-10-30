@@ -2,6 +2,7 @@ import { createAdminClient } from '@/services/supabase/admin';
 import { callAI } from '@/lib/ai-client';
 import { notifyWorkspaceSheets } from '@/lib/sheets-notify';
 import { handlerFor } from './flow-nodes';
+import { findNextNode, MAX_STEPS_PER_TURN } from './flow-nodes/walk';
 import type { FlowOps, SendFacade, NodeResult, ListSection, MediaKind } from './flow-nodes/types';
 import {
   evaluateCondition, interpolateTemplate, isSkippableQuestion, looksMultiField,
@@ -116,28 +117,6 @@ async function saveOutboundMessage(
   }).eq('id', conversationId).eq('workspace_id', workspaceId);
 }
 
-// Resolves the edge a node's outcome asks for.
-//
-// The old version ignored `handleId` when none was passed and took the first
-// edge whose source matched, so a node with two outgoing edges followed one of
-// them and the author was never told which. Now a handle is matched exactly, and
-// an unwired handle falls back to an edge with no handle of its own — an author
-// who wired one line out of a branching node meant that line to be the default,
-// and a flow that stops dead mid-conversation is the worse reading.
-function findNextNode(
-  nodes: FlowNode[],
-  edges: FlowEdge[],
-  currentNodeId: string,
-  handleId?: string,
-): FlowNode | null {
-  const outgoing = edges.filter((e) => e.source === currentNodeId);
-  const edge = handleId
-    ? outgoing.find((e) => e.sourceHandle === handleId)
-      ?? outgoing.find((e) => !e.sourceHandle)
-    : outgoing[0];
-  if (!edge) return null;
-  return nodes.find((n) => n.id === edge.target) ?? null;
-}
 
 // ── Decision-making ───────────────────────────────────────────────────────────
 // These used to be defined here. They moved to lib/flow-nodes/pure.ts so node
@@ -480,9 +459,6 @@ function makeOps(
 // edge resolution, session advancement, variable merging and the step limit all
 // live here, so a node type cannot forget one of them.
 //
-// A flow may legitimately loop — a menu the customer returns to — so the walk is
-// bounded by steps rather than by visited nodes.
-const MAX_STEPS_PER_TURN = 40;
 
 interface RunOptions {
   /** Call the parked node's `resume` instead of `run` — a reply just arrived. */

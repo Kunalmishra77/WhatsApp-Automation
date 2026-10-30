@@ -140,11 +140,14 @@ Baseline and the queries that produced it: `memory/scalability-measured-baseline
 Design: `docs/superpowers/specs/2026-10-28-flow-builder-v2-design.md`.
 Phase 1 shipped in c90b0c8.
 
-- [ ] **Simulator.** Type a customer's replies, watch the flow run, see each node
-  highlight and each variable fill, nothing sent to WhatsApp. Today the only way
-  to test a flow is to message a client's live number, and the only way to find a
-  mistake is a customer hitting it. The Fitness First flow that fired six
-  messages at once would not have survived one run.
+- [x] 2026-10-30 — **Simulator.** "Try it" in the flow editor opens a transcript
+  you type into; nothing reaches WhatsApp. It runs the real handlers and the
+  real edge resolution — `findNextNode` moved to `lib/flow-nodes/walk.ts` so the
+  engine and the simulator share one copy, because a simulator that resolved
+  edges differently would be confidently wrong, which is worse than none. The
+  tests run the broken Fitness First flow through it and assert all five
+  messages land in one turn. What it cannot do is stated in the panel: no AI
+  call, so every reply counts as an answer, and a wait is shown and skipped.
 - [ ] **Guided step-list view.** Eight of eighteen live flows are two to four
   nodes: one auto-reply. Those clients opened a node canvas to write a single
   message. Same stored flow, a vertical list of steps, canvas one click away.

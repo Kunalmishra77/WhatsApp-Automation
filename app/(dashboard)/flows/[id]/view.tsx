@@ -2,7 +2,7 @@
 import { useCallback, useState, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { applyNodeChanges, applyEdgeChanges, addEdge, type NodeChange, type EdgeChange, type Connection } from 'reactflow';
-import { ArrowLeft, Save, Loader2, AlertTriangle, X } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, AlertTriangle, X, PlayCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { FlowCanvas } from '@/modules/flows/components/FlowCanvas';
 import { NodeConfigPanel } from '@/modules/flows/components/NodeConfigPanel';
 import { AddNodeToolbar } from '@/modules/flows/components/AddNodeToolbar';
+import { FlowSimulator } from '@/modules/flows/components/FlowSimulator';
 import { useFlow, useUpdateFlow } from '@/modules/flows/hooks/useFlows';
 import { validateFlow } from '@/lib/flow-validate';
 import type { FlowNode, FlowEdge, FlowNodeData } from '@/modules/flows/types';
@@ -32,6 +33,7 @@ export default function FlowBuilderPage() {
   // nagging while it's still being built. After that they stay live and clear
   // themselves as each problem is fixed.
   const [showWarnings, setShowWarnings] = useState(false);
+  const [simulatorOpen, setSimulatorOpen] = useState(false);
 
   const warnings = useMemo(() => validateFlow(nodes, edges), [nodes, edges]);
 
@@ -135,6 +137,16 @@ export default function FlowBuilderPage() {
             onCheckedChange={setIsActive}
           />
           <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => setSimulatorOpen((o) => !o)}
+            title="Run this flow here, without messaging a real number"
+          >
+            <PlayCircle className="h-3.5 w-3.5" />
+            Try it
+          </Button>
+          <Button
             onClick={() => void handleSave()}
             disabled={isSaving}
             size="sm"
@@ -206,6 +218,19 @@ export default function FlowBuilderPage() {
             onNodeDelete={handleNodeDelete}
           />
         </div>
+
+        {/* Simulator — reads the nodes and edges in state, so it always runs the
+            flow as it is on screen rather than as it was last saved.
+            No onVisit is passed: selecting the node each turn would open the
+            config panel on top of this one and squeeze the canvas to nothing.
+            Each line in the transcript names its node instead. */}
+        {simulatorOpen && (
+          <FlowSimulator
+            nodes={nodes}
+            edges={edges}
+            onClose={() => setSimulatorOpen(false)}
+          />
+        )}
 
         {/* Config panel */}
         {selectedNode && (
