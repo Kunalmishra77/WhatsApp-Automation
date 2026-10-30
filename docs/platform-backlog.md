@@ -167,8 +167,10 @@ Phase 1 shipped in c90b0c8.
   belong in the pure validator: two active flows sharing a trigger, and a
   referenced template that no longer exists. Both want a check at save time in
   the API route.
-- [ ] **Plain-language flow summary**, derived from the nodes so it cannot drift.
-  The fastest way for a client to see a flow is wrong.
+- [x] 2026-10-30 — **Plain-language flow summary** above the builder, derived
+  from the nodes on every render so it cannot drift. A branching flow is not
+  flattened into one sentence — that would describe a flow that does not exist;
+  it gets the trigger, a step count, and where to look.
 - [ ] **Vertical template packs** with real Hindi and English copy: gym, clinic,
   salon, resort, D2C, real estate, coaching, software demo. The five existing
   presets are generic.

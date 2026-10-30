@@ -13,6 +13,7 @@ import { AddNodeToolbar } from '@/modules/flows/components/AddNodeToolbar';
 import { FlowSimulator } from '@/modules/flows/components/FlowSimulator';
 import { FlowSteps } from '@/modules/flows/components/FlowSteps';
 import { toSteps } from '@/lib/flow-steps';
+import { describeFlow } from '@/lib/flow-summary';
 import { useFlow, useUpdateFlow } from '@/modules/flows/hooks/useFlows';
 import { validateFlow } from '@/lib/flow-validate';
 import { cn } from '@/lib/utils';
@@ -44,6 +45,10 @@ export default function FlowBuilderPage() {
   const [viewChosen, setViewChosen] = useState(false);
 
   const warnings = useMemo(() => validateFlow(nodes, edges), [nodes, edges]);
+  // Derived from the nodes every time, so it cannot drift from what the flow
+  // does. Reading a sentence takes no knowledge of what the shapes mean, and a
+  // flow whose steps are in the wrong order reads obviously wrong.
+  const summary = useMemo(() => describeFlow(nodes, edges), [nodes, edges]);
 
   useEffect(() => {
     if (viewChosen || nodes.length === 0) return;
@@ -193,8 +198,15 @@ export default function FlowBuilderPage() {
         </div>
       </div>
 
-      {/* Warnings — the flow saves either way; these are the two mistakes that
-          make a flow look correct in the canvas and misbehave on WhatsApp. */}
+      {/* What this flow does, in a sentence. */}
+      {nodes.length > 0 && (
+        <div className="shrink-0 border-b border-border bg-card px-4 py-2">
+          <p className="text-xs leading-snug text-muted-foreground">{summary}</p>
+        </div>
+      )}
+
+      {/* Warnings — the flow saves either way; these are the mistakes that make
+          a flow look correct in the canvas and misbehave on WhatsApp. */}
       {showWarnings && warnings.length > 0 && (
         <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-900/50 dark:bg-amber-950/30">
           <div className="flex items-start gap-2.5">
