@@ -121,24 +121,41 @@ export async function GET(_req: NextRequest) {
     return extras.length ? `Core + ${extras.join(' + ')}` : 'Core';
   };
 
-  // Platform-wide message volume trend (sent vs received), 6 calendar months — 12
-  // exact counts (2 directions × 6 months, no workspace filter — admin routes
-  // aggregate across ALL workspaces), no 1000-row cap. Replaces the old bare
-  // `.select('direction, created_at')` over 6 months of platform traffic that was
-  // silently truncated at 1000 rows and then filtered/counted in JS.
-  const message_volume = await Promise.all(
-    monthBoundaries.slice(0, 6).map(async (d, i) => {
-      const next  = monthBoundaries[i + 1]!;
-      const label = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
-      const [{ count: sent }, { count: received }] = await Promise.all([
-        db.from('messages').select('id', { count: 'exact', head: true })
-          .eq('direction', 'outbound').gte('created_at', d.toISOString()).lt('created_at', next.toISOString()),
-        db.from('messages').select('id', { count: 'exact', head: true })
-          .eq('direction', 'inbound').gte('created_at', d.toISOString()).lt('created_at', next.toISOString()),
-      ]);
-      return { date: label, sent: sent ?? 0, received: received ?? 0 };
-    }),
-  );
+  // Platform-wide message volume trend (sent vs received), 6 calendar months — one
+  // month-bucketed pass (migration 136) where this was 12 exact counts, 2 directions
+  // × 6 months, each scanning the table: 204 calls at 92.9 ms. No workspace filter,
+  // because admin routes aggregate across ALL workspaces.
+  //
+  // The boundaries above are built with `new Date(y, m, 1)` and labelled with
+  // toLocaleDateString, so they are calendar months in the SERVER's timezone. The
+  // RPC is told that zone by name so it buckets on the same calendar — reading the
+  // zone rather than assuming UTC is what keeps a month's traffic in the month the
+  // label claims, whatever the container is set to.
+  const serverTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+  const { data: volumeRows } = await db.rpc('admin_message_volume_monthly', {
+    p_from: monthBoundaries[0]!.toISOString(),
+    p_to:   monthBoundaries[6]!.toISOString(),
+    p_tz:   serverTz,
+  });
+
+  const volumeByMonth = new Map<string, { sent: number; received: number }>();
+  for (const row of (volumeRows ?? []) as Array<{ month: string; direction: string; cnt: number }>) {
+    const key = String(row.month).slice(0, 7);   // the RPC returns a date: YYYY-MM-01
+    const bucket = volumeByMonth.get(key) ?? { sent: 0, received: 0 };
+    if (row.direction === 'outbound')     bucket.sent     += Number(row.cnt ?? 0);
+    else if (row.direction === 'inbound') bucket.received += Number(row.cnt ?? 0);
+    volumeByMonth.set(key, bucket);
+  }
+
+  // Every month in the window appears, including one with no traffic — the chart
+  // needs six points, not however many months happened to have messages.
+  const message_volume = monthBoundaries.slice(0, 6).map((d) => ({
+    date:     d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }),
+    sent:     volumeByMonth.get(monthKey(d))?.sent ?? 0,
+    received: volumeByMonth.get(monthKey(d))?.received ?? 0,
+  }));
 
   // Per-workspace message count *this month* → health scores + top clients. One
   // exact, workspace-scoped count per workspace instead of a capped bare select +

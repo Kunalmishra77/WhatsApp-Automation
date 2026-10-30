@@ -3,6 +3,7 @@ import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermissionAny, authzResponse, AuthzError } from '@/lib/authz';
 import { resolveRange, addDays, type QuickRange } from '@/lib/date-range';
 import { paginateAll } from '@/lib/export-stream';
+import { tallyMessageStatuses, outboundDeliveryFunnel } from '@/lib/message-status';
 
 export const runtime = 'nodejs';
 
@@ -83,14 +84,14 @@ export async function GET(request: NextRequest) {
       { data: convMetricsCur },
       { data: campaignTotalsCur },
       { count: newContactsCur },
-      { count: deliveredCur }, { count: readCur }, { count: sentCur }, { count: failedCur },
+      { data: statusCountsCur },
       { data: topCampaignsRaw },
 
       { data: dailyPrev },
       { data: leadPrev },
       { data: convMetricsPrev },
       { count: newContactsPrev },
-      { count: deliveredPrev }, { count: readPrev },
+      { data: statusCountsPrev },
     ] = await Promise.all([
       db.rpc('analytics_message_daily', { p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc, p_tz: 'Asia/Kolkata' }),
       db.rpc('analytics_conversation_status', { p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc }),
@@ -99,21 +100,12 @@ export async function GET(request: NextRequest) {
       db.rpc('analytics_campaign_totals', { p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc }),
       db.from('contacts').select('id', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId).gte('created_at', fromUtc).lt('created_at', toUtc),
-      // Outbound-scoped, cumulative-funnel status counts (deliberately NOT the undirected
-      // status RPC — inbound rows are stored delivered/read at ingestion; see
-      // analytics/overview + analytics/extended for the same pattern/rationale).
-      db.from('messages').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
-        .in('status', ['delivered', 'read']).gte('created_at', fromUtc).lt('created_at', toUtc),
-      db.from('messages').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
-        .eq('status', 'read').gte('created_at', fromUtc).lt('created_at', toUtc),
-      db.from('messages').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
-        .in('status', ['sent', 'delivered', 'read']).gte('created_at', fromUtc).lt('created_at', toUtc),
-      db.from('messages').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
-        .eq('status', 'failed').gte('created_at', fromUtc).lt('created_at', toUtc),
+      // Every delivery bucket in one GROUP BY (migration 136). These were four
+      // exact counts over the same rows with four different status filters —
+      // and four more shapes of the same scan in analytics/extended and
+      // analytics/detail. The funnel stays cumulative and outbound-only, in
+      // outboundDeliveryFunnel, where all three routes now read it from.
+      db.rpc('analytics_message_status_counts', { p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc }),
       // Top campaigns by volume — bounded top-N, not a bare capped select.
       db.from('campaigns')
         .select('id, name, sent_count, replied_count')
@@ -127,13 +119,11 @@ export async function GET(request: NextRequest) {
       db.rpc('analytics_conversation_metrics', { p_workspace: workspaceId, p_from: prevFromUtc, p_to: prevToUtc }),
       db.from('contacts').select('id', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId).gte('created_at', prevFromUtc).lt('created_at', prevToUtc),
-      db.from('messages').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
-        .in('status', ['delivered', 'read']).gte('created_at', prevFromUtc).lt('created_at', prevToUtc),
-      db.from('messages').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
-        .eq('status', 'read').gte('created_at', prevFromUtc).lt('created_at', prevToUtc),
+      db.rpc('analytics_message_status_counts', { p_workspace: workspaceId, p_from: prevFromUtc, p_to: prevToUtc }),
     ]);
+
+    const funnelCur  = outboundDeliveryFunnel(tallyMessageStatuses(statusCountsCur, 'outbound'));
+    const funnelPrev = outboundDeliveryFunnel(tallyMessageStatuses(statusCountsPrev, 'outbound'));
 
     // ── 2. Events — no aggregation RPC exists; a single uncapped, ranged, column-only
     //      paginated scan (same convention as senderBreakdown/tagDistribution in
@@ -213,8 +203,8 @@ export async function GET(request: NextRequest) {
     //      counted only over outbound traffic, denominator is total outbound volume for the
     //      window (from the daily RPC) — not the funnel-scoped "sent" count — matching the
     //      existing /api/analytics/overview computation exactly. Divide-by-zero guarded. ──
-    const deliveryRateCur = outboundCur > 0 ? Math.round(((deliveredCur ?? 0) / outboundCur) * 100) : 0;
-    const readRateCur     = outboundCur > 0 ? Math.round(((readCur ?? 0) / outboundCur) * 100) : 0;
+    const deliveryRateCur = outboundCur > 0 ? Math.round((funnelCur.delivered / outboundCur) * 100) : 0;
+    const readRateCur     = outboundCur > 0 ? Math.round((funnelCur.read / outboundCur) * 100) : 0;
     // Reply rate = customer replies relative to what we sent, capped at 100%. Customers
     // often send more messages than the business (multiple replies per outbound), so the
     // raw inbound/outbound ratio can exceed 100% — which reads as a broken "rate". Cap it:
@@ -222,8 +212,8 @@ export async function GET(request: NextRequest) {
     // volume is still surfaced separately as the raw "Replies" count.
     const replyRateCur    = outboundCur > 0 ? Math.min(100, Math.round((inboundCur / outboundCur) * 100)) : 0;
 
-    const deliveryRatePrev = outboundPrev > 0 ? Math.round(((deliveredPrev ?? 0) / outboundPrev) * 100) : 0;
-    const readRatePrev     = outboundPrev > 0 ? Math.round(((readPrev ?? 0) / outboundPrev) * 100) : 0;
+    const deliveryRatePrev = outboundPrev > 0 ? Math.round((funnelPrev.delivered / outboundPrev) * 100) : 0;
+    const readRatePrev     = outboundPrev > 0 ? Math.round((funnelPrev.read / outboundPrev) * 100) : 0;
     const replyRatePrev    = outboundPrev > 0 ? Math.min(100, Math.round((inboundPrev / outboundPrev) * 100)) : 0;
 
     // ── 5. Leads — stage × temperature breakdown (range-scoped RPC; every row returned
@@ -303,10 +293,10 @@ export async function GET(request: NextRequest) {
         conversion_rate:       kpi(conversionRateCur, conversionRatePrev),
       },
       messages: {
-        sent: sentCur ?? 0,
-        delivered: deliveredCur ?? 0,
-        read: readCur ?? 0,
-        failed: failedCur ?? 0,
+        sent: funnelCur.sent,
+        delivered: funnelCur.delivered,
+        read: funnelCur.read,
+        failed: funnelCur.failed,
         replies: inboundCur,
         daily: messagesDaily,
       },

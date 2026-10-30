@@ -160,12 +160,38 @@ Baseline and the queries that produced it: `memory/scalability-measured-baseline
   that genuinely depend on each other. Collapsing them needs one database
   function, not more batching. Measure before doing it — the four are all
   sub-millisecond index operations today.
-- [ ] **272 seconds of database time in two dashboard counts**
-  (`messages` by workspace + direction + status + created_at, 2,835 and 2,840
-  calls at 48 ms). Not the webhook. Found while measuring it; unexamined.
+- [x] 2026-10-30 — **272 seconds of database time spent asking one question six
+  times.** Every dashboard and analytics page counted each delivery bucket with
+  its own exact count over the same rows: `/api/dashboard/overview` six,
+  `/api/analytics/extended` four, `/api/analytics/detail` five, and the admin
+  volume trend twelve (2 directions × 6 months). Measured:
+  `status = $3` 2,841 calls at 48.2 ms (136.9 s), `status = ANY($3)` 2,846 at
+  47.8 ms (135.9 s), and the unscoped admin shape 204 at 92.9 ms (19.0 s).
+  Each is now one GROUP BY — `analytics_message_status_counts` and
+  `admin_message_volume_monthly`, migration 136 — and the cumulative-funnel rule
+  that three routes each restated in a comment lives in `outboundDeliveryFunnel`.
+  Verified against production before shipping: the four buckets the old counts
+  returned for Razorveda's October (2704 / 2645 / 2274 / 13) are reproduced
+  exactly, and are the fixture in `lib/message-status.test.ts`.
+  **Why one count cost 48 ms on an 84k-row table:** `messages` was indexed on
+  `workspace_id` alone and on `(conversation_id, created_at DESC)`. Neither
+  serves "this workspace, this date range", so the planner combined them and
+  read the conversation index end to end — `created_at` is its *second* column
+  and cannot be seeked. 1,971 buffers per count to total 2,645 rows.
+  `idx_messages_workspace_created` on `(workspace_id, created_at) INCLUDE
+  (direction, status)` is the fix, and it serves `analytics_message_daily` and
+  `analytics_message_heatmap` too.
+  Found alongside it: **two byte-identical indexes on `whatsapp_msg_id`**, one
+  unique and one not. The duplicate returned 1 tuple in 2,838 scans while being
+  written on all 30,430 message inserts in the period; dropped (10 MB).
 - [ ] **The Conversations list's lateral joins**: 471 calls at 470 ms and 89 at
   1,178 ms. The page's query count came down (migration 127); the cost per query
   did not.
+- [ ] **`idx_messages_workspace` should now be redundant** — it is a prefix of
+  `idx_messages_workspace_created` (migration 136), and its 40,036 scans read
+  263 million tuples, which is the bitmap plan that index was added to replace.
+  Confirm against real plans after 136 has been live a while, then drop it.
+
 - [ ] **In-memory `Map` caches block horizontal scaling.** `lib/ai-reply.ts`,
   `lib/campaign-executor.ts` and others cache per-container, so a second app
   instance would serve stale personas and double-send. Move to Redis — the client

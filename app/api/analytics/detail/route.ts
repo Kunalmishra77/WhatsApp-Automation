@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { resolveRange } from '@/lib/date-range';
+import { tallyMessageStatuses } from '@/lib/message-status';
 
 // GET /api/analytics/detail?workspaceId=&type=open|resolved|new-contacts|csat|inbound|outbound|delivery&from=&to=
 export async function GET(request: NextRequest) {
@@ -179,20 +180,15 @@ export async function GET(request: NextRequest) {
 
     // ── Delivery breakdown ──────────────────────────────────────────────────
     if (type === 'delivery') {
-      // Buckets via exact per-status counts (accurate for any volume). Deriving them from
-      // a bare .select() would silently cap at PostgREST's 1000-row default.
-      const countFor = (status: string) =>
-        db.from('messages').select('id', { count: 'exact', head: true })
-          .eq('workspace_id', workspaceId).eq('direction', 'outbound')
-          .gte('created_at', fromUtc).lt('created_at', toUtc)
-          .eq('status', status);
-      const [sent, delivered, read, failed, queued] = await Promise.all([
-        countFor('sent'), countFor('delivered'), countFor('read'), countFor('failed'), countFor('queued'),
-      ]);
-      const buckets = {
-        sent: sent.count ?? 0, delivered: delivered.count ?? 0, read: read.count ?? 0,
-        failed: failed.count ?? 0, queued: queued.count ?? 0,
-      };
+      // Buckets from one GROUP BY (migration 136), where this was five exact
+      // counts over the same rows. Exclusive buckets, not the cumulative funnel
+      // the dashboard shows: this drill-down answers "where did each message
+      // stop?", so a read message belongs only in `read`. Deriving them from a
+      // bare .select() would silently cap at PostgREST's 1000-row default.
+      const { data: statusCounts } = await db.rpc('analytics_message_status_counts', {
+        p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc,
+      });
+      const buckets = tallyMessageStatuses(statusCounts, 'outbound');
 
       // A capped sample of rows for the drill-down list (the headline numbers are `buckets`).
       const { data } = await db

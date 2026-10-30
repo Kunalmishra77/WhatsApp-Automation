@@ -3,6 +3,7 @@ import { createAdminClient } from '@/services/supabase/admin';
 import { requireWorkspacePermission, authzResponse, AuthzError } from '@/lib/authz';
 import { resolveRange, type QuickRange } from '@/lib/date-range';
 import { paginateAll } from '@/lib/export-stream';
+import { tallyMessageStatuses, outboundDeliveryFunnel } from '@/lib/message-status';
 
 // GET /api/analytics/extended?workspaceId=&quick=<preset>|&from=&to=
 // Returns: campaign perf, lead funnel, sentiment, flow stats, contact temperature
@@ -247,35 +248,24 @@ export async function GET(request: NextRequest) {
         : 0,
     }));
 
-    // ── 6. Message delivery funnel (outbound campaign traffic only) — 4 ranged,
-    //      exact counts instead of a bare capped `.select()`. Deliberately NOT using
-    //      the undirected analytics_message_status RPC: inbound messages are stored
-    //      with status='delivered' at ingestion (see /api/analytics/overview + the
-    //      whatsapp/instagram/meta webhooks), so an undirected status tally would
-    //      inflate 'delivered' with inbound rows. This mirrors the outbound-only
-    //      counting pattern already established in the overview route for the same
-    //      reason. Cumulative-funnel semantics (read implies delivered implies sent)
-    //      match the original JS reduction exactly. ──────────────────────────────────
-    const [{ count: sentCount }, { count: deliveredCnt }, { count: readCnt }, { count: failedCnt }] = await Promise.all([
-      db.from('messages').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
-        .in('status', ['sent', 'delivered', 'read']).gte('created_at', fromUtc).lt('created_at', toUtc),
-      db.from('messages').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
-        .in('status', ['delivered', 'read']).gte('created_at', fromUtc).lt('created_at', toUtc),
-      db.from('messages').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
-        .eq('status', 'read').gte('created_at', fromUtc).lt('created_at', toUtc),
-      db.from('messages').select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId).eq('direction', 'outbound')
-        .eq('status', 'failed').gte('created_at', fromUtc).lt('created_at', toUtc),
-    ]);
+    // ── 6. Message delivery funnel (outbound campaign traffic only) — one GROUP BY
+    //      (migration 136) where this was four ranged exact counts over the same
+    //      rows. Still outbound-only and still cumulative: inbound messages are
+    //      stored with status='delivered' at ingestion (see /api/analytics/overview
+    //      and the whatsapp/instagram/meta webhooks), so an undirected tally would
+    //      count a customer's own messages as delivery successes. Both rules now
+    //      live in outboundDeliveryFunnel, shared with the dashboard and the
+    //      delivery drill-down rather than restated in each. ─────────────────────────
+    const { data: statusCounts } = await db.rpc('analytics_message_status_counts', {
+      p_workspace: workspaceId, p_from: fromUtc, p_to: toUtc,
+    });
+    const funnel = outboundDeliveryFunnel(tallyMessageStatuses(statusCounts, 'outbound'));
 
     const deliveryFunnel = [
-      { stage: 'Sent',      count: sentCount ?? 0,    color: '#6366f1' },
-      { stage: 'Delivered', count: deliveredCnt ?? 0, color: '#10b981' },
-      { stage: 'Read',      count: readCnt ?? 0,      color: '#f59e0b' },
-      { stage: 'Failed',    count: failedCnt ?? 0,    color: '#ef4444' },
+      { stage: 'Sent',      count: funnel.sent,      color: '#6366f1' },
+      { stage: 'Delivered', count: funnel.delivered, color: '#10b981' },
+      { stage: 'Read',      count: funnel.read,      color: '#f59e0b' },
+      { stage: 'Failed',    count: funnel.failed,    color: '#ef4444' },
     ];
 
     return NextResponse.json({
