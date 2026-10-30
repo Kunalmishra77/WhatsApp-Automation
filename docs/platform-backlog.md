@@ -420,7 +420,35 @@ Phase 1 shipped in c90b0c8.
   idle N hours, a schedule, campaign reply, manual/API, any-message fallback.
   Plus **active windows** so an after-hours flow and a working-hours flow can
   share a trigger.
-- [ ] **Per-node drop-off analytics** — where customers leave a flow.
+- [x] 2026-10-30 — **A cleanup job was deleting the sessions that were waiting
+  on purpose.** Found while looking for data to build drop-off analytics on, and
+  the reason there is none. `cleanup_stale_flow_sessions` (migration 052) ran
+  every two hours and did `DELETE FROM flow_sessions WHERE updated_at < NOW() -
+  INTERVAL '24 hours'`. A session parked on a Wait, or on a question's
+  `timeoutHours`, stops touching `updated_at` for exactly as long as it is
+  *meant* to be waiting — so every wake-up further out than 24 hours arrived to
+  find its session deleted, and `resumeFlowSession` returned false in silence.
+  **Live and measurable:** every question and collect step in Fitness First's
+  and VMS's active flows carries `timeoutHours: 48` — 4 + 4 + 7 steps across
+  three flows. Not one of those "if they don't reply in 48 hours" branches can
+  ever have fired. The engine was taught to read `timeoutHours` and schedule the
+  wake-up; this job deleted the session 24 hours before it came due. The Wait
+  node and the Template node — which exists so a follow-up can land days later,
+  outside WhatsApp's 24-hour window — were built on the same sand.
+  Migration 139: a session with a wake-up pending is never touched (that guard,
+  not the window, is what makes a 7-day follow-up as safe as a 48-hour one);
+  stale means 48 hours and marks `expired` instead of deleting, which unblocks
+  the contact just as well because the engine looks for `status = 'active'`; and
+  finished sessions are kept 90 days. `/api/cron/cleanup-flow-sessions` had the
+  same rule without the guard, so it now calls the same function — two cleanups
+  with different ideas of "stale" is how this happened.
+  `resumeFlowSession` now logs a missing session loudly and apart from a stale
+  one. The silent `return false` is why this hid for months.
+
+- [ ] **Per-node drop-off analytics** — where customers leave a flow. Unblocked
+  by migration 139 (there was no history to read before it), but needs the path
+  recorded: `current_node_id` says where a session is now, not which steps it
+  passed, so "how many reached step 4" cannot be answered from it.
 - [ ] **Version history and rollback.** Non-technical people edit live flows.
 
 ## P6 — Platform audit leftovers

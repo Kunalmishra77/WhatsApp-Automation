@@ -1079,7 +1079,21 @@ export async function resumeFlowSession(
 
     // The customer replied, or a sweep expired it, or a handoff ended it. Either
     // way this wake-up is stale and must not send anything.
-    if (!session || session.status !== 'active') return false;
+    //
+    // The two cases are logged apart, because one of them is normal and the
+    // other is a bug that hid here for months. A session that is *gone* means
+    // something deleted a session with a wake-up still pending — which is
+    // exactly what cleanup_stale_flow_sessions did to every follow-up further
+    // out than 24 hours (migration 139). A silent `return false` is why nobody
+    // found out.
+    if (!session) {
+      console.error(
+        `[FlowEngine] resume for session ${sessionId} (handle=${handle}) — the session row is GONE. ` +
+        `A pending wake-up should never outlive its session; check what is deleting flow_sessions.`,
+      );
+      return false;
+    }
+    if (session.status !== 'active') return false;
 
     const flow = session.chatbot_flows as ChatbotFlow | null;
     if (!flow) return false;
