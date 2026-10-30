@@ -150,8 +150,12 @@ export async function POST(
       started_at:   new Date().toISOString(),
     }).select('id').single();
 
-    // Mark campaign as running so UI updates immediately
-    await db.from('campaigns').update({ status: 'running' }).eq('id', campaignId);
+    // Deliberately NOT marking the campaign 'running' here. executeCampaign's
+    // first act is to claim it with one conditional UPDATE that refuses a
+    // campaign already marked running — the guard that stops two runs sending
+    // the same campaign twice — so setting it here would make it refuse the
+    // very run this route is starting. The claim happens immediately below, so
+    // the UI learns just as fast.
 
     await logActivity({
       workspaceId: campaign.workspace_id, actorId: auth.userId,

@@ -20,7 +20,12 @@ export async function GET(request: NextRequest) {
 
   // Campaigns due to run: status='scheduled', scheduled_at <= now, scheduled_at > 20min ago.
   // 20-minute grace window covers the 15-minute cron interval plus drift.
-  // Campaigns won't double-run because executeCampaign checks for 'running'/'completed' status.
+  //
+  // A campaign cannot double-run because executeCampaign claims it with one
+  // conditional UPDATE. That is new: this comment used to say the executor
+  // "checks for 'running'/'completed' status", and it only ever checked
+  // 'completed' — a campaign mid-send is not completed, so nothing stopped a
+  // second run. 30,686 duplicate sends went out before anyone noticed.
   const fiveMinAgo = new Date(Date.now() - 20 * 60 * 1000).toISOString();
 
   const { data: dueCampaigns, error } = await db

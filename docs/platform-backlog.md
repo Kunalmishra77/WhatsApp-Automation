@@ -249,10 +249,58 @@ would produce it and confirm the shape is still issued.
   263 million tuples, which is the bitmap plan that index was added to replace.
   Confirm against real plans after 136 has been live a while, then drop it.
 
-- [ ] **In-memory `Map` caches block horizontal scaling.** `lib/ai-reply.ts`,
-  `lib/campaign-executor.ts` and others cache per-container, so a second app
-  instance would serve stale personas and double-send. Move to Redis — the client
-  and the pattern already exist in `lib/workspace-cache.ts`.
+- [x] 2026-10-31 — **The in-memory `Map` caches were not the risk; the campaign
+  claim was.** This item said `lib/ai-reply.ts` and `lib/campaign-executor.ts`
+  "cache per-container, so a second app instance would serve stale personas and
+  double-send". Checked: `ai-reply.ts` holds only constant arrays,
+  `campaign-executor.ts` has no module-level state at all, and the codebase's
+  one mutable module cache is `offTopicCache` in `flow-engine.ts` — 60 seconds
+  of off-topic terms per workspace. Moving that to Redis would buy a 60-second
+  consistency window on an off-topic classifier. Not worth a change.
+  **The double-send was real, and it did not need a second container.** See the
+  entry below; it was happening on one.
+
+- [x] 2026-10-31 — **30,686 duplicate campaign sends, and the three reasons.**
+  Found while checking the claim above. Measured on production: **27,203 phone
+  numbers received the same campaign twice or more**, across 43 campaigns, every
+  extra row carrying its own `whatsapp_msg_id` — so Meta delivered and charged
+  for all of them. Most recent: 28 October. 14,601 of the pairs are **less than
+  a minute apart** and another 11,778 within 25 minutes, so 97% are concurrent
+  runs rather than a client re-sending.
+  On WhatsApp this is not cosmetic: the same marketing message twice in a minute
+  is what drops a number's quality rating, and Meta throttles or bans on that.
+  1. **Nothing claimed the campaign.** `executeCampaign` refused only
+     `status === 'completed'`, and a campaign mid-send is not completed. It now
+     claims with one conditional UPDATE, which Postgres serialises — the second
+     run gets no row and stops. Three callers were pre-setting `running`
+     themselves and would have had their own run refused; all three now leave it
+     to the claim.
+  2. **The "stuck job" test was wrong, and it was the main cause.** The queue
+     cron reset any job started more than 20 minutes ago, assuming a dead
+     serverless request — but this is Coolify, where nothing kills a route
+     handler, and real campaigns here run for **94 to 2,910 minutes** (measured:
+     18,449 recipients took 118 min; 2,286 took 48 h). So the reset fired during
+     live sends, handed the job back in the same tick, and started a second
+     executor. The test is now "nothing has happened for 20 minutes", using the
+     heartbeat that already existed — `sent_at`, written every 25 recipients.
+     `lib/campaign-stuck.ts`, 9 tests.
+  3. **The queue claim was select-then-update**, so two ticks could take the
+     same job. Now conditional on it still being `pending`.
+  Found on the way and fixed with it: **Cancel did nothing.** It set the
+  campaign to `failed` and the executor never looked, so a client who stopped a
+  48-hour campaign watched it keep sending. The send loop now checks the status
+  at each flush — one read per 25 recipients — and the final write will not
+  overwrite a status someone else set, so a cancelled campaign no longer reports
+  itself completed.
+
+- [ ] **Make a double-send impossible, not just unlikely.** The fixes above
+  remove the races that were firing; a unique index would remove the class. It
+  needs the send path to reserve its `campaign_recipients` row BEFORE sending
+  rather than after, plus a **partial** unique index on
+  `(campaign_id, phone) WHERE status = 'queued'` — partial because the 27,379
+  existing duplicate pairs are an accurate record of messages that really went
+  out, and deleting them to make room for a plain unique index would replace one
+  wrong number with another.
 - [ ] **Partition `messages` and `campaign_recipients` by month.** Not needed
   yet; needed around 100 clients. `campaign_recipients` is already 404k rows and
   149 MB.

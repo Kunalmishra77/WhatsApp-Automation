@@ -381,6 +381,39 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
 
   if (campaign.status === 'completed') return { campaignId, total: 0, sent: 0, failed: 0, filtered: 0, skipped: 'already completed' };
 
+  // ── Claim the campaign, atomically, before doing anything else ──────────────
+  //
+  // This is the guard that was missing, and its absence is measurable: 27,203
+  // phone numbers received the same campaign twice or more — 30,686 extra
+  // sends across 43 campaigns, each with its own whatsapp_msg_id, so Meta
+  // delivered and charged for every one. 97% of the pairs are less than an hour
+  // apart, so these are concurrent runs rather than a client re-sending.
+  //
+  // Two ways in. The queue cron resets a `processing` job it thinks is stuck
+  // and then picks it up in the same tick, while the original run is still
+  // alive. And its claim was a select-then-update, so two ticks could both take
+  // the same job. `status === 'completed'` above was the only thing standing in
+  // the way, and a campaign mid-send is not completed.
+  //
+  // One conditional UPDATE closes both. Postgres serialises two of these, so
+  // exactly one sees a status that is not already 'running'; the other gets no
+  // row back and stops here. `started_at` is set now rather than after the
+  // audience is resolved — on 18,000 recipients that resolution is minutes of
+  // queries, and every one of them was unclaimed time.
+  {
+    const { data: claimed } = await db
+      .from('campaigns')
+      .update({ status: 'running', started_at: new Date().toISOString() })
+      .eq('id', campaignId)
+      .neq('status', 'running')
+      .select('id');
+
+    if (!Array.isArray(claimed) || claimed.length === 0) {
+      console.warn(`[Campaign ${campaignId}] already running — refusing a second run`);
+      return { campaignId, total: 0, sent: 0, failed: 0, filtered: 0, skipped: 'already running' };
+    }
+  }
+
   const template = campaign.templates as (Template & {
     header_type?: string; header_content?: string;
     has_lto?: boolean; is_carousel?: boolean;
@@ -607,8 +640,9 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   }
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+  // Status and started_at were set by the claim above; only the counts the
+  // audience resolution worked out belong here.
   await db.from('campaigns').update({
-    status: 'running', started_at: new Date().toISOString(),
     total_recipients: audienceSize,   // full audience including filtered
     filtered_count: filteredCount,
   }).eq('id', campaignId);
@@ -784,6 +818,31 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
     // Flush to DB every DB_FLUSH_SIZE contacts or at end
     if (pendingRecipients.length >= DB_FLUSH_SIZE || i + BATCH_SIZE >= recipients.length) {
       await flushRecipients();
+
+      // Has anyone told this run to stop?
+      //
+      // Cancel sets the campaign to 'failed' and nothing here ever looked, so
+      // the run carried on to the end — a client who stopped a 48-hour
+      // campaign watched it keep sending. One read per 25 recipients is a
+      // rounding error against the sends themselves, and it is the only way a
+      // run that has already started can be stopped at all.
+      //
+      // Any status other than 'running' means something else now owns this
+      // campaign: cancelled, or reset by the queue because this run looked
+      // dead. Either way, stopping is right — the recipients already written
+      // are what the dedup will skip when it is next picked up.
+      const { data: live } = await db
+        .from('campaigns')
+        .select('status')
+        .eq('id', campaignId)
+        .maybeSingle();
+
+      if (live && live.status !== 'running') {
+        console.warn(
+          `[Campaign ${campaignId}] stopping at ${sentCount} sent — status is now '${live.status}'`,
+        );
+        break;
+      }
     }
 
     // Pace between batches (avoids Meta rate limit)
@@ -943,12 +1002,25 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   const { count: crFiltered } = await db.from('campaign_recipients')
     .select('id', { count: 'exact', head: true }).eq('campaign_id', campaignId).eq('status', 'filtered');
 
+  // `.eq('status', 'running')` so a run that was stopped keeps the status
+  // whoever stopped it set. The loop breaks out when the campaign is no longer
+  // running — cancelled, or reset by the queue — and writing 'completed' here
+  // would undo that, telling the client their cancelled campaign finished.
+  // The counts are still written, because they are what did go out.
   await db.from('campaigns').update({
     status: 'completed', completed_at: new Date().toISOString(),
     sent_count: sentCount, failed_count: failedCount,
     total_recipients: crTotal ?? undefined,
     filtered_count: crFiltered ?? filteredCount,
-  }).eq('id', campaignId);
+  }).eq('id', campaignId).eq('status', 'running');
+
+  // A stopped run still records what it sent, under the status it was stopped
+  // with, so the client's report is not left at zero.
+  await db.from('campaigns').update({
+    sent_count: sentCount, failed_count: failedCount,
+    total_recipients: crTotal ?? undefined,
+    filtered_count: crFiltered ?? filteredCount,
+  }).eq('id', campaignId).neq('status', 'completed');
 
   // ── Post-completion reply sync (backstop) ─────────────────────────────────────
   // Some inbound auto-replies arrive before the campaign_recipients row is committed.
