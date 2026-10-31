@@ -293,6 +293,27 @@ would produce it and confirm the shape is still issued.
   overwrite a status someone else set, so a cancelled campaign no longer reports
   itself completed.
 
+- [x] 2026-10-31 — **The duplicate sends are now noticed, and someone is told.**
+  The only reason 30,686 of them were ever found is that someone went looking
+  for an unrelated thing. Two gaps, both closed:
+  A daily check (`campaign_duplicate_sends`, migration 143) counts phone
+  numbers sent the same campaign twice in the last 24 hours. **Any duplicate is
+  an error, not a warning** — there is no acceptable number, because on WhatsApp
+  the same marketing message twice is what drops a number's quality rating. A
+  check that cannot run reports that it could not, rather than reading as clean;
+  "no duplicates" and "could not look" were indistinguishable for months.
+  And the health monitor **wrote a row and stopped**. An error report was "kept
+  until manually resolved" in a table nobody opens — the same failure mode as
+  the bug it now watches for. It emails platform admins on `critical`, and only
+  when the previous report was not also critical: a daily email that always
+  arrives is one nobody reads, and the point of this one is that its arrival
+  means something.
+  Also added `idx_cr_campaign_sent` — the heartbeat lookup that now decides
+  whether a live campaign gets reset was reading all 18,449 rows of the largest
+  campaign to find one timestamp, every five minutes. Deliberately no index for
+  the detector itself: a 50 ms parallel scan run daily is not worth maintaining
+  an index on ~100k sends a month.
+
 - [ ] **Make a double-send impossible, not just unlikely.** The fixes above
   remove the races that were firing; a unique index would remove the class. It
   needs the send path to reserve its `campaign_recipients` row BEFORE sending
