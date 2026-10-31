@@ -27,16 +27,28 @@ five separate single-column updates to the same conversation row —
 `last_message`, `is_spam`, `sentiment`, `unread_count`,
 `consecutive_offtopic` — and each one carries all 934 bytes.
 
+## Do not paste this file into a terminal
+
+Every command below is on its own, and **one of them is the rollback**. On
+2026-10-31 the whole thing was run as a block: step 1 applied, the rollback
+undid it seconds later without anyone watching, and then step 2 applied — so
+`messages` ended up live on the new setting, unverified, while `conversations`
+was back where it started. Nothing broke, but nothing was learned either.
+
+Run one command. Look at the app. Then decide.
+
 ## Before you start
 
 Record the baseline so the change can be judged rather than just survived:
 
 ```bash
-node database/query.mjs "SELECT relname, relreplident FROM pg_class WHERE relnamespace='public'::regnamespace AND relname IN ('conversations','messages','notifications')"
+node database/query.mjs "SELECT relname, relreplident, CASE relreplident WHEN 'f' THEN 'FULL (old)' WHEN 'i' THEN 'USING INDEX (new)' WHEN 'd' THEN 'DEFAULT' WHEN 'n' THEN 'NOTHING' END AS state FROM pg_class WHERE relnamespace='public'::regnamespace AND relname IN ('conversations','messages','notifications') ORDER BY relname"
 node database/query.mjs "SELECT pg_current_wal_lsn() AS lsn, now() AS at"
 ```
 
-`relreplident` should read `f` for all three. Keep the LSN and the time.
+`state` should read FULL for all three before you start. Run the same query any
+time to see where things actually stand — it is the only reliable answer, and
+it is worth checking before and after every step.
 
 ## Step 1 — `conversations`
 
@@ -66,6 +78,9 @@ thread for the customer.
 
 ## If anything is wrong
 
+**Only if step 2 failed.** This is the rollback; running it after a successful
+step undoes the change you just verified.
+
 ```bash
 node database/run-migration.mjs migrations/145_rollback_replica_identity.sql
 ```
@@ -75,6 +90,8 @@ them. Reload the page and confirm live updates return. Then tell me what
 stopped working and I will stop proposing this.
 
 ## Step 3 — `messages`, on a different day
+
+**Only if step 2 passed and step 1 was not rolled back.** Not the same sitting.
 
 Only once step 1 has held for a day or two.
 
