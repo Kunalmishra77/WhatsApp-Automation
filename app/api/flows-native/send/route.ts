@@ -171,10 +171,10 @@ export async function POST(request: NextRequest) {
       console.error('[FlowSend] Failed to insert messages row:', msgErr);
     }
 
-    await db
-      .from('conversations')
-      .update({ last_message: '📋 Sent form: ' + form.name, last_message_at: new Date().toISOString() })
-      .eq('id', conversationId);
+    // Nothing to write: inserting the message above fires
+    // `messages_update_conversation`, which sets last_message and
+    // last_message_at from it. With `conversations` on REPLICA IDENTITY FULL,
+    // setting them again rewrote the whole 934-byte old row into WAL.
 
     return NextResponse.json({ ok: true, messageId: msgRow?.id ?? null });
   } catch (error) {

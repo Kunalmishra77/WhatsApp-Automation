@@ -180,20 +180,13 @@ export async function POST(
     // ── Post-send conversation updates ─────────────────────────────────────────
     // Reflect the outbound reply on the conversation row (list preview) and record
     // first_replied_at (SLA) if this is the first outbound reply.
-    const nowIso = new Date().toISOString();
-    const { data: conv } = await adminDb
-      .from('conversations')
-      .select('first_replied_at')
-      .eq('id', id)
-      .single();
-
-    const convUpdate: Record<string, unknown> = {
-      last_message: trimmed,
-      last_message_at: nowIso,
-    };
-    if (!conv?.first_replied_at) convUpdate.first_replied_at = nowIso;
-
-    await adminDb.from('conversations').update(convUpdate).eq('id', id);
+    // Nothing to write, and nothing to read first either. Inserting the
+    // outbound message above fires two triggers:
+    // `messages_update_conversation` sets last_message and last_message_at,
+    // and `set_conversation_first_reply` sets first_replied_at when it is
+    // still null — which is exactly what the read-then-write here was for.
+    // With `conversations` on REPLICA IDENTITY FULL, the UPDATE also rewrote
+    // the whole 934-byte old row into WAL to change nothing.
 
     return NextResponse.json({ success: true, messageId: message.id });
   } catch (error) {

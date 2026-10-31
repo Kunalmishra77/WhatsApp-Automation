@@ -184,10 +184,10 @@ async function handlePaidEvent(
       } as Record<string, unknown>,
     });
 
-    await db
-      .from('conversations')
-      .update({ last_message: confirmLine, last_message_at: paidAt })
-      .eq('id', msgRow.conversation_id);
+    // Nothing to write: inserting the message above fires
+    // `messages_update_conversation`, which sets last_message and
+    // last_message_at from it. With `conversations` on REPLICA IDENTITY FULL,
+    // setting them again rewrote the whole 934-byte old row into WAL.
 
     // Tenant-customer order (from the inbound-order handler) — advance to 'confirmed'
     // ONLY when it's unambiguous: exactly one pending order on this conversation.

@@ -166,12 +166,29 @@ would produce it and confirm the shape is still issued.
   characters, which it has always done for inbound messages. Those hand-written
   updates were the only reason bot replies were longer — 2,277 of 8,865
   conversations had a preview over 200 characters, up to 1,412.
-  Still open, same pattern, each needing its own check that a message row is
-  actually inserted first: `admin/conversations/[id]/send`,
-  `contacts/[id]/start-conversation`, `messages/interactive`, `messages/catalog`,
-  `flows-native/send`, `payments/webhook`, `conversations/merge`, the Instagram
-  and Meta webhooks, and `campaign-executor`. All low-volume next to the
-  webhook, which is where the 15,028 calls were.
+  **All of them done, 15 call sites in total.** Also removed from
+  `admin/conversations/[id]/send` (where the read-then-write for
+  `first_replied_at` went too — `set_conversation_first_reply` already does it),
+  `messages/interactive`, `messages/catalog`, `messages/media`, `v1/messages`,
+  `flows-native/send`, `payments/webhook`, and the Instagram and Meta webhooks.
+  Three were checked and **left alone because they are not redundant**:
+  `conversations/merge` rewrites the preview from a different conversation's
+  message, and the trigger only fires on INSERT; `campaign-executor` and
+  `contacts/[id]/start-conversation` set it inside the conversation upsert
+  itself, which is not an extra write.
+  Two dead things fell out of the same reading:
+  * The Instagram webhook carried
+    `unread_count: db.raw ? db.raw('unread_count + 1') : undefined` — `db` is a
+    Supabase client with no `.raw`, so the field was always omitted and nothing
+    was ever incremented. The trigger had been doing it all along.
+  * **The Meta webhook's message insert ended `.onConflict('whatsapp_msg_id')
+    .ignore()`, which is Knex syntax.** On a Supabase client — cast to `any`, so
+    the compiler never said so — that throws a TypeError on every message.
+    There are zero Instagram or Messenger conversations on the platform, so this
+    handler has never once saved a message, and it would have bitten the day the
+    ₹999 Instagram add-on was switched on. Now a plain insert that treats 23505
+    as "Meta sent it twice" and logs anything else, because a message that is
+    not saved is a message the client never sees.
 - [x] 2026-10-30 — **The inbound path's round trips, measured and reduced.**
   Four reads an ordinary message paid for in series are now one wait or gone:
   * `campaign_recipients` by contact, `wa_form_sessions` by conversation and the

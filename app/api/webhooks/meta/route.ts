@@ -136,8 +136,20 @@ async function handleMetaMessage(
     ? (['image', 'video', 'audio', 'file'].includes(attachment.type) ? attachment.type : 'text')
     : 'text';
 
-  // Save message
-  await db.from('messages').insert({
+  // Save message.
+  //
+  // This used to end `.onConflict('whatsapp_msg_id').ignore()`, which is Knex
+  // syntax. `db` is a Supabase client — cast to `any`, which is why the
+  // compiler never said so — and has no `.onConflict`, so this line threw a
+  // TypeError on every message the handler was given. There are zero Instagram
+  // or Messenger conversations on the platform, so it has never worked; it
+  // would have bitten the day the Instagram add-on was switched on.
+  //
+  // The intent was "ignore a redelivery". Neither this handler nor the
+  // Instagram one has the idempotency layer the WhatsApp webhook uses, so the
+  // duplicate is caught here instead: `whatsapp_msg_id` carries a partial
+  // unique index, and 23505 means Meta sent this message twice.
+  const { error: msgErr } = await db.from('messages').insert({
     conversation_id: conversation.id,
     workspace_id:    workspaceId,
     sender_type:     'contact',
@@ -149,11 +161,14 @@ async function handleMetaMessage(
     whatsapp_msg_id: mid,
     status:          'delivered',
     created_at:      new Date(timestamp * 1000).toISOString(),
-  }).onConflict('whatsapp_msg_id').ignore();
+  });
 
-  // Update conversation last message
-  await db.from('conversations').update({
-    last_message:    messageText,
-    last_message_at: new Date(timestamp * 1000).toISOString(),
-  }).eq('id', conversation.id);
+  if (msgErr && msgErr.code !== '23505') {
+    // Loud: a message that is not saved is a message the client never sees.
+    console.error(`[MetaWebhook] message insert failed for mid ${mid}:`, msgErr.message);
+  }
+
+  // No conversation update: the insert above fires
+  // `messages_update_conversation`, which sets last_message, last_message_at
+  // and unread_count from the row it just saw.
 }

@@ -118,7 +118,11 @@ export async function POST(request: NextRequest) {
       content:         message.trim(),
       status:          'sent',
     });
-    await db.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', convId).eq('workspace_id', auth.workspaceId);
+    // Nothing to write: inserting the message above fires
+    // `messages_update_conversation`, which sets last_message and
+    // last_message_at from it. This used to set them again, and with
+    // `conversations` on REPLICA IDENTITY FULL that rewrote the whole
+    // 934-byte old row into WAL to change nothing.
   }
 
   return NextResponse.json({ success: true, waMessageId, to: phone });

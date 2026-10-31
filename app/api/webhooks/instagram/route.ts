@@ -264,15 +264,16 @@ async function handleIncomingDM(db: any, igAccount: IgAccount, ev: IgMessaging) 
 
   if (msgError) throw new Error(msgError.message);
 
-  // ── Update conversation last_message ─────────────────────────────────────
-  await db
-    .from('conversations')
-    .update({
-      last_message: content.slice(0, 200),
-      last_message_at: new Date(ev.timestamp).toISOString(),
-      unread_count: db.raw ? db.raw('unread_count + 1') : undefined,
-    })
-    .eq('id', conversation.id);
+  // ── The conversation preview looks after itself ──────────────────────────
+  // Inserting the inbound message above fires `messages_update_conversation`,
+  // which sets last_message (truncated to 200, as here), last_message_at AND
+  // increments unread_count.
+  //
+  // The update this replaces also carried
+  // `unread_count: db.raw ? db.raw('unread_count + 1') : undefined` — and `db`
+  // is a Supabase client, which has no `.raw`, so that branch was always
+  // `undefined` and the field was always omitted. It never incremented
+  // anything. The trigger was doing it the whole time.
 
   // ── Track usage (non-blocking) ───────────────────────────────────────────
   void import('@/lib/usage-tracker').then(({ trackMessageIn }) => trackMessageIn(workspaceId)).catch(() => {});

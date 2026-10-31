@@ -212,15 +212,11 @@ export async function POST(request: NextRequest) {
       .update({ status: 'sent', whatsapp_msg_id: waMessageId ?? null })
       .eq('id', message.id);
 
-    // Update conversation last_message + last_message_at
-    await adminDb
-      .from('conversations')
-      .update({
-        last_message: body.trim(),
-        last_message_at: new Date().toISOString(),
-      })
-      .eq('id', conversationId)
-      .eq('workspace_id', conversation.workspace_id);
+    // Nothing to write: inserting the message above fires
+    // `messages_update_conversation`, which sets last_message and
+    // last_message_at from it. This used to set them again, and with
+    // `conversations` on REPLICA IDENTITY FULL that rewrote the whole
+    // 934-byte old row into WAL to change nothing.
 
     return NextResponse.json({ success: true, messageId: message.id, waMessageId });
   } catch (error) {
