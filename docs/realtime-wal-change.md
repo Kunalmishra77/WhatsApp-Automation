@@ -106,6 +106,16 @@ the inbox breaks after two changes, you do not know which one did it.
 `conversation_id`, both NOT NULL, so its replica identity index carries
 everything the policy needs and even DELETE events stay fully checkable.
 
+## Log of what has actually been done
+
+| When | Table | Result |
+|---|---|---|
+| 2026-10-31 | `messages` → USING INDEX | **Verified live by the owner**: conversation rose to the top of the list, unread count changed, and the message appeared in an open thread, all without a refresh. Kept. |
+| 2026-10-31 | `conversations` → USING INDEX | Applied and rolled back within seconds by a pasted block, with nobody watching. **Still to do** — it is the bigger half, roughly 4×. |
+
+Baseline for the comparison below, taken just after `messages` was verified:
+**2,346,777 calls, 14,143.7 s total, mean 6.027 ms** (2026-10-31 00:34 UTC).
+
 ## Did it help?
 
 A day after each step:

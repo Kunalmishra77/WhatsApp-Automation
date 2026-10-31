@@ -126,11 +126,17 @@ would produce it and confirm the shape is still issued.
   Separately it stops the `sent` receipt rewriting rows that are already 'sent',
   which is every outbound message — each of those no-op updates copied the whole
   old row, `content` and `meta` included, into the WAL.
-- [ ] **Realtime WAL decoding — 2,343,638 calls, 14,123 s, still ten times
-  anything else.** Prepared on 2026-10-31 and **waiting on the owner**: it needs
-  someone watching the Conversations page for five minutes. Migrations 144
-  (`conversations`), 146 (`messages`), 145 (rollback), runbook in
+- [ ] **Realtime WAL decoding — 2,346,777 calls, 14,143 s, still ten times
+  anything else.** Half done. `messages` is on `REPLICA IDENTITY USING INDEX`
+  and **verified live by the owner on 2026-10-31** — list reordered, unread
+  count moved, message appeared in an open thread, no refresh. `conversations`
+  is still FULL and is the bigger half (~4×): migration 144, one command, with
+  145 as the rollback. Runbook and a log of what has been done:
   `docs/realtime-wal-change.md`.
+  Worth doing a day apart rather than back to back, and not out of caution for
+  its own sake: five minutes of one person watching is not the same evidence as
+  a day of twelve clients using it, and a failure mode that only shows on a
+  DELETE event or an agent-scoped subscriber would not have appeared yet.
   **The earlier note had the order backwards.** It said `messages` "is where the
   volume is" and that `conversations` could not be changed. Measured over 44
   days: `conversations` 118,382 updates at 934 B/row against `messages` 41,128
