@@ -1455,10 +1455,15 @@ async function handleIncomingMessage(
         whatsapp_msg_id: reaskData?.messages?.[0]?.id ?? null,
         created_at:      now,
       });
-      await (supabase as any).from('conversations').update({
-        last_message:    pendingFlowQuestion,
-        last_message_at: now,
-      }).eq('id', conversation.id);
+      // No conversation update here: inserting the message above fires
+      // `messages_update_conversation`, which already sets last_message and
+      // last_message_at from the row just inserted. Doing it again cost a
+      // second UPDATE per message — and with `conversations` on REPLICA
+      // IDENTITY FULL, every one of those rewrote the whole 934-byte old row
+      // into WAL, which is the largest single consumer of database time here.
+      // The trigger truncates the preview to 200 characters, as it already did
+      // for every inbound message; these writes were the reason bot replies
+      // were the only previews longer than that.
     }
   }
 
@@ -2083,14 +2088,19 @@ async function sendAutoReply(
         created_at:      now,
       });
 
-      const updatePayload: Record<string, unknown> = {
-        last_message:    message,
-        last_message_at: now,
-      };
-      // Do NOT auto-pause bot after escalation — if no human agent is available,
-      // customer would be left with zero replies. Human agents can manually
-      // pause the bot from the dashboard when they take over.
-      await (supabase as any).from('conversations').update(updatePayload).eq('id', conversationId);
+      // No conversation update here: inserting the message above fires
+      // `messages_update_conversation`, which already sets last_message and
+      // last_message_at from the row just inserted. Doing it again cost a
+      // second UPDATE per message — and with `conversations` on REPLICA
+      // IDENTITY FULL, every one of those rewrote the whole 934-byte old row
+      // into WAL, which is the largest single consumer of database time here.
+      // The trigger truncates the preview to 200 characters, as it already did
+      // for every inbound message; these writes were the reason bot replies
+      // were the only previews longer than that.
+      //
+      // (The bot is deliberately NOT auto-paused after escalation either — if
+      // no human agent is available the customer would be left with zero
+      // replies. Agents pause it from the dashboard when they take over.)
 
       // Detect booking/callback events and log them (non-blocking)
       void detectAndLogEvent(
@@ -2525,11 +2535,11 @@ async function handleInboundOrder(
     } as Record<string, unknown>,
   });
 
-  // Keep the conversation preview in sync with the latest activity.
-  await db
-    .from('conversations')
-    .update({ last_message: summaryLine, last_message_at: new Date().toISOString() })
-    .eq('id', conversationId);
+  // The preview is already in sync: the internal note inserted above fires
+  // `messages_update_conversation`, which sets last_message and
+  // last_message_at from it. This used to set them a second time, and with
+  // `conversations` on REPLICA IDENTITY FULL that rewrote the whole old row
+  // into WAL for no change at all.
 
   // Brief customer acknowledgment (best-effort — never blocks the record above).
   if (phoneNumberId && accessToken) {
@@ -2704,7 +2714,10 @@ async function handleNativeFlowReply(
     }
   }
 
-  // ── Post a thread summary + keep the conversation preview in sync ──────────
+  // ── Post a thread summary ──────────────────────────────────────────────────
+  // The preview looks after itself: the insert below fires
+  // `messages_update_conversation`, which sets last_message and
+  // last_message_at from it.
   if (sessConversationId) {
     await db.from('messages').insert({
       conversation_id: sessConversationId,
@@ -2722,10 +2735,6 @@ async function handleNativeFlowReply(
       } as Record<string, unknown>,
     });
 
-    await db
-      .from('conversations')
-      .update({ last_message: summaryLine, last_message_at: new Date().toISOString() })
-      .eq('id', sessConversationId);
   }
 
   // ── Mark the session complete ───────────────────────────────────────────────

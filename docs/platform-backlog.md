@@ -150,15 +150,28 @@ would produce it and confirm the shape is still issued.
   lost data. `messages` has no degraded case at all: its policy needs only
   `workspace_id` and `conversation_id`, both NOT NULL, so its index carries
   everything the policy needs.
-  Also found while measuring, and the better fix if it is ever worth the risk:
-  **one inbound message causes five separate single-column UPDATEs to the same
-  conversation row** — `last_message`, `is_spam`, `sentiment`, `unread_count`,
-  `consecutive_offtopic` (15,028 / 14,536 / 12,394 / 10,792 / 6,882 calls) —
-  each carrying all 934 bytes. Collapsing them into one would cut four fifths of
-  the biggest contributor without touching Realtime at all. Not done because
-  they are scattered across a 3,800-line webhook, several inside
-  fire-and-forget blocks with their own ordering; that is a careful change, and
-  this one is a single ALTER with a one-line rollback.
+  **Partly fixed from the other end on 2026-10-31, and the plan changed on
+  contact with the code.** The intention was to collapse five single-column
+  UPDATEs into one. Reading the triggers showed that was the wrong description:
+  `update_conversation_last_message` *already* sets `last_message`,
+  `last_message_at` and `unread_count` together on every message insert — and
+  **six call sites were then setting the same two columns again**, by hand,
+  right after inserting the message that had just fired it.
+  Each of those second writes changed nothing and, with `conversations` on
+  REPLICA IDENTITY FULL, rewrote the whole 934-byte old row into WAL to do it.
+  Removed from: the auto-reply path, the flow re-ask, two internal-note
+  summaries (inbound order, native-flow reply), `saveOutboundMessage` in
+  `lib/flow-engine.ts` — which sends **every** flow message — and `lib/auto-csat.ts`.
+  Side effect, and an improvement: the trigger truncates the preview to 200
+  characters, which it has always done for inbound messages. Those hand-written
+  updates were the only reason bot replies were longer — 2,277 of 8,865
+  conversations had a preview over 200 characters, up to 1,412.
+  Still open, same pattern, each needing its own check that a message row is
+  actually inserted first: `admin/conversations/[id]/send`,
+  `contacts/[id]/start-conversation`, `messages/interactive`, `messages/catalog`,
+  `flows-native/send`, `payments/webhook`, `conversations/merge`, the Instagram
+  and Meta webhooks, and `campaign-executor`. All low-volume next to the
+  webhook, which is where the 15,028 calls were.
 - [x] 2026-10-30 — **The inbound path's round trips, measured and reduced.**
   Four reads an ordinary message paid for in series are now one wait or gone:
   * `campaign_recipients` by contact, `wa_form_sessions` by conversation and the

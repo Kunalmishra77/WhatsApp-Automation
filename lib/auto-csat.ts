@@ -208,13 +208,10 @@ export async function sendCsatPrompt(db: any, candidate: CsatCandidate): Promise
       return 'failed';
     }
 
-    const { error: updErr } = await db.from('conversations').update({
-      last_message: CSAT_PROMPT,
-      last_message_at: now,
-    }).eq('id', candidate.conversation_id);
-    if (updErr) {
-      console.error('[AutoCSAT] last_message update failed (non-critical):', updErr.message);
-    }
+    // The insert above fires `messages_update_conversation`, which sets
+    // last_message and last_message_at from the row it just saw — so there is
+    // nothing left to write. Doing it again rewrote the whole old row into WAL
+    // (conversations is REPLICA IDENTITY FULL) to change nothing.
 
     return 'sent';
   } catch (e) {

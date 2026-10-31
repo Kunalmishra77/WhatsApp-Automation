@@ -114,10 +114,12 @@ async function saveOutboundMessage(
     whatsapp_msg_id: waMessageId,
     created_at:      now,
   });
-  await (supabase as any).from('conversations').update({
-    last_message:    text,
-    last_message_at: now,
-  }).eq('id', conversationId).eq('workspace_id', workspaceId);
+  // Nothing to update on the conversation: the insert above fires
+  // `messages_update_conversation`, which sets last_message and
+  // last_message_at from the row it just saw. This helper sends every flow
+  // message, so the second UPDATE it used to do happened on every step of
+  // every flow — and with `conversations` on REPLICA IDENTITY FULL each one
+  // rewrote the whole 934-byte old row into WAL to change nothing.
 }
 
 
