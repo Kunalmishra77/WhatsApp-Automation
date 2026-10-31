@@ -659,30 +659,78 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   const BATCH_DELAY   = 300;  // ms between batches
   const DB_FLUSH_SIZE = 25;
 
+  // ── Reservation ─────────────────────────────────────────────────────────────
+  //
+  // The recipient row is written BEFORE the message goes out, as 'queued', and
+  // a partial unique index (migration 147) makes a second reservation for the
+  // same (campaign, phone) impossible while the first is in flight. So even if
+  // two runs of one campaign somehow start, neither can send to a phone the
+  // other is sending to — 30,686 duplicate messages went out because nothing
+  // stopped that.
+  //
+  // The claim in executeCampaign stops two runs beginning; this stops them
+  // overlapping if they do. Belt and braces, and the braces are the cheap part.
+  //
+  // A batch is reserved immediately before it is sent and settled immediately
+  // after, so a process that dies mid-batch leaves at most five phones in
+  // doubt. Those stay 'queued' and are never retried automatically: a missed
+  // message costs one lead, a duplicate costs the client's number quality
+  // rating, and Meta throttles on that. Resume releases them, because that is
+  // a person deciding.
+  let skippedByOtherRun = 0;
+
+  const reserveBatch = async (contacts: Contact[]): Promise<Contact[]> => {
+    if (contacts.length === 0) return [];
+
+    const { data, error } = await db.rpc('campaign_reserve_phones', {
+      p_campaign: campaignId,
+      p_workspace: campaign.workspace_id,
+      p_rows: contacts.map((c) => ({
+        phone: c.phone,
+        name: c.name ?? null,
+        // Same rule the insert used: a 'manual-' id is not a contact row.
+        contact_id: c.id && !c.id.startsWith('manual-') ? c.id : null,
+      })),
+    });
+
+    if (error) {
+      // Fail closed. Sending without a reservation is sending without the one
+      // thing that makes a duplicate impossible, and this is the error path
+      // that would otherwise quietly restore the old behaviour.
+      console.error(`[Campaign ${campaignId}] reservation failed, skipping batch: ${error.message}`);
+      return [];
+    }
+
+    const got = new Set(((data ?? []) as Array<{ phone: string }>).map((r) => r.phone));
+    const mine = contacts.filter((c) => got.has(c.phone));
+    skippedByOtherRun += contacts.length - mine.length;
+    return mine;
+  };
+
   const pendingRecipients: Array<Record<string, unknown>> = [];
 
+  // Settles the rows this run reserved. One statement per flush, matched on
+  // (campaign, phone) while the row is still 'queued' — a row that is no longer
+  // queued belongs to someone else, and overwriting it is how a late write
+  // undoes a delivery receipt, which is what migration 130 existed to stop.
   const flushRecipients = async () => {
     if (pendingRecipients.length === 0) return;
     const rows = pendingRecipients.splice(0, pendingRecipients.length);
 
-    // Try batch insert first
-    const { error: batchErr } = await db.from('campaign_recipients').insert(rows);
+    const { data: settled, error } = await db.rpc('campaign_settle_phones', {
+      p_campaign: campaignId,
+      p_rows: rows,
+    });
 
-    if (batchErr) {
-      // Batch failed â€” fall back to one-by-one so bad rows don't block good ones
-      console.error(`[Campaign] Batch insert failed (${batchErr.code}): ${batchErr.message}. Retrying row-by-row.`);
-      let rowErrors = 0;
-      for (const row of rows) {
-        const { error: rowErr } = await db.from('campaign_recipients').insert(row);
-        if (rowErr) {
-          console.error(`[Campaign] Row insert failed for phone ${row.phone}: ${rowErr.message}`);
-          rowErrors++;
-        }
-      }
-      if (rowErrors === rows.length) {
-        // Every single row failed â€” surface the original batch error so cron response shows it
-        throw new Error(`campaign_recipients insert failed (all ${rows.length} rows): ${batchErr.message} | code:${batchErr.code} | hint:${batchErr.hint}`);
-      }
+    if (error) {
+      // Loud, and not fatal: the messages have already gone out, so throwing
+      // here would lose the record of sends that really happened. The rows stay
+      // 'queued', which the campaign report shows and Resume can release.
+      console.error(`[Campaign ${campaignId}] settle failed for ${rows.length} row(s): ${error.message}`);
+    } else if (Number(settled ?? 0) !== rows.length) {
+      console.warn(
+        `[Campaign ${campaignId}] settled ${settled} of ${rows.length} row(s) — the rest were no longer queued`,
+      );
     }
 
     await db.from('campaigns').update({ sent_count: sentCount, failed_count: failedCount, filtered_count: filteredCount }).eq('id', campaignId);
@@ -721,7 +769,15 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   const listSections    = (template?.list_sections as Array<{ title: string; rows: Array<{ id: string; title: string; description: string }> }> | null) ?? [];
 
   for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
-    const batch = recipients.slice(i, i + BATCH_SIZE);
+    // Reserve before sending. Anything another run already holds comes back
+    // missing from this list, and is not sent to by this one.
+    const batch = await reserveBatch(recipients.slice(i, i + BATCH_SIZE));
+    if (batch.length === 0) {
+      if (i + BATCH_SIZE < recipients.length) {
+        await new Promise((r) => setTimeout(r, BATCH_DELAY));
+      }
+      continue;
+    }
 
     const results = await Promise.allSettled(
       batch.map(async (contact) => {
@@ -779,31 +835,26 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
         continue;
       }
       const { contact, result } = settled.value;
-      const realContactId = contact.id && !contact.id.startsWith('manual-') ? contact.id : null;
+      // The row already exists, reserved above with its contact_id and name —
+      // these carry only what the send found out.
       if (result.success) {
         sentCount++;
         pendingRecipients.push({
-          campaign_id:     campaignId,
-          workspace_id:    campaign.workspace_id,
-          contact_id:      realContactId,
           phone:           contact.phone,
-          name:            contact.name ?? null,
           status:          'sent',
           whatsapp_msg_id: ('waMessageId' in result ? result.waMessageId : undefined) ?? null,
           sent_at:         new Date().toISOString(),
+          error_message:   null,
         });
       } else {
         failedCount++;
         console.error(`[Campaign ${campaignId}] Failed â†’ ${contact.phone}:`, result.error);
         pendingRecipients.push({
-          campaign_id:   campaignId,
-          workspace_id:  campaign.workspace_id,
-          contact_id:    realContactId,
-          phone:         contact.phone,
-          name:          contact.name ?? null,
-          status:        'failed',
-          error_message: result.error ?? 'WhatsApp API error',
-          sent_at:       new Date().toISOString(),
+          phone:           contact.phone,
+          status:          'failed',
+          whatsapp_msg_id: null,
+          error_message:   result.error ?? 'WhatsApp API error',
+          sent_at:         new Date().toISOString(),
         });
         // Cache as invalid WhatsApp number if Meta API says so â€” skip next campaign
         if (result.error && isNotWhatsAppError(result.error)) {
@@ -1030,6 +1081,16 @@ export async function executeCampaign(campaignId: string): Promise<CampaignRunRe
   void backfillCampaignReplies(db, campaignId, campaign.workspace_id)
     .then((n: number) => { if (n > 0) console.log(`[Campaign ${campaignId}] Post-sync: +${n} replies linked`); })
     .catch((e: unknown) => console.error(`[Campaign ${campaignId}] Post-completion reply sync failed:`, e));
+
+  // Said out loud, because a phone this run did not send to is a phone the
+  // client expected a message to reach. Nonzero here means two runs overlapped,
+  // which the claim should already have prevented — so it is also the signal
+  // that something is still starting campaigns twice.
+  if (skippedByOtherRun > 0) {
+    console.warn(
+      `[Campaign ${campaignId}] ${skippedByOtherRun} recipient(s) were already reserved by another run and were not sent to by this one`,
+    );
+  }
 
   return { campaignId, total: audienceSize, sent: sentCount, failed: failedCount, filtered: filteredCount };
 }

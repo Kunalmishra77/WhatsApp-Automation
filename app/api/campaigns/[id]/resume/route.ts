@@ -68,6 +68,23 @@ export async function POST(
       }
     }
 
+    // Release reservations the dead run left behind, so its last few
+    // recipients can be tried again (migration 147).
+    //
+    // This is the ONLY place that does it, and only because a person asked.
+    // A reservation whose run died is a message that may or may not have gone
+    // out; a timer releasing it would reintroduce exactly the duplicates the
+    // reservation prevents. Ten minutes, because a live run reserves and
+    // settles a batch within seconds.
+    const { data: released } = await db.rpc('campaign_release_stale_reservations', {
+      p_campaign: campaignId,
+      p_workspace: campaign.workspace_id,
+      p_older_than_minutes: 10,
+    });
+    if (Number(released ?? 0) > 0) {
+      console.log(`[Campaign Resume] released ${released} stale reservation(s) for ${campaignId}`);
+    }
+
     // Clear any stuck queue entries for this campaign
     await db.from('campaign_queue')
       .update({ status: 'failed' })

@@ -348,14 +348,43 @@ would produce it and confirm the shape is still issued.
   the detector itself: a 50 ms parallel scan run daily is not worth maintaining
   an index on ~100k sends a month.
 
-- [ ] **Make a double-send impossible, not just unlikely.** The fixes above
-  remove the races that were firing; a unique index would remove the class. It
-  needs the send path to reserve its `campaign_recipients` row BEFORE sending
-  rather than after, plus a **partial** unique index on
-  `(campaign_id, phone) WHERE status = 'queued'` — partial because the 27,379
-  existing duplicate pairs are an accurate record of messages that really went
-  out, and deleting them to make room for a plain unique index would replace one
-  wrong number with another.
+- [x] 2026-10-31 — **A duplicate send is now impossible, not merely unlikely.**
+  The recipient row is reserved as `queued` BEFORE the message goes out, and a
+  partial unique index on `(campaign_id, phone) WHERE status = 'queued'`
+  (migration 147) makes a second reservation for the same phone impossible
+  while the first is in flight. The claim stops two runs beginning; this stops
+  them overlapping if they ever do.
+  Partial on purpose: the 27,379 existing duplicate pairs are a true record of
+  messages that went out, and deleting them for a plain unique index would swap
+  one wrong number for another.
+  **The trade, and why it went this way.** Exactly-once is not available — Meta
+  takes no idempotency key — so a process dying between send and settle leaves a
+  row whose fate is genuinely unknown. Those stay `queued` and are **never
+  retried automatically**: a missed message costs one lead, a duplicate costs
+  the client's number quality rating and Meta throttles on that. A batch of five
+  is reserved immediately before it is sent, so a crash leaves at most five
+  phones in doubt. Resume releases them (10-minute floor), because that is a
+  person deciding to take over a dead run.
+  Four things found while building it, each of which would have shipped a quiet
+  wrong answer:
+  * `campaign_recipients` has **no `created_at`** — only sent/delivered/read/
+    replied_at. The release function was written against it and, being plpgsql,
+    would have failed at runtime the first time someone clicked Resume. Added
+    an explicit `reserved_at` rather than writing the reservation time into
+    `sent_at`, which is the cheap way and the wrong one.
+  * The recipients table in the UI does
+    `STATUS_CFG[r.status] ?? STATUS_CFG.sent`, so a reserved row would have been
+    labelled **"Sent"** before it was sent. It now reads "Sending…".
+  * A reservation failure now **fails closed** — the batch is skipped, not sent
+    unprotected. That error path would otherwise have quietly restored the old
+    behaviour exactly when it mattered.
+  * A settle failure is loud but not fatal: the messages have already gone out,
+    and throwing would lose the record of sends that really happened.
+  Known limit, recorded rather than silently fixed: the reservation key is the
+  raw `phone`, the same value the dedup has always used, so the same person
+  stored once as `919000000001` and once as `+919000000001` is two
+  reservations. Pre-existing; changing the key would move what the historical
+  dedup matches on.
 - [ ] **Partition `messages` and `campaign_recipients` by month.** Not needed
   yet; needed around 100 clients. `campaign_recipients` is already 404k rows and
   149 MB.

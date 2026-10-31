@@ -69,6 +69,11 @@ interface DetailData {
 
 // ── Status config ─────────────────────────────────────────────────────────────
 const STATUS_CFG = {
+  // A reservation taken just before the send (migration 147). Without an entry
+  // here the lookup below falls back to STATUS_CFG.sent, so a message that has
+  // not gone out yet would be labelled "Sent" — the one wrong word that matters
+  // on this screen.
+  queued:    { label: 'Sending…',  icon: Send,       color: 'text-gray-500',    bg: 'bg-gray-50',    badge: 'bg-gray-100 text-gray-600'      },
   sent:      { label: 'Sent',      icon: Send,       color: 'text-blue-600',    bg: 'bg-blue-50',    badge: 'bg-blue-100 text-blue-700'      },
   delivered: { label: 'Delivered', icon: CheckCheck, color: 'text-sky-600',     bg: 'bg-sky-50',     badge: 'bg-sky-100 text-sky-700'        },
   read:      { label: 'Read',      icon: Eye,        color: 'text-violet-600',  bg: 'bg-violet-50',  badge: 'bg-violet-100 text-violet-700'  },
