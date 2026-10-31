@@ -3,6 +3,7 @@ import { createClient } from '@/services/supabase/server';
 import { resolveActiveWorkspaceId } from '@/lib/active-workspace';
 import { requireWorkspacePermissionAny, authzResponse, AuthzError } from '@/lib/authz';
 import { paginateAll } from '@/lib/export-stream';
+import { applyPlatformFilter } from '@/lib/meta-leads-filter';
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -31,8 +32,9 @@ export async function GET(req: NextRequest) {
   const from     = searchParams.get('from');
   const to       = searchParams.get('to');
 
-  // Filter by "Meta Ad Lead" label — reliable TEXT[] filter that Supabase JS handles natively
-  // (JSONB path filter `.not('meta->ad_source','is',null)` is not supported by PostgREST)
+  // Filter by "Meta Ad Lead" label — a TEXT[] filter Supabase JS handles natively.
+  // (The platform filter below shows that JSONB paths ARE filterable; what is
+  // not is `.not('meta->ad_source','is',null)` as a presence test.)
   //
   // The embedded `messages` exists to show one thing: the customer's opening
   // message. It used to be fetched as `messages!inner(...)` with no limit, so the
@@ -68,10 +70,17 @@ export async function GET(req: NextRequest) {
   if (from)   q = q.gte('created_at', from);
   if (to)     q = q.lte('created_at', to + 'T23:59:59Z');
 
+  // The platform filter belongs here, not after pagination. It used to run in
+  // JS on the 25 rows this page had already fetched, while `total` and
+  // `totalPages` came from the unfiltered count — so choosing Instagram showed
+  // an almost-empty page and claimed 158 more of them. The route's comment
+  // said this JSONB path was "not filterable via PostgREST"; it is.
+  q = applyPlatformFilter(q, platform);
+
   const { data: rows, count, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  let leads = (rows ?? []).map((row: any) => {
+  const leads = (rows ?? []).map((row: any) => {
     const adSource = row.meta?.ad_source ?? {};
     // The one row the embed returns: inbound, earliest first, limited to 1 above.
     const firstMsg = (row.messages ?? [])[0];
@@ -90,8 +99,6 @@ export async function GET(req: NextRequest) {
       first_message_at: firstMsg?.created_at ?? row.created_at,
     };
   });
-
-  if (platform) leads = leads.filter((l: any) => l.platform === platform);
 
   // KPI queries — same fix: use label contains filter
   const now      = new Date();

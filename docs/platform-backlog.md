@@ -182,11 +182,16 @@ would produce it and confirm the shape is still issued.
   recomputing one from a delivery receipt would make this the second writer of a
   number it does not own.
 
-- [ ] **`get_unanswered_conversations` — 20,654 calls at 17.9 ms, 369.4 s.** The
-  reply sweep (`lib/reply-sweep.ts`), roughly every three minutes. Second-largest
-  live application cost after the campaign recount above. Unexamined: it is a
-  cron, so it costs database time rather than anyone's latency, which is why it
-  sits below the receipt path rather than above it.
+- [x] 2026-10-31 — **`get_unanswered_conversations` examined and deliberately
+  left alone.** 20,654 calls, 17.9 ms mean, 369.4 s — second on the cumulative
+  list, and the measurement is what settled it: **369 s over 44 days is 8.4
+  seconds of database time a day.** It is high on that list because it runs 469
+  times a day, not because it is slow. Warm, the function is 13 ms and 9,780
+  buffers; optimising it would be churn on a working cron for eight seconds.
+  Worth recording because the first measurement said 424 ms, which looked like
+  my own migration-136 index had made it 20× worse — it was a cold-cache read on
+  an index created minutes earlier. Warm it is 5 ms. Re-measure before
+  believing a regression.
 
 - [ ] **Still sequential in the inbound path**: `contacts` upsert → `conversations`
   read → `conversations` upsert → `messages` insert, which is four round trips
@@ -238,11 +243,21 @@ would produce it and confirm the shape is still issued.
   Deliberately NOT added: a GIN index on `labels`. For Umang Hospital 1,699 of
   the workspace's 2,320 conversations carry the label, so it is barely selective
   within a workspace and the bitmap scan would still read most of the rows.
-- [ ] **Meta Leads filters `platform` in JS, after pagination** — so a filtered
-  page shows fewer than 25 rows and `totalPages` counts unfiltered leads. Not a
-  perf bug; found while fixing one. `platform` lives in `meta->ad_source`, which
-  PostgREST cannot filter on, so this needs either a generated column or the
-  filter pushed into an RPC.
+- [x] 2026-10-31 — **Meta Leads filtered `platform` in JS, after pagination.**
+  25 rows fetched, some kept, and `total` / `totalPages` taken from the
+  unfiltered count — so choosing Instagram showed an almost-empty page and
+  claimed 158 more of them. **It needed neither a generated column nor an RPC:**
+  the note saying `meta->ad_source` is not filterable by PostgREST was wrong,
+  and `meta->ad_source->>platform=eq.instagram` works. Pushed into the query,
+  in the list and the CSV export, through one shared helper so a CSV cannot
+  disagree with the screen it came from.
+  Latent until now: all 3,952 ad leads on the platform are `facebook`, so the
+  filter returned either everything or nothing. It starts mattering the day
+  Instagram ads are switched on, which is on the roadmap.
+  The facebook case has a wrinkle worth its test: the page shows
+  `adSource.platform ?? 'facebook'`, so a lead with no platform stored displays
+  as facebook, and filtering on the stored value alone would hide a row the same
+  page labels facebook. 10 tests.
 
 - [ ] **`idx_messages_workspace` should now be redundant** — it is a prefix of
   `idx_messages_workspace_created` (migration 136), and its 40,036 scans read

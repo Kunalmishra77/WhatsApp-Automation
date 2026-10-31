@@ -3,6 +3,7 @@ import { createClient } from '@/services/supabase/server';
 import { resolveActiveWorkspaceId } from '@/lib/active-workspace';
 import { requireWorkspacePermissionAny, authzResponse, AuthzError } from '@/lib/authz';
 import { paginateAll, streamingCsvResponse } from '@/lib/export-stream';
+import { applyPlatformFilter } from '@/lib/meta-leads-filter';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -50,11 +51,12 @@ export async function GET(req: NextRequest) {
     if (from) q = q.gte('created_at', from);
     if (to) q = q.lte('created_at', to + 'T23:59:59Z');
     if (status) q = q.eq('status', status);
-    return q;
+    // Platform too, in the query rather than per page in JS — the same filter
+    // the list uses, so a CSV and the screen it was exported from cannot
+    // disagree about which leads are Instagram's.
+    return applyPlatformFilter(q, platform);
   };
 
-  // Platform lives in a nested JSONB field not filterable via PostgREST — filter per page in JS.
-  //
   // The CSV has one column from `messages`: the customer's opening message. The
   // embed used to fetch EVERY message of every conversation — both directions, no
   // limit — and JS then filtered to inbound, sorted and took the first. The
@@ -74,9 +76,7 @@ export async function GET(req: NextRequest) {
         .limit(1, { referencedTable: 'messages' })
         .range(offset, offset + pageSize - 1),
     )) {
-      yield platform
-        ? page.filter((r) => (r.meta?.ad_source?.platform ?? 'facebook') === platform)
-        : page;
+      yield page;
     }
   }
 
