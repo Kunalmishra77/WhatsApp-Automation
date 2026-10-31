@@ -126,20 +126,33 @@ would produce it and confirm the shape is still issued.
   Separately it stops the `sent` receipt rewriting rows that are already 'sent',
   which is every outbound message — each of those no-op updates copied the whole
   old row, `content` and `meta` included, into the WAL.
-- [ ] **Realtime WAL decoding — 2.2M calls, 3.7 hours of database time, still
-  the largest single consumer.** Investigated 2026-10-28; `REPLICA IDENTITY
-  USING INDEX` is **not available for `conversations`**, which is the awkward
-  part. Its policy is `can_view_assigned_row(workspace_id, assigned_agent_id)`
-  and a replica identity index must be unique over NOT NULL columns —
-  `assigned_agent_id` is null on every unassigned conversation. So FULL has to
-  stay there. `messages` (policy needs `workspace_id` + `conversation_id`) and
-  `notifications` (needs `user_id`) are both candidates, and `messages` is where
-  the volume is. Remaining levers, in order of safety: fewer writes (one shipped
-  above, more available — the `conversations` row is rewritten on every single
-  message by the `messages_update_conversation` trigger), then USING INDEX on
-  `messages` alone. **Whoever does the index change must have someone watching
-  the Conversations page update live afterwards** — getting it wrong silently
-  stops the inbox refreshing, which is the exact bug migration 047 fixed.
+- [ ] **Realtime WAL decoding — 2,343,638 calls, 14,123 s, still ten times
+  anything else.** Prepared on 2026-10-31 and **waiting on the owner**: it needs
+  someone watching the Conversations page for five minutes. Migrations 144
+  (`conversations`), 146 (`messages`), 145 (rollback), runbook in
+  `docs/realtime-wal-change.md`.
+  **The earlier note had the order backwards.** It said `messages` "is where the
+  volume is" and that `conversations` could not be changed. Measured over 44
+  days: `conversations` 118,382 updates at 934 B/row against `messages` 41,128
+  at 669 B — `conversations` is about four times the burden, and it CAN take a
+  replica identity index. `workspace_id` and `id` are both NOT NULL, so
+  `(workspace_id, id)` is a valid one.
+  What the note got right: `assigned_agent_id` is nullable and cannot be in the
+  index, so for `conversations` a DELETE event may not reach subscribers and a
+  deleted conversation could linger until refresh. Accepted because it is
+  measurable — **0 deletes in 44 days** — and the failure is a stale row, not
+  lost data. `messages` has no degraded case at all: its policy needs only
+  `workspace_id` and `conversation_id`, both NOT NULL, so its index carries
+  everything the policy needs.
+  Also found while measuring, and the better fix if it is ever worth the risk:
+  **one inbound message causes five separate single-column UPDATEs to the same
+  conversation row** — `last_message`, `is_spam`, `sentiment`, `unread_count`,
+  `consecutive_offtopic` (15,028 / 14,536 / 12,394 / 10,792 / 6,882 calls) —
+  each carrying all 934 bytes. Collapsing them into one would cut four fifths of
+  the biggest contributor without touching Realtime at all. Not done because
+  they are scattered across a 3,800-line webhook, several inside
+  fire-and-forget blocks with their own ordering; that is a careful change, and
+  this one is a single ALTER with a one-line rollback.
 - [x] 2026-10-30 — **The inbound path's round trips, measured and reduced.**
   Four reads an ordinary message paid for in series are now one wait or gone:
   * `campaign_recipients` by contact, `wa_form_sessions` by conversation and the
